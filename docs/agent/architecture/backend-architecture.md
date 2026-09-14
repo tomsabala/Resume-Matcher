@@ -190,7 +190,7 @@ await render_resume_pdf(url, page_size, selector=".resume-print")
 LLM_PROVIDER=openai|anthropic|gemini|deepseek|openrouter|ollama
 LLM_MODEL=gpt-5-nano-2025-08-07
 LLM_API_KEY=sk-...
-FRONTEND_BASE_URL=http://localhost:3000
+FRONTEND_BASE_URL=http://localhost:3030
 ```
 
 Non-secret config (provider/model/base/features) stored in `data/config.json`, takes

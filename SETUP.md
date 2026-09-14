@@ -76,7 +76,7 @@ npm install                  # Install Node.js dependencies
 npm run dev                  # Start the dev server
 ```
 
-Open your browser to **<http://localhost:3000>** and you're ready to go!
+Open your browser to **<http://localhost:3030>** and you're ready to go!
 
 > **Note:** You'll need to configure an AI provider before using the app. See [Configuring Your AI Provider](#configuring-your-ai-provider) below.
 
@@ -129,8 +129,8 @@ LLM_API_KEY=sk-your-api-key-here
 # Keep these as default for local development
 HOST=0.0.0.0
 PORT=8000
-FRONTEND_BASE_URL=http://localhost:3000
-CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000"]
+FRONTEND_BASE_URL=http://localhost:3030
+CORS_ORIGINS=["http://localhost:3030", "http://127.0.0.1:3030"]
 ```
 
 #### Install Python dependencies
@@ -190,10 +190,10 @@ You should see:
 
 ```
 ▲ Next.js 16.x.x (Turbopack)
-- Local:        http://localhost:3000
+- Local:        http://localhost:3030
 ```
 
-Open **<http://localhost:3000>** in your browser. You should see the Resume Matcher dashboard!
+Open **<http://localhost:3030>** in your browser. You should see the Resume Matcher dashboard!
 
 ---
 
@@ -286,7 +286,7 @@ PORT=4000 docker compose up -d
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `3000` | Host port mapped to container port `3000` |
+| `PORT` | `3030` | Host port mapped to container port `3000` (set in root `.env`) |
 | `LOG_LEVEL` | `INFO` | Application-wide Python/Uvicorn log level (`ERROR`, `WARNING`, `INFO`, `DEBUG`) |
 | `LOG_LLM` | `WARNING` | LiteLLM log level (`ERROR`, `WARNING`, `INFO`, `DEBUG`) |
 | `LLM_PROVIDER` | `openai` | AI provider (openai, anthropic, gemini, etc.) |
@@ -351,7 +351,7 @@ LOG_LEVEL=INFO LOG_LLM=DEBUG docker compose up -d
 
 ### Important Notes
 
-- **API keys are best configured through the UI** at `http://localhost:3000/settings`
+- **API keys are best configured through the UI** at `http://localhost:3030/settings`
 - Data is persisted in a Docker volume (`resume-data`)
 - The Settings UI configuration is stored in the volume and persists across restarts
 - App and API share the same origin: frontend on `/`, API on `/api`
@@ -364,14 +364,14 @@ Once the container is running, open your browser:
 
 | URL | Description |
 |-----|-------------|
-| **<http://localhost:3000>** | Main application (Dashboard) |
-| **<http://localhost:3000/settings>** | Configure AI provider |
-| **<http://localhost:3000/api/v1/health>** | Backend health check |
-| **<http://localhost:3000/docs>** | Interactive API documentation |
+| **<http://localhost:3030>** | Main application (Dashboard) |
+| **<http://localhost:3030/settings>** | Configure AI provider |
+| **<http://localhost:3030/api/v1/health>** | Backend health check |
+| **<http://localhost:3030/docs>** | Interactive API documentation |
 
 ### First-Time Setup Checklist
 
-1. Open <http://localhost:3000/settings>
+1. Open <http://localhost:3030/settings>
 2. Select your AI provider
 3. Enter your API key (or configure Ollama)
 4. Click "Save Configuration"

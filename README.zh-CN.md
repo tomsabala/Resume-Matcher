@@ -214,7 +214,7 @@ npm install
 npm run dev
 ```
 
-打开 **<http://localhost:3000>**，并在 Settings 中配置你的 AI 提供商。
+打开 **<http://localhost:3030>**，并在 Settings 中配置你的 AI 提供商。
 
 ### 支持的 AI 提供商
 

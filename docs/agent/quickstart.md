@@ -60,7 +60,7 @@ cp apps/frontend/.env.sample apps/frontend/.env.local
 
 ## First-Time Setup
 
-1. Open http://localhost:3000/settings
+1. Open http://localhost:3030/settings
 2. Select AI provider + enter API key
 3. Click "Test Connection"
 4. Upload your first resume!

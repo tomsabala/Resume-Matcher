@@ -216,7 +216,7 @@ npm install
 npm run dev
 ```
 
-Abre **<http://localhost:3000>** y configura tu proveedor de IA en Settings.
+Abre **<http://localhost:3030>** y configura tu proveedor de IA en Settings.
 
 ### Proveedores de IA compatibles
 

@@ -46,7 +46,7 @@ uv run pytest                                        # Run backend tests (~444; 
 # Frontend (from repo root, in a separate terminal)
 cd apps/frontend
 npm install                                          # Install Node.js dependencies
-npm run dev                                          # Next.js on :3000
+npm run dev                                          # Next.js on :3030
 npm run test                                         # Run frontend tests (vitest)
 
 # Quality checks (from apps/frontend)

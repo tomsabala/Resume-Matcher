@@ -78,7 +78,7 @@ npm install                  # 安装 Node.js 依赖
 npm run dev                  # 启动开发服务器
 ```
 
-浏览器打开 **<http://localhost:3000>** 即可。
+浏览器打开 **<http://localhost:3030>** 即可。
 
 > **注意：** 使用应用前需要先配置 AI 提供商。见下方 [配置 AI 提供商](#configuring-your-ai-provider)。
 
@@ -134,8 +134,8 @@ LLM_API_KEY=sk-your-api-key-here
 # 本地开发建议保持默认
 HOST=0.0.0.0
 PORT=8000
-FRONTEND_BASE_URL=http://localhost:3000
-CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000"]
+FRONTEND_BASE_URL=http://localhost:3030
+CORS_ORIGINS=["http://localhost:3030", "http://127.0.0.1:3030"]
 ```
 
 #### 安装 Python 依赖
@@ -196,10 +196,10 @@ npm run dev
 
 ```
 ▲ Next.js 16.x.x (Turbopack)
-- Local:        http://localhost:3000
+- Local:        http://localhost:3030
 ```
 
-浏览器打开 **<http://localhost:3000>**，你应该能看到 Resume Matcher 的界面。
+浏览器打开 **<http://localhost:3030>**，你应该能看到 Resume Matcher 的界面。
 
 ---
 
@@ -286,9 +286,9 @@ docker-compose down
 
 ### Docker 重要说明
 
-- **API Key 通过 UI 配置**：<http://localhost:3000/settings>（不是通过 `.env` 文件）
+- **API Key 通过 UI 配置**：<http://localhost:3030/settings>（不是通过 `.env` 文件）
 - 数据会保存在 Docker volume 中
-- 暴露前端（3000）与后端（8000）端口
+- 暴露前端（3030）与后端（8000）端口
 
 <!-- 注意：Docker 文档正在编写中。目前请参考 docker-compose.yml -->
 
@@ -301,15 +301,15 @@ docker-compose down
 
 | URL | 说明 |
 |-----|------|
-| **<http://localhost:3000>** | 主应用（Dashboard） |
-| **<http://localhost:3000/settings>** | 配置 AI 提供商 |
+| **<http://localhost:3030>** | 主应用（Dashboard） |
+| **<http://localhost:3030/settings>** | 配置 AI 提供商 |
 | **<http://localhost:8000>** | 后端 API 根路径 |
 | **<http://localhost:8000/docs>** | 可交互的 API 文档 |
 | **<http://localhost:8000/health>** | 后端健康检查 |
 
 ### 首次配置检查清单
 
-1. 打开 <http://localhost:3000/settings>
+1. 打开 <http://localhost:3030/settings>
 2. 选择你的 AI 提供商
 3. 填写 API Key（或配置 Ollama）
 4. 点击 “Save Configuration”

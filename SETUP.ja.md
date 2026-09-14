@@ -78,7 +78,7 @@ npm install                  # Node.js 依存関係をインストール
 npm run dev                  # 開発サーバを起動
 ```
 
-ブラウザで **<http://localhost:3000>** を開けば OK です。
+ブラウザで **<http://localhost:3030>** を開けば OK です。
 
 > **注意:** 利用前に AI プロバイダの設定が必要です。下の [AI プロバイダの設定](#configuring-your-ai-provider) を参照してください。
 
@@ -134,8 +134,8 @@ LLM_API_KEY=sk-your-api-key-here
 # ローカル開発では既定のままで OK
 HOST=0.0.0.0
 PORT=8000
-FRONTEND_BASE_URL=http://localhost:3000
-CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000"]
+FRONTEND_BASE_URL=http://localhost:3030
+CORS_ORIGINS=["http://localhost:3030", "http://127.0.0.1:3030"]
 ```
 
 #### Python 依存関係をインストール
@@ -196,10 +196,10 @@ npm run dev
 
 ```
 ▲ Next.js 16.x.x (Turbopack)
-- Local:        http://localhost:3000
+- Local:        http://localhost:3030
 ```
 
-ブラウザで **<http://localhost:3000>** を開くと、Resume Matcher のダッシュボードが表示されます。
+ブラウザで **<http://localhost:3030>** を開くと、Resume Matcher のダッシュボードが表示されます。
 
 ---
 
@@ -286,9 +286,9 @@ docker-compose down
 
 ### Docker の注意点
 
-- **API キーは UI から設定**：<http://localhost:3000/settings>（`.env` ではありません）
+- **API キーは UI から設定**：<http://localhost:3030/settings>（`.env` ではありません）
 - データは Docker volume に永続化されます
-- フロントエンド（3000）とバックエンド（8000）のポートが公開されます
+- フロントエンド（3030）とバックエンド（8000）のポートが公開されます
 
 <!-- 注：Docker ドキュメントは準備中です。現在は docker-compose.yml を参照してください -->
 
@@ -301,15 +301,15 @@ docker-compose down
 
 | URL | 内容 |
 |-----|------|
-| **<http://localhost:3000>** | メインアプリ（Dashboard） |
-| **<http://localhost:3000/settings>** | AI プロバイダ設定 |
+| **<http://localhost:3030>** | メインアプリ（Dashboard） |
+| **<http://localhost:3030/settings>** | AI プロバイダ設定 |
 | **<http://localhost:8000>** | バックエンド API ルート |
 | **<http://localhost:8000/docs>** | 対話型 API ドキュメント |
 | **<http://localhost:8000/health>** | バックエンドヘルスチェック |
 
 ### 初回セットアップチェックリスト
 
-1. <http://localhost:3000/settings> を開く
+1. <http://localhost:3030/settings> を開く
 2. AI プロバイダを選択
 3. API キーを入力（または Ollama を設定）
 4. "Save Configuration" をクリック

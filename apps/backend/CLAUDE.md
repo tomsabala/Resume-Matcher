@@ -125,7 +125,7 @@ Config via `.env` (see `.env.example`). Interactive API docs at `/docs`.
 - **Master resume invariant:** exactly one resume has `is_master=True`. Concurrent uploads use `create_resume_atomic_master` (an `asyncio.Lock`, not threading) and auto-promote if the current master is stuck `failed`/`processing`.
 - **Dates lose months:** LLMs drop month precision; `restore_dates_from_markdown` + `_restore_original_dates` re-insert them. Preserve this when editing the parse/improve flow.
 - **Single-worker assumption:** caches and locks assume one uvicorn worker / cooperative async. Don't add cross-worker shared mutable state without revisiting `config_cache` and the master lock.
-- **PDF needs the frontend running** (`FRONTEND_BASE_URL`, default `http://localhost:3000`) — Chromium renders `/print/*` pages. Browser is lazily initialized on first PDF request.
+- **PDF needs the frontend running** (`FRONTEND_BASE_URL`, default `http://localhost:3030`) — Chromium renders `/print/*` pages. Browser is lazily initialized on first PDF request.
 - **Improve/confirm requires a prior preview** — it validates `preview_hash`; arbitrary payloads are rejected (400).
 
 ---

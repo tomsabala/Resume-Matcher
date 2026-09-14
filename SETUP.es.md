@@ -78,7 +78,7 @@ npm install                  # Instala dependencias de Node.js
 npm run dev                  # Arranca el servidor de desarrollo
 ```
 
-Abre **<http://localhost:3000>** en el navegador y listo.
+Abre **<http://localhost:3030>** en el navegador y listo.
 
 > **Nota:** antes de usar la app, necesitas configurar un proveedor de IA. Consulta [Configurar tu proveedor de IA](#configuring-your-ai-provider).
 
@@ -134,8 +134,8 @@ LLM_API_KEY=sk-your-api-key-here
 # Mantén estos valores por defecto para desarrollo local
 HOST=0.0.0.0
 PORT=8000
-FRONTEND_BASE_URL=http://localhost:3000
-CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000"]
+FRONTEND_BASE_URL=http://localhost:3030
+CORS_ORIGINS=["http://localhost:3030", "http://127.0.0.1:3030"]
 ```
 
 #### Instalar dependencias de Python
@@ -196,10 +196,10 @@ Deberías ver:
 
 ```
 ▲ Next.js 16.x.x (Turbopack)
-- Local:        http://localhost:3000
+- Local:        http://localhost:3030
 ```
 
-Abre **<http://localhost:3000>** en el navegador. Deberías ver el panel de Resume Matcher.
+Abre **<http://localhost:3030>** en el navegador. Deberías ver el panel de Resume Matcher.
 
 ---
 
@@ -286,9 +286,9 @@ docker-compose down
 
 ### Notas importantes sobre Docker
 
-- **Las API keys se configuran desde la UI** en <http://localhost:3000/settings> (no mediante archivos `.env`)
+- **Las API keys se configuran desde la UI** en <http://localhost:3030/settings> (no mediante archivos `.env`)
 - Los datos se persisten en un volumen de Docker
-- Se exponen los puertos del frontend (3000) y del backend (8000)
+- Se exponen los puertos del frontend (3030) y del backend (8000)
 
 <!-- Nota: La documentación de Docker está pendiente. Por ahora, usa docker-compose.yml como referencia -->
 
@@ -301,15 +301,15 @@ Cuando ambos servidores estén ejecutándose, abre el navegador:
 
 | URL | Descripción |
 |-----|-------------|
-| **<http://localhost:3000>** | Aplicación principal (Dashboard) |
-| **<http://localhost:3000/settings>** | Configurar proveedor de IA |
+| **<http://localhost:3030>** | Aplicación principal (Dashboard) |
+| **<http://localhost:3030/settings>** | Configurar proveedor de IA |
 | **<http://localhost:8000>** | Raíz de la API del backend |
 | **<http://localhost:8000/docs>** | Documentación interactiva de la API |
 | **<http://localhost:8000/health>** | Health check del backend |
 
 ### Checklist de primera ejecución
 
-1. Abre <http://localhost:3000/settings>
+1. Abre <http://localhost:3030/settings>
 2. Selecciona tu proveedor de IA
 3. Introduce tu API key (o configura Ollama)
 4. Haz clic en "Save Configuration"
