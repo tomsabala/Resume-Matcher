@@ -870,7 +870,9 @@ async def check_llm_health(
         kwargs: dict[str, Any] = {
             "model": model_name,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 64,
+            "max_tokens": _reconcile_max_tokens(
+                model_name, 64, config.reasoning_effort, config
+            ),
             "api_key": _effective_api_key(config.provider, config.api_key),
             "api_base": _normalize_api_base(config.provider, config.api_base, config.model),
             "timeout": LLM_TIMEOUT_HEALTH_CHECK,
@@ -984,12 +986,15 @@ async def complete(
     messages.append({"role": "user", "content": prompt})
 
     try:
+        effective_max_tokens = _reconcile_max_tokens(
+            model_name, max_tokens, config.reasoning_effort, config
+        )
         kwargs: dict[str, Any] = {
             "model": "primary",
             "messages": messages,
-            "max_tokens": max_tokens,
+            "max_tokens": effective_max_tokens,
             "timeout": remaining_timeout(
-                _calculate_timeout("completion", max_tokens, config.provider)
+                _calculate_timeout("completion", effective_max_tokens, config.provider)
             ),
         }
         if _supports_temperature(
@@ -1136,6 +1141,91 @@ def get_safe_max_tokens(
         safe,
     )
     return safe
+
+
+# Anthropic counts thinking tokens inside ``max_tokens`` and rejects any request
+# where ``max_tokens <= thinking.budget_tokens``. LiteLLM derives that budget
+# from ``reasoning_effort`` for Claude 4.5 and earlier; Claude 4.6+ switch to
+# adaptive thinking (``output_config.effort``) and carry no budget at all.
+# Mirrors litellm.constants as of the pinned litellm==1.86.2 and is only
+# consulted if LiteLLM's own mapper becomes unavailable — see
+# tests/unit/test_llm_thinking_budget.py, which fails if the two ever diverge.
+_FALLBACK_THINKING_BUDGETS: dict[str, int] = {
+    "minimal": 1024,
+    "low": 1024,
+    "medium": 2048,
+    "high": 4096,
+}
+
+
+def _anthropic_thinking_budget(model_name: str, reasoning_effort: str | None) -> int:
+    """Return the thinking budget LiteLLM will send to Anthropic, or 0.
+
+    Args:
+        model_name: LiteLLM-formatted model name (from get_model_name).
+        reasoning_effort: Configured effort level, or None when unset.
+
+    Returns:
+        The ``thinking.budget_tokens`` value LiteLLM will attach, or 0 when no
+        budget applies — a non-Anthropic route, no configured effort, or an
+        adaptive-thinking model (Claude 4.6+).
+    """
+    if not reasoning_effort or not model_name.startswith("anthropic/"):
+        return 0
+
+    bare_model = model_name.split("/", 1)[1]
+    try:
+        from litellm.llms.anthropic.chat.transformation import AnthropicConfig
+
+        thinking = AnthropicConfig()._map_reasoning_effort(reasoning_effort, bare_model)
+    except Exception:
+        # LiteLLM's private mapper moved or changed shape. Fall back to the
+        # mirrored table rather than silently skipping reconciliation.
+        logging.debug(
+            "LiteLLM reasoning-effort mapper unavailable, using fallback budget table"
+        )
+        return _FALLBACK_THINKING_BUDGETS.get(reasoning_effort, 0)
+
+    if not thinking or thinking.get("type") != "enabled":
+        return 0
+    return int(thinking.get("budget_tokens") or 0)
+
+
+def _reconcile_max_tokens(
+    model_name: str,
+    max_tokens: int,
+    reasoning_effort: str | None,
+    config: LLMConfig | None = None,
+) -> int:
+    """Raise ``max_tokens`` clear of the thinking budget Anthropic enforces.
+
+    Anthropic's ``max_tokens`` covers thinking *and* answer tokens, so the
+    caller's requested value is preserved as answer headroom on top of the
+    thinking budget, then clamped to the model's output limit.
+
+    Args:
+        model_name: LiteLLM-formatted model name (from get_model_name).
+        max_tokens: The caller's requested token budget.
+        reasoning_effort: Effort actually being sent on this request, or None.
+        config: Optional provider configuration for scoped clamping rules.
+
+    Returns:
+        A token budget strictly greater than the thinking budget where one
+        applies, otherwise ``max_tokens`` unchanged.
+    """
+    budget = _anthropic_thinking_budget(model_name, reasoning_effort)
+    if not budget or max_tokens > budget:
+        return max_tokens
+
+    adjusted = get_safe_max_tokens(model_name, budget + max_tokens, config=config)
+    logging.debug(
+        "max_tokens raised %d → %d for model %s (thinking budget %d)",
+        max_tokens,
+        adjusted,
+        model_name,
+        budget,
+    )
+    return adjusted
 
 
 def _appears_truncated(data: dict, schema_type: str = "resume") -> bool:
@@ -1546,20 +1636,9 @@ async def complete_json(
 
     for attempt in range(retries + 1):
         try:
-            kwargs: dict[str, Any] = {
-                "model": "primary",
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "timeout": remaining_timeout(
-                    _calculate_timeout("json", max_tokens, config.provider)
-                ),
-            }
-            # LLM-002: Increase temperature on retry for variation
-            retry_temp = _get_retry_temperature(
-                model_name, attempt, reasoning_effort=config.reasoning_effort
-            )
-            if retry_temp is not None:
-                kwargs["temperature"] = retry_temp
+            # Settle the reasoning effort before building the request: the
+            # effort decides the Anthropic thinking budget, and max_tokens has
+            # to clear that budget or the call is rejected outright.
             reasoning_effort = config.reasoning_effort
             # Azure Foundry GPT-5 deployments can burn their whole budget on
             # reasoning and return no visible content. Dropping to minimal
@@ -1584,7 +1663,30 @@ async def complete_json(
             # JSON. LiteLLM filters unknown top-level parameters, so use its
             # OpenAI-compatible ``extra_body`` passthrough for the HY3-native
             # no_think setting. Scope it to structured-output requests only.
-            if _uses_opencode_zen_hy3(config):
+            uses_hy3 = _uses_opencode_zen_hy3(config)
+            # HY3 sends its effort through extra_body, so no top-level
+            # reasoning_effort reaches the provider and no budget applies.
+            effective_max_tokens = _reconcile_max_tokens(
+                model_name,
+                max_tokens,
+                None if uses_hy3 else reasoning_effort,
+                config,
+            )
+            kwargs: dict[str, Any] = {
+                "model": "primary",
+                "messages": messages,
+                "max_tokens": effective_max_tokens,
+                "timeout": remaining_timeout(
+                    _calculate_timeout("json", effective_max_tokens, config.provider)
+                ),
+            }
+            # LLM-002: Increase temperature on retry for variation
+            retry_temp = _get_retry_temperature(
+                model_name, attempt, reasoning_effort=config.reasoning_effort
+            )
+            if retry_temp is not None:
+                kwargs["temperature"] = retry_temp
+            if uses_hy3:
                 kwargs["extra_body"] = {"reasoning_effort": "no_think"}
             elif reasoning_effort:
                 kwargs["reasoning_effort"] = reasoning_effort
