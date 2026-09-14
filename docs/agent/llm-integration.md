@@ -71,6 +71,25 @@ model supports sampling:
 - First retry: temperature 0.3
 - Second retry: temperature 0.5
 
+## Anthropic Thinking Budget
+
+Anthropic counts thinking tokens inside `max_tokens` and rejects any request
+where `max_tokens <= thinking.budget_tokens`. LiteLLM derives that budget from
+`reasoning_effort` (`minimal`/`low` → 1024, `medium` → 2048, `high` → 4096), so
+a call site with a small hardcoded budget — the health check's 64 tokens, or
+`generate_skill_target_plan`'s 2048 — fails with `invalid_request_error` as
+soon as any reasoning mode is configured.
+
+`_reconcile_max_tokens()` raises `max_tokens` clear of that budget before each
+request, preserving the caller's requested value as answer headroom on top of
+the thinking allocation and then clamping to the model's output limit. It is a
+no-op for non-Anthropic routes, for unset `reasoning_effort`, and for
+Claude 4.6+ models, which use adaptive thinking (`output_config.effort`) and
+carry no explicit budget.
+
+`_FALLBACK_THINKING_BUDGETS` mirrors LiteLLM's constants for the pinned
+version; `tests/unit/test_llm_thinking_budget.py` fails if the two diverge.
+
 ## Temperature Support
 
 `_supports_temperature()` determines whether `temperature` is sent at all.
