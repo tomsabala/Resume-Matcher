@@ -34,10 +34,39 @@ def test_thinking_models_get_no_sampling_temperature() -> None:
     }
     with patch("app.llm.litellm.get_model_info", return_value=model_info):
         assert not _supports_temperature(
-            "claude-opus-5", 0.1, reasoning_effort="minimal"
+            "claude-sonnet-4-5", 0.1, reasoning_effort="minimal"
         )
         # No effort configured means no thinking block, so sampling is fine.
-        assert _supports_temperature("claude-opus-5", 0.1, reasoning_effort=None)
+        assert _supports_temperature("claude-sonnet-4-5", 0.1, reasoning_effort=None)
+
+
+@pytest.mark.parametrize(
+    "model_name", ["claude-opus-4-1", "claude-opus-4-5", "claude-opus-5", "anthropic/claude-opus-6"]
+)
+def test_opus_4_and_later_never_receive_a_temperature(model_name: str) -> None:
+    """Anthropic deprecated the parameter across the Opus line from 4 on.
+    Real failure this pins: ``claude-opus-5`` with no reasoning effort at all
+    answered 400 "`temperature` is deprecated for this model." and every
+    upload reported "AI parsing failed". Matching the major version rather
+    than a name list keeps the next Opus working on release day.
+    """
+    model_info = {
+        "supported_openai_params": ["temperature"],
+        "supports_reasoning": True,
+    }
+    with patch("app.llm.litellm.get_model_info", return_value=model_info):
+        assert not _supports_temperature(model_name, 0.1, reasoning_effort=None)
+        assert not _supports_temperature(model_name, 1.0, reasoning_effort=None)
+
+
+def test_opus_3_keeps_its_temperature() -> None:
+    """The deprecation starts at Opus 4; the older model still accepts it."""
+    model_info = {
+        "supported_openai_params": ["temperature"],
+        "supports_reasoning": False,
+    }
+    with patch("app.llm.litellm.get_model_info", return_value=model_info):
+        assert _supports_temperature("claude-3-opus-20240229", 0.1, reasoning_effort=None)
 
 
 def test_non_reasoning_models_keep_their_temperature() -> None:

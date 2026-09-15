@@ -1294,7 +1294,7 @@ def _supports_temperature(
 
     Uses LiteLLM model registry for capability detection, with
     narrowly scoped fallbacks for known restrictions:
-      - Anthropic claude-opus-4.*: temperature is deprecated
+      - Anthropic claude-opus-4 and later: temperature is deprecated
       - Moonshot kimi-k2.6: only temperature=1 allowed
       - Reasoning GPT-5 models: non-default values require both registry
         support for no-reasoning mode and an omitted reasoning effort
@@ -1334,8 +1334,13 @@ def _supports_temperature(
         return False
 
     # Provider-specific restrictions not captured by the registry.
-    # Anthropic Opus 4.x deprecated temperature entirely.
-    if "claude-opus-4" in model_name.lower():
+    # Anthropic deprecated temperature across the Opus line from 4 onwards:
+    # claude-opus-5 answers 400 "`temperature` is deprecated for this model."
+    # even with no thinking block. Matching the major version rather than
+    # listing names keeps the next release working on the day it ships;
+    # Opus 3 is untouched because it still accepts the parameter.
+    opus_generation = re.match(r"(?:.*/)?claude-opus-(\d+)", model_name.lower())
+    if opus_generation is not None and int(opus_generation.group(1)) >= 4:
         return False
 
     # Moonshot kimi-k2.6 only allows temperature=1.

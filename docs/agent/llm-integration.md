@@ -96,6 +96,13 @@ version; `tests/unit/test_llm_thinking_budget.py` fails if the two diverge.
 Capability comes from LiteLLM's model registry, with narrow overrides for
 restrictions the registry's supported-parameter list does not fully describe.
 
+Anthropic's Opus line deprecated the parameter outright from **Opus 4**
+onwards: `claude-opus-5` answers `400 — "\`temperature\` is deprecated for
+this model."` even with no thinking block and no reasoning effort. The
+override matches the major version (`claude-opus-(\d+)`, `>= 4`) rather than
+listing model names, so the next Opus works on release day; Opus 3 is
+untouched because it still accepts the parameter.
+
 Any model that advertises `supports_reasoning` and is *sent* a
 `reasoning_effort` gets no non-default temperature at all. LiteLLM turns that
 effort into the provider's thinking mode, and thinking constrains sampling:
