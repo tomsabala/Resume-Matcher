@@ -87,7 +87,15 @@
 <% endif %>
 \end{jobshort}
 <% endif %>
+<# The blank line matters: `\vspace` in horizontal mode glues the next
+     entry's title row to the bullet list above it and indents it by a
+     space. The reference CV leaves the same blank line before its
+     inter-entry `\vspace{1pt}`. #>
+<% if not loop.last %>
+
 \vspace{1pt}
+
+<% endif %>
 <% endfor %>
 \vspace{-6pt}
 

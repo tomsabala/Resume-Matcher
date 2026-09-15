@@ -86,6 +86,38 @@ def test_an_entry_with_bullets_becomes_joblong_and_one_without_becomes_jobshort(
     assert r"\item" not in without
 
 
+def test_consecutive_entries_are_separated_in_vertical_mode() -> None:
+    """`\\vspace` issued in horizontal mode does nothing useful: the next
+    entry's title row gets glued to the bullet list above it and indented by
+    a space. The separator needs a blank line on both sides, the way the
+    reference CV writes it by hand. Observed on a real two-project section.
+    """
+    source = render_document_tex(
+        _document(
+            s=_section(
+                "projects",
+                "entries",
+                entries=[
+                    {
+                        "id": "e-1",
+                        "title": "First",
+                        "bullets": [{"text": "Did a thing", "style": "bullet"}],
+                    },
+                    {
+                        "id": "e-2",
+                        "title": "Second",
+                        "bullets": [{"text": "Did another", "style": "bullet"}],
+                    },
+                ],
+            )
+        )
+    )
+
+    assert "\\end{joblong}\n\n\\vspace{1pt}\n\n\\begin{joblong}{Second}" in source
+    # The last entry falls through to the section's own trailing spacing.
+    assert source.count(r"\vspace{1pt}") == 1
+
+
 def test_a_summary_and_bullets_together_keep_the_summary_out_of_the_list() -> None:
     source = render_document_tex(
         _document(
