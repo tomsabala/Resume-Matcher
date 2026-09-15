@@ -1342,6 +1342,22 @@ def _supports_temperature(
     if "kimi-k2.6" in model_name.lower() and temperature != 1.0:
         return False
 
+    # A reasoning model that is *sent* a reasoning_effort has its thinking
+    # mode turned on by LiteLLM, and thinking constrains sampling: Anthropic
+    # rejects any temperature but 1 once `thinking` (including the adaptive
+    # mode LiteLLM maps "minimal" to) is on -
+    # "`temperature` may only be set to 1 when thinking is enabled or in
+    # adaptive mode". Omitting the parameter is right rather than pinning it
+    # to 1: the caller asked for determinism, and thinking models ignore the
+    # knob anyway. With no reasoning_effort configured no thinking block is
+    # sent, so the model keeps ordinary sampling and falls through.
+    if (
+        reasoning_effort is not None
+        and info.get("supports_reasoning") is True
+        and temperature != 1.0
+    ):
+        return False
+
     # GPT-5 reasoning models allow flexible sampling only when the model map
     # advertises a no-reasoning mode and the application omits reasoning_effort.
     # LiteLLM routes the exact gpt-5-chat* family through its regular chat

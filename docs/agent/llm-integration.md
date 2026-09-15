@@ -96,6 +96,16 @@ version; `tests/unit/test_llm_thinking_budget.py` fails if the two diverge.
 Capability comes from LiteLLM's model registry, with narrow overrides for
 restrictions the registry's supported-parameter list does not fully describe.
 
+Any model that advertises `supports_reasoning` and is *sent* a
+`reasoning_effort` gets no non-default temperature at all. LiteLLM turns that
+effort into the provider's thinking mode, and thinking constrains sampling:
+Anthropic answers `400 — "\`temperature\` may only be set to 1 when thinking is
+enabled or in adaptive mode"` once a `thinking` block is present, including the
+`{"type": "adaptive"}` block it maps `minimal` to. With no effort configured no
+thinking block is sent and ordinary sampling applies. This rule is provider-
+agnostic and sits ahead of the GPT-5 branch below, which additionally covers
+reasoning models with no effort configured.
+
 Reasoning GPT-5 models that do not offer a no-reasoning mode, including GPT-5
 Nano, accept only the default temperature of `1`. Models whose registry entry
 advertises `supports_none_reasoning_effort`, including GPT-5.1 and GPT-5.2,
