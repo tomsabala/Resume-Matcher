@@ -1,6 +1,6 @@
 <# Compact: same structure, tighter margins and no section rules — for a
      dense two-page history that must fit one page. #>
-\documentclass[a4paper,<< settings.get('fontSize', 10) | int >>pt]{article}
+\documentclass[<< 'letterpaper' if settings.get('pageSize') == 'LETTER' else 'a4paper' >>,<< settings.get('fontSize', 10) | int >>pt]{article}
 
 \usepackage{url}
 \usepackage{parskip}

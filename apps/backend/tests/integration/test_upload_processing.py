@@ -101,7 +101,7 @@ async def test_upload_rejects_filename_and_mime_mismatch(
             )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Upload a valid PDF, DOC, or DOCX file."
+    assert response.json()["detail"] == "Upload a valid PDF, DOC, DOCX, or TEX file."
     parse_json.assert_not_awaited()
     assert await isolated_db.list_resumes() == []
 
@@ -173,7 +173,7 @@ async def test_upload_rejects_malformed_document_containers(
 
     assert response.status_code == 422
     assert response.json()["detail"] == (
-        "Failed to parse document. Please upload a valid PDF, DOC, or DOCX file."
+        "Failed to parse document. Please upload a valid PDF, DOC, DOCX, or TEX file."
     )
     parse_json.assert_not_awaited()
     assert await isolated_db.list_resumes() == []
@@ -231,6 +231,58 @@ async def test_upload_accepts_valid_pdf_container(
     assert response.json()["processing_status"] == "ready"
     parse_json.assert_awaited_once()
     assert len(await isolated_db.list_resumes()) == 1
+
+
+async def test_upload_accepts_tex_source_under_any_of_its_mime_types(
+    client: AsyncClient, isolated_db: Database, sample_resume: dict[str, object]
+) -> None:
+    """Browsers disagree on a .tex file's type; the extension is what decides.
+
+    LaTeX source is the one upload that keeps links and bold, so it must not
+    be rejected because the OS called it text/plain."""
+    source = (
+        b"\\documentclass{article}\\begin{document}\n"
+        b"\\section{Experience}\n\\item Cut latency by \\textbf{50\\%}\n"
+        b"\\end{document}\n"
+    )
+    with patch(
+        "app.routers.resumes.parse_resume_to_json",
+        new_callable=AsyncMock,
+        return_value=sample_resume,
+    ) as parse_json:
+        async with client:
+            response = await client.post(
+                "/api/v1/resumes/upload",
+                files={"file": ("cv.tex", source, "text/plain")},
+            )
+
+    assert response.status_code == 200
+    assert response.json()["processing_status"] == "ready"
+    stored = (await isolated_db.list_resumes())[0]
+    assert "\\documentclass" not in stored["content"]
+    assert "\\textbf{50\\%}" in stored["content"]
+    parse_json.assert_awaited_once()
+
+
+async def test_upload_still_requires_extension_and_mime_to_agree(
+    client: AsyncClient, isolated_db: Database, sample_resume: dict[str, object]
+) -> None:
+    """Accepting text/plain for .tex must not make it acceptable for .pdf."""
+    with patch(
+        "app.routers.resumes.parse_resume_to_json",
+        new_callable=AsyncMock,
+        return_value=sample_resume,
+    ) as parse_json:
+        async with client:
+            response = await client.post(
+                "/api/v1/resumes/upload",
+                files={"file": ("cv.pdf", b"\\section{Experience}", "text/plain")},
+            )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Upload a valid PDF, DOC, DOCX, or TEX file."
+    parse_json.assert_not_awaited()
+    assert await isolated_db.list_resumes() == []
 
 
 async def test_upload_rejects_valid_pdf_without_extractable_text(

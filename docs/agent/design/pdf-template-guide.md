@@ -6,9 +6,15 @@
 > second, independent target that renders the same resume document as real
 > LaTeX and compiles it with a TeX engine (`GET /resumes/{id}/tex/pdf`,
 > templates `tex-classic`/`tex-compact`) — see
-> [latex-export.md](../features/latex-export.md). The `latex` template id
-> below belongs to *this* Chromium path: it is an HTML layout that resembles
-> LaTeX output, not the LaTeX export.
+> [latex-export.md](../features/latex-export.md). Both targets are chosen in
+> the **same** picker: each `TEMPLATE_OPTIONS` row declares its
+> `target: 'html' | 'tex'` and `isTexTemplate()` is the predicate that routes
+> the export, so this route is never *meant* to see a LaTeX template — and no
+> longer silently renders one as `swiss-single`. `GET /resumes/{id}/pdf`
+> answers **400** with a detail naming `/tex/pdf` for any template outside
+> `HTML_TEMPLATES` (`app/routers/resumes.py`). The `latex` template id below
+> belongs to *this* Chromium path: it is an HTML layout that resembles LaTeX
+> output (labelled **Academic Serif** in the UI), not the LaTeX export.
 
 ## Rendering Flow
 
@@ -76,7 +82,7 @@ retains explicit ownership; it does not claim the browser was physically stopped
 
 | Param | Default | Range |
 |-------|---------|-------|
-| template | swiss-single | swiss-single, swiss-two-column, modern, modern-two-column, latex, clean, vivid |
+| template | swiss-single | swiss-single, swiss-two-column, modern, modern-two-column, latex, clean, vivid (HTML only — a `tex-*` id is a 400) |
 | pageSize | A4 | A4, LETTER |
 | marginTop/Bottom/Left/Right | 10 | 5-25mm |
 | sectionSpacing | 3 | 1-5 |
@@ -119,10 +125,13 @@ components/resume/
 
 ## Adding New Templates
 
-See [adding-resume-templates.md](../features/adding-resume-templates.md). The
-print route also validates the template id: add it to `parseTemplate` in
-`app/print/resumes/[id]/page.tsx` or the PDF silently falls back to
-`swiss-single`.
+See [adding-resume-templates.md](../features/adding-resume-templates.md). Two
+registries fail quietly: add the id to `parseTemplate` in
+`app/print/resumes/[id]/page.tsx` (an HTML-only allow-list, by design) or the
+PDF silently falls back to `swiss-single`, and to `TEMPLATE_COMPONENTS` in
+`components/dashboard/resume-component.tsx` — now a
+`Partial<Record<TemplateType, …>>`, so a missing entry compiles and falls back
+to `ResumeSingleColumn` instead of rendering your template.
 
 ## Template Props
 

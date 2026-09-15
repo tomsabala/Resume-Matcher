@@ -49,11 +49,18 @@ import { JDComparisonView } from './jd-comparison-view';
 import { VersionTimeline } from '@/components/versions/version-timeline';
 import { LatexPanel } from '@/components/latex/latex-panel';
 import { TexPdfPreview } from '@/components/latex/tex-pdf-preview';
-import type { TexTemplateId } from '@/lib/api/tex';
+import { getTexCapabilities, type TexTemplateId } from '@/lib/api/tex';
 import { RegenerateWizard } from './regenerate-wizard';
 import { useRegenerateWizard } from '@/hooks/use-regenerate-wizard';
 import { useTranslations } from '@/lib/i18n';
-import { type TemplateSettings, DEFAULT_TEMPLATE_SETTINGS } from '@/lib/types/template-settings';
+import {
+  type TemplateSettings,
+  type TemplateType,
+  DEFAULT_TEMPLATE_SETTINGS,
+  TEMPLATE_OPTIONS,
+  applyTemplatePreset,
+  isTexTemplate,
+} from '@/lib/types/template-settings';
 import { sectionHeading, visibleSections } from '@/lib/utils/section-helpers';
 import { useLanguage } from '@/lib/context/language-context';
 import { buildResumeFilename, downloadBlobAsFile, openUrlInNewTab } from '@/lib/utils/download';
@@ -91,6 +98,16 @@ const TAB_IDS: TabId[] = [
   'history',
   'latex',
 ];
+// Which templates render one column, for the footer's layout readout. Both
+// LaTeX templates are single-column by construction.
+const SINGLE_COLUMN_TEMPLATES: Partial<Record<TemplateType, true>> = {
+  'swiss-single': true,
+  modern: true,
+  latex: true,
+  clean: true,
+  'tex-classic': true,
+  'tex-compact': true,
+};
 const RESUME_AUTOSAVE_DEBOUNCE_MS = 2500;
 const RESUME_AUTOSAVE_MAX_WAIT_MS = 12000;
 // Floor for the computed delay. Without it, once an unsynced streak exceeds the
@@ -218,13 +235,17 @@ const ResumeBuilderContent = () => {
       const saved = safeStorage.get(SETTINGS_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        return {
+        const merged = {
           ...DEFAULT_TEMPLATE_SETTINGS,
           ...parsed,
           margins: { ...DEFAULT_TEMPLATE_SETTINGS.margins, ...parsed.margins },
           spacing: { ...DEFAULT_TEMPLATE_SETTINGS.spacing, ...parsed.spacing },
           fontSize: { ...DEFAULT_TEMPLATE_SETTINGS.fontSize, ...parsed.fontSize },
         };
+        // A stored id that no longer exists would route the export to a
+        // renderer that cannot produce it, so it never survives hydration.
+        const known = TEMPLATE_OPTIONS.some((option) => option.id === merged.template);
+        return known ? merged : { ...merged, template: DEFAULT_TEMPLATE_SETTINGS.template };
       }
     } catch {
       // fall through to defaults
@@ -316,11 +337,32 @@ const ResumeBuilderContent = () => {
   // Bumped whenever the server copy changes, so the version timeline refetches.
   const [historyRevision, setHistoryRevision] = useState(0);
 
-  // The LaTeX tab's source editor and its compiled preview must agree on
-  // which template they are showing, so the choice lives here.
-  const [texTemplate, setTexTemplate] = useState<TexTemplateId>('tex-classic');
   // Bumped after a source save or reset, so the compiled preview recompiles.
   const [texRevision, setTexRevision] = useState(0);
+  // One picker, two renderers: the selected template decides whether the
+  // preview and the export come from Chromium or the LaTeX engine.
+  const usesTexEngine = isTexTemplate(templateSettings.template);
+  // The source editor always needs a tex template to show; with an HTML
+  // template selected it shows Classic and says so.
+  const texTemplate: TexTemplateId = usesTexEngine
+    ? (templateSettings.template as TexTemplateId)
+    : 'tex-classic';
+  // Without this gate, selecting a tex template on an engine-less deployment
+  // 503s on every preview and download.
+  const [texAvailable, setTexAvailable] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    getTexCapabilities()
+      .then((capabilities) => {
+        if (!cancelled) setTexAvailable(capabilities.can_compile);
+      })
+      .catch(() => {
+        if (!cancelled) setTexAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /** Re-read the resume from the server and adopt it as the editor's state. */
   const reloadFromServer = useCallback(async () => {
@@ -1016,7 +1058,13 @@ const ResumeBuilderContent = () => {
       showNotification(t('builder.alerts.downloadSuccess'), 'success');
     } catch (error) {
       console.error('Failed to download resume:', error);
-      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+      // A tex template has no browser-openable URL: it is compiled, not
+      // rendered from a print route.
+      if (
+        !usesTexEngine &&
+        error instanceof TypeError &&
+        error.message.includes('Failed to fetch')
+      ) {
         const fallbackUrl = getResumePdfUrl(resumeId, templateSettings, uiLanguage);
         const didOpen = openUrlInNewTab(fallbackUrl);
         if (!didOpen) {
@@ -1605,6 +1653,7 @@ const ResumeBuilderContent = () => {
                     <FormattingControls
                       settings={templateSettings}
                       onChange={handleSettingsChange}
+                      texAvailable={texAvailable}
                     />
                     <ResumeForm doc={doc} onUpdate={handleUpdate} />
                   </>
@@ -1674,7 +1723,11 @@ const ResumeBuilderContent = () => {
                 <LatexPanel
                   resumeId={resumeId}
                   template={texTemplate}
-                  onTemplateChange={setTexTemplate}
+                  htmlTemplateSelected={!usesTexEngine}
+                  onTemplateChange={(template) =>
+                    handleSettingsChange(applyTemplatePreset(templateSettings, template))
+                  }
+                  pageSize={templateSettings.pageSize}
                   revision={historyRevision}
                   onSourceChanged={() => {
                     setHistoryRevision((value) => value + 1);
@@ -1782,9 +1835,17 @@ const ResumeBuilderContent = () => {
             {/* Preview Content */}
             <div className="flex-1 overflow-y-auto">
               {/* Resume Preview */}
-              {activeTab === 'resume' && (
-                <PaginatedPreview doc={canonicalDocument} settings={templateSettings} />
-              )}
+              {activeTab === 'resume' &&
+                (usesTexEngine && resumeId ? (
+                  <TexPdfPreview
+                    resumeId={resumeId}
+                    template={texTemplate}
+                    pageSize={templateSettings.pageSize}
+                    revision={texRevision}
+                  />
+                ) : (
+                  <PaginatedPreview doc={canonicalDocument} settings={templateSettings} />
+                ))}
 
               {/* Cover Letter Preview */}
               {activeTab === 'cover-letter' &&
@@ -1839,13 +1900,26 @@ const ResumeBuilderContent = () => {
               )}
 
               {/* The document as it stands, beside its history. */}
-              {activeTab === 'history' && (
-                <PaginatedPreview doc={canonicalDocument} settings={templateSettings} />
-              )}
+              {activeTab === 'history' &&
+                (usesTexEngine && resumeId ? (
+                  <TexPdfPreview
+                    resumeId={resumeId}
+                    template={texTemplate}
+                    pageSize={templateSettings.pageSize}
+                    revision={texRevision}
+                  />
+                ) : (
+                  <PaginatedPreview doc={canonicalDocument} settings={templateSettings} />
+                ))}
 
               {/* The compiled PDF, beside the source that produced it. */}
               {activeTab === 'latex' && resumeId && (
-                <TexPdfPreview resumeId={resumeId} template={texTemplate} revision={texRevision} />
+                <TexPdfPreview
+                  resumeId={resumeId}
+                  template={texTemplate}
+                  pageSize={templateSettings.pageSize}
+                  revision={texRevision}
+                />
               )}
             </div>
           </div>
@@ -1867,10 +1941,7 @@ const ResumeBuilderContent = () => {
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-green-700"></div>
               <span className="uppercase">
-                {templateSettings.template === 'swiss-single' ||
-                templateSettings.template === 'modern' ||
-                templateSettings.template === 'latex' ||
-                templateSettings.template === 'clean'
+                {SINGLE_COLUMN_TEMPLATES[templateSettings.template]
                   ? t('builder.footer.singleColumn')
                   : t('builder.footer.twoColumn')}
               </span>

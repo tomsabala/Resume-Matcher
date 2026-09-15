@@ -97,7 +97,7 @@
       "parsingFailed": "이력서는 업로드되었지만 AI 분석에 실패했습니다. 여전히 수동으로 맞춤화할 수 있습니다.",
       "failed": "업로드에 실패했습니다.",
       "dropzoneTitle": "클릭하거나 파일을 드래그하세요",
-      "dropzoneSubtitle": "PDF, DOC, DOCX (최대 4MB)",
+      "dropzoneSubtitle": "PDF, DOC, DOCX, TEX (최대 4MB)",
       "tryDifferentFile": "다른 파일 시도",
       "parsingFailedKeepOpen": "AI 분석에 실패했습니다. 다른 파일을 시도하거나 이 대화상자를 닫으세요."
     },
@@ -285,7 +285,7 @@
         },
         "latex": {
           "name": "아카데믹 세리프",
-          "description": "브라우저에서 렌더링되는 구분선 제목의 세리프 레이아웃입니다. 엔진으로 컴파일한 LaTeX은 LaTeX 탭을 사용하세요."
+          "description": "브라우저에서 렌더링되는 구분선 제목의 세리프 레이아웃입니다"
         },
         "clean": {
           "name": "클린",
@@ -294,6 +294,14 @@
         "vivid": {
           "name": "비비드",
           "description": "강조 헤더와 화살표 불릿이 있는 화려한 2단 레이아웃"
+        },
+        "texClassic": {
+          "name": "LaTeX 클래식",
+          "description": "엔진으로 컴파일한 Computer Modern, 구분선이 있는 스몰캡 제목"
+        },
+        "texCompact": {
+          "name": "LaTeX 컴팩트",
+          "description": "엔진으로 컴파일하며 더 촘촘함: 여백을 줄이고 제목 구분선 없음"
         }
       },
       "accentColor": "강조 색상",
@@ -338,7 +346,8 @@
       "effectiveHeaderFont": "제목 글꼴",
       "effectiveBodyFont": "본문 글꼴",
       "compactHint": "컴팩트 모드는 간격과 줄 높이를 좁힙니다. 여백과 기본 글꼴 크기는 그대로 유지됩니다.",
-      "resetDefaults": "기본값으로 재설정"
+      "resetDefaults": "기본값으로 재설정",
+      "texNotice": "LaTeX 템플릿은 엔진이 컴파일하며 용지 크기만 사용합니다. 나머지 서식 설정은 브라우저에서 렌더링되는 템플릿에 적용됩니다."
     },
     "leftPanel": {
       "editorPanel": "편집 패널",
@@ -986,7 +995,7 @@
       "upload": {
         "kicker": "기존 파일",
         "title": "이력서 업로드",
-        "description": "PDF, DOC, DOCX 파일로 시작하면 Resume Matcher가 이를 분석해 마스터 프로필로 만들어 줍니다.",
+        "description": "PDF, DOC, DOCX, TEX 파일로 시작하면 Resume Matcher가 이를 분석해 마스터 프로필로 만들어 줍니다.",
         "action": "이력서 업로드"
       },
       "wizard": {
@@ -1236,6 +1245,7 @@
       "save": "LaTeX 소스를 저장하지 못했습니다",
       "reset": "LaTeX 소스를 재설정하지 못했습니다",
       "compile": "LaTeX 컴파일에 실패했습니다"
-    }
+    },
+    "htmlTemplateNotice": "HTML 템플릿이 선택되어 있어 이 소스는 참고용으로만 표시됩니다. 이 소스를 내보내려면 LaTeX 템플릿으로 바꾸세요."
   }
 }

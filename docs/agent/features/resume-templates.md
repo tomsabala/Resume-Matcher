@@ -4,11 +4,25 @@
 
 ## Render Targets
 
-These templates and controls belong to the **Chromium HTML** PDF target
-(`GET /api/v1/resumes/{id}/pdf`). A second, independent target renders the
-same document as real LaTeX (`tex-classic`, `tex-compact`) and compiles it
+The templates and controls documented here belong to the **Chromium HTML** PDF
+target (`GET /api/v1/resumes/{id}/pdf`). A second, independent target renders
+the same document as real LaTeX (`tex-classic`, `tex-compact`) and compiles it
 with a TeX engine — different templates, no CSS, its own small settings
 surface: [latex-export.md](latex-export.md).
+
+Both targets are chosen in the **same** picker (the template grid in
+`components/builder/formatting-controls.tsx`; the LaTeX tab no longer owns a
+template choice, it only offers to switch when an HTML template is selected).
+`TEMPLATE_OPTIONS` (`lib/types/template-settings.ts`) lists nine templates —
+the seven HTML ones below plus **LaTeX Classic** (`tex-classic`) and **LaTeX
+Compact** (`tex-compact`) — and every row declares its
+`target: 'html' | 'tex'`. `isTexTemplate()` reads that registry and is the only
+predicate call sites use; nothing tests the id prefix. Selecting a LaTeX
+template switches both the preview and the header's Download PDF to
+`GET /api/v1/resumes/{id}/tex/pdf` (`compileTexPdf`): `getResumePdfUrl` throws
+for a tex template, and the Chromium route answers **400** with a detail naming
+`/tex/pdf` for any template outside the backend's `HTML_TEMPLATES`. The two
+LaTeX options render disabled when `getTexCapabilities()` reports no engine.
 
 > The HTML template id `latex` below is **not** the LaTeX export. It is a
 > web layout styled to resemble LaTeX output, rendered by Chromium — which is
@@ -42,6 +56,13 @@ surface: [latex-export.md](latex-export.md).
 | Compact Mode | boolean | false | Apply 0.6x spacing multiplier (spacing only; margins unchanged) |
 | Contact Icons | boolean | false | Show icons next to contact info |
 | Accent Color | blue/green/orange/red | blue | Accent color for color templates (modern, modern-two-column, vivid) |
+
+Every control above except **Page Size** is CSS-driven, so it applies to the
+HTML target only. With a LaTeX template selected, `FormattingControls` disables
+margins, spacing, font sizes, header/body font, compact mode, contact icons and
+accent colour and shows `builder.formatting.texNotice` under the template grid.
+Page size stays live: the `/tex*` routes take `pageSize=A4|LETTER` and both
+`.tex.j2` preambles select `a4paper`/`letterpaper` from it.
 
 ## Key Files
 
@@ -108,8 +129,9 @@ A template owns typography and layout only. It never enumerates sections:
   `section.column === 'side'`, so any section can live in either column. A
   single-column template ignores the field.
 
-So a section whose key no component has ever heard of renders in all seven
-templates with no code change. See
+So a section whose key no component has ever heard of renders in all seven HTML
+templates with no code change (and in both LaTeX templates, which dispatch on
+`section.kind` from the shared `_document.tex.j2` body). See
 [adding-resume-templates.md](adding-resume-templates.md).
 
 ---
@@ -146,7 +168,7 @@ the defence-in-depth pattern used for dates, skills and the header.
 
 ### Rendering
 
-All seven templates render bullets through the single `entries` renderer,
+All seven HTML templates render bullets through the single `entries` renderer,
 `apps/frontend/components/resume/section-kinds/entries-section.tsx`, which omits
 the marker span (and its indent) when the style is `"plain"`. The marker is
 `aria-hidden="true"`. The JD-match preview
@@ -161,4 +183,5 @@ The LaTeX target follows the same rule from the other side:
 Coverage: `apps/frontend/tests/section-registry.test.tsx` runs every template
 over one document and asserts per-kind content, the plain/bullet marker rule and
 hidden-section exclusion; `apps/frontend/tests/template-registration.test.ts`
-pins the template registry (all seven ids, unique, with their font presets).
+pins the template registry (all nine ids, unique, each with a `target`, and
+exactly the two `tex-` ids routed to the LaTeX target, plus the font presets).

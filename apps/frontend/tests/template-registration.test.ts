@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   TEMPLATE_OPTIONS,
   applyTemplatePreset,
+  isTexTemplate,
   DEFAULT_TEMPLATE_SETTINGS,
   type TemplateType,
   type TemplateSettings,
 } from '@/lib/types/template-settings';
 
 describe('template registration', () => {
-  it('includes all seven templates with non-empty metadata', () => {
+  it('includes all nine templates with non-empty metadata', () => {
     const ids = TEMPLATE_OPTIONS.map((t) => t.id);
     expect(ids).toEqual(
       expect.arrayContaining<TemplateType>([
@@ -19,14 +20,26 @@ describe('template registration', () => {
         'latex',
         'clean',
         'vivid',
+        'tex-classic',
+        'tex-compact',
       ])
     );
-    expect(ids).toHaveLength(7);
+    expect(ids).toHaveLength(9);
 
     for (const opt of TEMPLATE_OPTIONS) {
       expect(opt.name.length).toBeGreaterThan(0);
       expect(opt.description.length).toBeGreaterThan(0);
+      expect(['html', 'tex']).toContain(opt.target);
     }
+  });
+
+  it('routes exactly the engine-compiled templates to the LaTeX target', () => {
+    const texIds = TEMPLATE_OPTIONS.filter((t) => t.target === 'tex').map((t) => t.id);
+    expect(texIds).toEqual(['tex-classic', 'tex-compact']);
+    expect(texIds.every(isTexTemplate)).toBe(true);
+    expect(
+      TEMPLATE_OPTIONS.filter((t) => t.target === 'html').some((t) => isTexTemplate(t.id))
+    ).toBe(false);
   });
 
   it('has unique template ids', () => {

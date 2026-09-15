@@ -1,84 +1,7 @@
 'use client';
 
 import React from 'react';
-import { type TemplateType, TEMPLATE_OPTIONS } from '@/lib/types/template-settings';
-import { useTranslations } from '@/lib/i18n';
-
-interface TemplateSelectorProps {
-  value: TemplateType;
-  onChange: (template: TemplateType) => void;
-}
-
-/**
- * Template Selector Component
- *
- * Visual thumbnail buttons for selecting resume templates.
- * Swiss design: Square corners, high contrast, monospace labels.
- */
-export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ value, onChange }) => {
-  const { t } = useTranslations();
-  const templateLabels = {
-    'swiss-single': {
-      name: t('builder.formatting.templates.swissSingle.name'),
-      description: t('builder.formatting.templates.swissSingle.description'),
-    },
-    'swiss-two-column': {
-      name: t('builder.formatting.templates.swissTwoColumn.name'),
-      description: t('builder.formatting.templates.swissTwoColumn.description'),
-    },
-    modern: {
-      name: t('builder.formatting.templates.modern.name'),
-      description: t('builder.formatting.templates.modern.description'),
-    },
-    'modern-two-column': {
-      name: t('builder.formatting.templates.modernTwoColumn.name'),
-      description: t('builder.formatting.templates.modernTwoColumn.description'),
-    },
-    latex: {
-      name: t('builder.formatting.templates.latex.name'),
-      description: t('builder.formatting.templates.latex.description'),
-    },
-    clean: {
-      name: t('builder.formatting.templates.clean.name'),
-      description: t('builder.formatting.templates.clean.description'),
-    },
-    vivid: {
-      name: t('builder.formatting.templates.vivid.name'),
-      description: t('builder.formatting.templates.vivid.description'),
-    },
-  };
-
-  return (
-    <div className="flex flex-wrap gap-3">
-      {TEMPLATE_OPTIONS.map((template) => (
-        <button
-          key={template.id}
-          onClick={() => onChange(template.id)}
-          className={`group flex flex-col items-center p-3 border-2 transition-all ${
-            value === template.id
-              ? 'border-blue-700 bg-white shadow-[3px_3px_0px_0px_#1D4ED8]'
-              : 'border-black bg-white hover:bg-background hover:shadow-sw-sm'
-          }`}
-          title={templateLabels[template.id].description}
-        >
-          {/* Template Thumbnail */}
-          <div className="w-16 h-20 mb-2 flex items-center justify-center">
-            <TemplateThumbnail type={template.id} isActive={value === template.id} />
-          </div>
-
-          {/* Template Name */}
-          <span
-            className={`font-mono text-[10px] uppercase tracking-wider font-bold ${
-              value === template.id ? 'text-blue-700' : 'text-ink-soft'
-            }`}
-          >
-            {templateLabels[template.id].name}
-          </span>
-        </button>
-      ))}
-    </div>
-  );
-};
+import { type TemplateType } from '@/lib/types/template-settings';
 
 /**
  * Template Thumbnail
@@ -117,7 +40,9 @@ export const TemplateThumbnail: React.FC<TemplateThumbnailProps> = ({ type, isAc
     );
   }
 
-  if (type === 'latex') {
+  // Serif, ruled-heading single column: the browser-rendered Academic Serif
+  // and both engine-compiled LaTeX templates share this silhouette.
+  if (type === 'latex' || type === 'tex-classic' || type === 'tex-compact') {
     // LaTeX thumbnail - centered name + Title-Case ruled section headers (serif feel)
     return (
       <div className={`w-14 h-18 border ${borderColor} bg-white p-1.5 flex flex-col gap-1`}>
@@ -290,5 +215,3 @@ export const TemplateThumbnail: React.FC<TemplateThumbnailProps> = ({ type, isAc
     </div>
   );
 };
-
-export default TemplateSelector;

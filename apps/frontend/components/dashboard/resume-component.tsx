@@ -19,7 +19,10 @@ import type { ResumeDocument } from '@/lib/types/document';
 import { sectionHeading } from '@/lib/utils/section-helpers';
 import baseStyles from '@/components/resume/styles/_base.module.css';
 
-const TEMPLATE_COMPONENTS: Record<TemplateType, React.FC<ResumeTemplateProps>> = {
+// The browser-rendered templates. The engine-compiled `tex-*` ids are
+// deliberately absent: they have no React component, and a tex selection
+// shows the compiled PDF instead of this renderer.
+const TEMPLATE_COMPONENTS: Partial<Record<TemplateType, React.FC<ResumeTemplateProps>>> = {
   'swiss-single': ResumeSingleColumn,
   'swiss-two-column': ResumeTwoColumn,
   modern: ResumeModern,

@@ -97,7 +97,7 @@
       "parsingFailed": "Currículum subido pero el análisis de IA falló. Aún puedes personalizarlo manualmente.",
       "failed": "La subida falló.",
       "dropzoneTitle": "Haz clic o arrastra un archivo",
-      "dropzoneSubtitle": "PDF, DOC, DOCX (Máx. 4MB)",
+      "dropzoneSubtitle": "PDF, DOC, DOCX, TEX (Máx. 4MB)",
       "tryDifferentFile": "Probar otro archivo",
       "parsingFailedKeepOpen": "El análisis de IA falló. Prueba otro archivo o cierra este diálogo."
     },
@@ -307,7 +307,7 @@
         },
         "latex": {
           "name": "Serif académico",
-          "description": "Diseño serif con encabezados subrayados, renderizado en el navegador. Para LaTeX compilado, usa la pestaña LaTeX."
+          "description": "Diseño serif con encabezados subrayados, renderizado en el navegador"
         },
         "clean": {
           "name": "Limpio",
@@ -316,6 +316,14 @@
         "vivid": {
           "name": "Vívido",
           "description": "Diseño de dos columnas colorido con encabezados de acento y viñetas de flecha"
+        },
+        "texClassic": {
+          "name": "LaTeX Clásica",
+          "description": "Computer Modern compilado por el motor, con encabezados en versalitas subrayados"
+        },
+        "texCompact": {
+          "name": "LaTeX Compacta",
+          "description": "Compilado por el motor y más denso: márgenes estrechos y encabezados sin filete"
         }
       },
       "accentColor": "Color de acento",
@@ -360,7 +368,8 @@
       "effectiveHeaderFont": "Fuente de encabezados",
       "effectiveBodyFont": "Fuente del cuerpo",
       "compactHint": "El modo compacto reduce el espaciado y el interlineado. Los márgenes y la fuente base se mantienen.",
-      "resetDefaults": "Restablecer valores"
+      "resetDefaults": "Restablecer valores",
+      "texNotice": "Una plantilla LaTeX la compila el motor, que solo lee el tamaño de página. Los demás controles de formato se aplican a las plantillas renderizadas en el navegador."
     },
     "leftPanel": {
       "editorPanel": "Panel de edición",
@@ -986,7 +995,7 @@
       "upload": {
         "kicker": "Archivo existente",
         "title": "Subir un currículum",
-        "description": "Empieza con un archivo PDF, DOC o DOCX y deja que Resume Matcher lo convierta en tu perfil maestro.",
+        "description": "Empieza con un archivo PDF, DOC, DOCX o TEX y deja que Resume Matcher lo convierta en tu perfil maestro.",
         "action": "Subir currículum"
       },
       "wizard": {
@@ -1236,6 +1245,7 @@
       "save": "No se pudo guardar el código LaTeX",
       "reset": "No se pudo restablecer el código LaTeX",
       "compile": "La compilación de LaTeX falló"
-    }
+    },
+    "htmlTemplateNotice": "Hay una plantilla HTML seleccionada, así que esta fuente se muestra solo como referencia. Cambia a una plantilla LaTeX para exportar desde ella."
   }
 }

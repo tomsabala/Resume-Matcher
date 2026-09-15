@@ -11,6 +11,23 @@ The same `ResumeDocument` feeds two independent renderers:
 | **Chromium HTML** | `GET /api/v1/resumes/{id}/pdf` | React templates in `components/resume/`, printed by headless Chromium via Playwright | `swiss-single`, `swiss-two-column`, `modern`, `modern-two-column`, `latex`, `clean`, `vivid` |
 | **LaTeX** | `GET /api/v1/resumes/{id}/tex/pdf` | Jinja `.tex.j2` templates in `apps/backend/app/latex/templates/`, compiled by a TeX engine | `tex-classic`, `tex-compact` |
 
+Both targets are chosen in **one** picker. `TEMPLATE_OPTIONS`
+(`apps/frontend/lib/types/template-settings.ts`) has nine rows, and every row
+carries `target: 'html' | 'tex'`. `isTexTemplate(template)` reads that registry
+and is the single predicate every call site uses — nothing pattern-matches on an
+id prefix. The selection therefore decides the export, so neither renderer can
+silently produce a PDF for a template that belongs to the other:
+
+- a `tex` selection previews and downloads through
+  `GET /api/v1/resumes/{id}/tex/pdf` (`compileTexPdf` in `lib/api/tex.ts`), and
+  `getResumePdfUrl` throws instead of emitting a Chromium URL for it;
+- `GET /api/v1/resumes/{id}/pdf` answers **400** with a detail naming
+  `/tex/pdf` for any template outside `HTML_TEMPLATES`
+  (`apps/backend/app/routers/resumes.py`) — it used to accept any string and
+  render `swiss-single`;
+- the two `tex` options are offered **disabled** when `getTexCapabilities()`
+  reports no engine, since they would 503 on every preview and download.
+
 Everything below this section describes the **Chromium HTML** target: its
 templates, its `TemplateSettings` and its CSS. The LaTeX target has its own
 templates, its own (much smaller) settings surface and no CSS at all — see
@@ -66,7 +83,9 @@ interface TemplateSettings {
     | "modern-two-column"
     | "latex"
     | "clean"
-    | "vivid";
+    | "vivid"
+    | "tex-classic" // LaTeX target
+    | "tex-compact"; // LaTeX target
   pageSize: "A4" | "LETTER";
   margins: { top: number; bottom: number; left: number; right: number }; // 5-25mm each
   spacing: {
@@ -85,6 +104,12 @@ interface TemplateSettings {
   accentColor: "blue" | "green" | "orange" | "red"; // modern, modern-two-column, vivid
 }
 ```
+
+With a `tex` template selected, `pageSize` is the only field that still has an
+effect: the `/tex*` routes take `pageSize=A4|LETTER` and the `.tex.j2`
+preambles select `a4paper`/`letterpaper` from it. Everything else above is
+CSS-driven and HTML-only, so `FormattingControls` disables those controls for a
+`tex` selection rather than letting them appear to work.
 
 ## Section Order and Placement
 
@@ -163,10 +188,15 @@ See [adding-resume-templates.md](../features/adding-resume-templates.md) for the
 full walkthrough. In short: create `components/resume/resume-{name}.tsx`
 implementing `ResumeTemplateProps`, render `doc.header` plus
 `visibleSections(doc)` through `SectionBlock`, then register the id in
-`index.ts`, `TemplateType`, `TEMPLATE_OPTIONS`, `TEMPLATE_COMPONENTS` and the
-print route's `parseTemplate` allow-list.
+`index.ts`, `TemplateType`, `TEMPLATE_OPTIONS` (with `target: 'html'`),
+`TEMPLATE_COMPONENTS` and the print route's `parseTemplate` allow-list.
+`TEMPLATE_COMPONENTS` is a `Partial<Record<TemplateType, …>>` — the `tex-` ids
+have no React component — so a missing HTML entry is **not** a compile error:
+the lookup falls back to `ResumeSingleColumn` and your template never renders.
 
 A **LaTeX** template is a different job: add a `.tex.j2` preamble beside
 `apps/backend/app/latex/templates/_document.tex.j2`, include the shared body,
-and register its id in `LATEX_TEMPLATES` (`app/latex/render.py`). It needs no
-React component, no CSS and no print-route entry.
+and register its id in `LATEX_TEMPLATES` (`app/latex/render.py`) plus
+`TemplateType`/`TEMPLATE_OPTIONS` with `target: 'tex'` so the picker offers it.
+It needs no React component, no CSS and no print-route entry, and it must stay
+out of the backend's `HTML_TEMPLATES` so the Chromium route keeps rejecting it.

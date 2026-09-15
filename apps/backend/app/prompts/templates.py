@@ -242,6 +242,19 @@ Rules:
 - For ambiguous dates like "3 years experience", infer approximate years from
   context or use "~YYYY"
 - Flag overlapping dates (concurrent roles) by preserving both, don't merge
+- A "## Links extracted from the PDF file" block is ground truth, not resume
+  content. Never copy its lines into any text field. Put each url on the
+  matching item: a header link becomes an entry in "header.contacts" with the
+  given kind and that url, and an entry link becomes an item in that entry's
+  "links" with the given kind.
+- A contact whose link had no readable anchor text is icon-only: emit it with
+  "label" and "value" empty and only "url" set. Do not invent a label.
+- The input may be LaTeX source. Then \\section{{X}} is a section heading,
+  \\item is a bullet, \\href{{url}}{{text}} is a link (header contacts for
+  header urls, "links" on the entry for entry-row urls), and \\textbf{{x}} /
+  \\textit{{x}} inside a bullet become <strong>x</strong> / <em>x</em> —
+  bullets are the only field that carries markup. Read unknown macros for
+  their argument text and drop the macro itself.
 
 Resume to parse:
 {resume_text}"""

@@ -30,7 +30,7 @@ Paths in the backend column are relative to `apps/backend`; frontend paths are r
 
 ```mermaid
 flowchart TD
-  Upload[Upload PDF / DOC / DOCX] --> Validate[Bounded document validation and extraction]
+  Upload[Upload PDF / DOC / DOCX / TEX] --> Validate[Bounded document validation and extraction]
   Validate --> Claim[Stored resume with processing token]
   Claim --> Parse[Structured AI parsing]
   Parse --> Terminal[Token-owned ready / failed commit]

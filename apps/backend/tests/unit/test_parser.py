@@ -17,7 +17,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.services.parser import (
+    DocumentValidationError,
     _extract_markdown_dates,
+    _extract_tex_source,
     has_meaningful_resume_content,
     parse_resume_to_json,
     restore_dates_from_markdown,
@@ -287,3 +289,45 @@ class TestParseResumeToJson:
         )
         with pytest.raises(ValueError, match="empty structured resume"):
             await parse_resume_to_json("Jane Doe")
+
+
+class TestExtractTexSource:
+    """A ``.tex`` upload is read as source: it keeps the links, bold and
+    structure a PDF's text stream has already lost. The engine is never run."""
+
+    def test_the_preamble_never_reaches_the_prompt(self):
+        source = (
+            "\\documentclass[a4paper,10pt]{article}\n"
+            "\\usepackage{hyperref}\n"
+            "\\begin{document}\n"
+            "\\section{Experience}\n"
+            "\\end{document}\n"
+        )
+
+        text = _extract_tex_source(source.encode())
+
+        assert text == "\\section{Experience}"
+
+    def test_comments_are_stripped_but_escaped_percents_survive(self):
+        source = (
+            "\\begin{document}\n"
+            "% a note to self\n"
+            "\\item Cut latency by 50\\% % measured\n"
+            "\\end{document}\n"
+        )
+
+        text = _extract_tex_source(source.encode())
+
+        assert "a note to self" not in text
+        assert "measured" not in text
+        assert "50\\%" in text
+
+    def test_a_fragment_without_a_document_environment_passes_through(self):
+        """People paste a single section, not a compilable file."""
+        text = _extract_tex_source(b"\\section{Projects}\n\\item Built a thing\n")
+
+        assert text == "\\section{Projects}\n\\item Built a thing"
+
+    def test_binary_bytes_renamed_tex_are_rejected(self):
+        with pytest.raises(DocumentValidationError, match="PDF, DOC, DOCX, or TEX"):
+            _extract_tex_source(b"%PDF-1.4\n\x80\xff binary")

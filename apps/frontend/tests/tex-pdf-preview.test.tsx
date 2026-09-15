@@ -27,27 +27,35 @@ describe('the LaTeX tab preview', () => {
   });
 
   it('shows the engine-compiled PDF rather than a browser approximation', async () => {
-    render(<TexPdfPreview resumeId="r-1" template="tex-classic" revision={0} />);
+    render(<TexPdfPreview resumeId="r-1" template="tex-classic" pageSize="A4" revision={0} />);
 
     await waitFor(() => expect(screen.getByLabelText('latex.previewLabel')).toBeInTheDocument());
-    expect(compile).toHaveBeenCalledWith('r-1', 'tex-classic');
+    expect(compile).toHaveBeenCalledWith('r-1', 'tex-classic', 'A4');
     expect(screen.getByLabelText('latex.previewLabel')).toHaveAttribute('data', 'blob:compiled');
   });
 
   it('recompiles when the template the source editor shows changes', async () => {
-    const view = render(<TexPdfPreview resumeId="r-1" template="tex-classic" revision={0} />);
+    const view = render(
+      <TexPdfPreview resumeId="r-1" template="tex-classic" pageSize="A4" revision={0} />
+    );
     await waitFor(() => expect(compile).toHaveBeenCalledTimes(1));
 
-    view.rerender(<TexPdfPreview resumeId="r-1" template="tex-compact" revision={0} />);
+    view.rerender(
+      <TexPdfPreview resumeId="r-1" template="tex-compact" pageSize="A4" revision={0} />
+    );
 
-    await waitFor(() => expect(compile).toHaveBeenLastCalledWith('r-1', 'tex-compact'));
+    await waitFor(() => expect(compile).toHaveBeenLastCalledWith('r-1', 'tex-compact', 'A4'));
   });
 
   it('recompiles when the saved source changes', async () => {
-    const view = render(<TexPdfPreview resumeId="r-1" template="tex-classic" revision={0} />);
+    const view = render(
+      <TexPdfPreview resumeId="r-1" template="tex-classic" pageSize="A4" revision={0} />
+    );
     await waitFor(() => expect(compile).toHaveBeenCalledTimes(1));
 
-    view.rerender(<TexPdfPreview resumeId="r-1" template="tex-classic" revision={1} />);
+    view.rerender(
+      <TexPdfPreview resumeId="r-1" template="tex-classic" pageSize="A4" revision={1} />
+    );
 
     await waitFor(() => expect(compile).toHaveBeenCalledTimes(2));
   });
@@ -55,7 +63,7 @@ describe('the LaTeX tab preview', () => {
   it('explains a missing engine instead of rendering an empty frame', async () => {
     compile.mockRejectedValue(new TexUnavailableError('no engine'));
 
-    render(<TexPdfPreview resumeId="r-1" template="tex-classic" revision={0} />);
+    render(<TexPdfPreview resumeId="r-1" template="tex-classic" pageSize="A4" revision={0} />);
 
     await waitFor(() => expect(screen.getByText('latex.noEngine')).toBeInTheDocument());
     expect(screen.queryByLabelText('latex.previewLabel')).not.toBeInTheDocument();

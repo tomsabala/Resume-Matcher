@@ -23,6 +23,7 @@ import {
   TEMPLATE_OPTIONS,
   PAGE_SIZE_INFO,
   ACCENT_COLOR_MAP,
+  isTexTemplate,
 } from '@/lib/types/template-settings';
 import { TemplateThumbnail } from './template-selector';
 import { useTranslations } from '@/lib/i18n';
@@ -30,6 +31,9 @@ import { useTranslations } from '@/lib/i18n';
 interface FormattingControlsProps {
   settings: TemplateSettings;
   onChange: (settings: TemplateSettings) => void;
+  /** False when this deployment has no LaTeX engine: the tex templates would
+   * 503 on every preview and download, so they are offered disabled. */
+  texAvailable?: boolean;
 }
 
 /**
@@ -45,8 +49,16 @@ interface FormattingControlsProps {
  *
  * Swiss design: Square buttons, monospace labels, high contrast
  */
-export const FormattingControls: React.FC<FormattingControlsProps> = ({ settings, onChange }) => {
+export const FormattingControls: React.FC<FormattingControlsProps> = ({
+  settings,
+  onChange,
+  texAvailable = true,
+}) => {
   const { t } = useTranslations();
+  // A LaTeX template is compiled by the engine, which reads only the page
+  // size; leaving the HTML-only knobs live would promise formatting the
+  // export cannot deliver.
+  const usesTexEngine = isTexTemplate(settings.template);
   const [isExpanded, setIsExpanded] = useState(true);
   const compactMultiplier = settings.compactMode ? COMPACT_MULTIPLIER : 1;
   const sectionGapRem =
@@ -150,6 +162,14 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({ settings
         name: t('builder.formatting.templates.vivid.name'),
         description: t('builder.formatting.templates.vivid.description'),
       },
+      'tex-classic': {
+        name: t('builder.formatting.templates.texClassic.name'),
+        description: t('builder.formatting.templates.texClassic.description'),
+      },
+      'tex-compact': {
+        name: t('builder.formatting.templates.texCompact.name'),
+        description: t('builder.formatting.templates.texCompact.description'),
+      },
     }),
     [t]
   );
@@ -189,33 +209,42 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({ settings
               {t('builder.formatting.template')}
             </h4>
             <div className="flex flex-wrap gap-3">
-              {TEMPLATE_OPTIONS.map((template) => (
-                <button
-                  key={template.id}
-                  onClick={() => handleTemplateChange(template.id)}
-                  className={`group flex flex-col items-center p-2 border transition-all ${
-                    settings.template === template.id
-                      ? 'border-blue-700 bg-white shadow-[2px_2px_0px_0px_#1D4ED8]'
-                      : 'border-black bg-white hover:bg-paper-tint hover:shadow-sw-xs'
-                  }`}
-                  title={templateLabels[template.id].description}
-                >
-                  <div className="w-12 h-16 mb-1.5 flex items-center justify-center">
-                    <TemplateThumbnail
-                      type={template.id}
-                      isActive={settings.template === template.id}
-                    />
-                  </div>
-                  <span
-                    className={`font-mono text-[9px] uppercase tracking-wider font-bold ${
-                      settings.template === template.id ? 'text-blue-700' : 'text-ink-soft'
-                    }`}
+              {TEMPLATE_OPTIONS.map((template) => {
+                const disabled = template.target === 'tex' && !texAvailable;
+                return (
+                  <button
+                    key={template.id}
+                    onClick={() => handleTemplateChange(template.id)}
+                    disabled={disabled}
+                    className={`group flex flex-col items-center p-2 border transition-all ${
+                      settings.template === template.id
+                        ? 'border-blue-700 bg-white shadow-[2px_2px_0px_0px_#1D4ED8]'
+                        : 'border-black bg-white hover:bg-paper-tint hover:shadow-sw-xs'
+                    } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:shadow-none`}
+                    title={disabled ? t('latex.noEngine') : templateLabels[template.id].description}
                   >
-                    {templateLabels[template.id].name}
-                  </span>
-                </button>
-              ))}
+                    <div className="w-12 h-16 mb-1.5 flex items-center justify-center">
+                      <TemplateThumbnail
+                        type={template.id}
+                        isActive={settings.template === template.id}
+                      />
+                    </div>
+                    <span
+                      className={`font-mono text-[9px] uppercase tracking-wider font-bold ${
+                        settings.template === template.id ? 'text-blue-700' : 'text-ink-soft'
+                      }`}
+                    >
+                      {templateLabels[template.id].name}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
+            {usesTexEngine && (
+              <p className="mt-3 border border-black bg-paper-tint px-3 py-2 font-mono text-[11px]">
+                {t('builder.formatting.texNotice')}
+              </p>
+            )}
           </div>
 
           {/* Accent Color Selection - Visible for Modern templates */}
@@ -285,21 +314,25 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({ settings
                 label={t('builder.formatting.margin.top')}
                 value={settings.margins.top}
                 onChange={(v) => handleMarginChange('top', v)}
+                disabled={usesTexEngine}
               />
               <MarginSlider
                 label={t('builder.formatting.margin.bottom')}
                 value={settings.margins.bottom}
                 onChange={(v) => handleMarginChange('bottom', v)}
+                disabled={usesTexEngine}
               />
               <MarginSlider
                 label={t('builder.formatting.margin.left')}
                 value={settings.margins.left}
                 onChange={(v) => handleMarginChange('left', v)}
+                disabled={usesTexEngine}
               />
               <MarginSlider
                 label={t('builder.formatting.margin.right')}
                 value={settings.margins.right}
                 onChange={(v) => handleMarginChange('right', v)}
+                disabled={usesTexEngine}
               />
             </div>
           </div>
@@ -314,16 +347,19 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({ settings
                 label={t('builder.formatting.spacingSection')}
                 value={settings.spacing.section}
                 onChange={(v) => handleSpacingChange('section', v)}
+                disabled={usesTexEngine}
               />
               <SpacingSelector
                 label={t('builder.formatting.spacingItems')}
                 value={settings.spacing.item}
                 onChange={(v) => handleSpacingChange('item', v)}
+                disabled={usesTexEngine}
               />
               <SpacingSelector
                 label={t('builder.formatting.spacingLines')}
                 value={settings.spacing.lineHeight}
                 onChange={(v) => handleSpacingChange('lineHeight', v)}
+                disabled={usesTexEngine}
               />
             </div>
           </div>
@@ -338,11 +374,13 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({ settings
                 label={t('builder.formatting.baseFontSize')}
                 value={settings.fontSize.base}
                 onChange={(v) => handleFontChange('base', v)}
+                disabled={usesTexEngine}
               />
               <SpacingSelector
                 label={t('builder.formatting.headerScale')}
                 value={settings.fontSize.headerScale}
                 onChange={(v) => handleFontChange('headerScale', v)}
+                disabled={usesTexEngine}
               />
               {/* Header Font Family */}
               <div className="flex items-center gap-2">
@@ -354,7 +392,8 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({ settings
                     <button
                       key={font}
                       onClick={() => handleHeaderFontChange(font)}
-                      className={`px-2 py-1 font-mono text-xs border transition-all ${
+                      disabled={usesTexEngine}
+                      className={`px-2 py-1 font-mono text-xs border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                         settings.fontSize.headerFont === font
                           ? 'bg-blue-700 text-white border-blue-700 shadow-sw-xs'
                           : 'bg-white text-ink-soft border-steel-grey hover:border-black'
@@ -383,7 +422,8 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({ settings
                     <button
                       key={font}
                       onClick={() => handleBodyFontChange(font)}
-                      className={`px-2 py-1 font-mono text-xs border transition-all ${
+                      disabled={usesTexEngine}
+                      className={`px-2 py-1 font-mono text-xs border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                         settings.fontSize.bodyFont === font
                           ? 'bg-blue-700 text-white border-blue-700 shadow-sw-xs'
                           : 'bg-white text-ink-soft border-steel-grey hover:border-black'
@@ -415,7 +455,8 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({ settings
               <label className="flex items-center gap-3 cursor-pointer">
                 <button
                   onClick={handleCompactModeToggle}
-                  className={`relative w-10 h-5 border-2 transition-all ${
+                  disabled={usesTexEngine}
+                  className={`relative w-10 h-5 border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                     settings.compactMode
                       ? 'bg-blue-700 border-blue-700'
                       : 'bg-white border-steel-grey'
@@ -436,7 +477,8 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({ settings
               <label className="flex items-center gap-3 cursor-pointer">
                 <button
                   onClick={handleShowContactIconsToggle}
-                  className={`relative w-10 h-5 border-2 transition-all ${
+                  disabled={usesTexEngine}
+                  className={`relative w-10 h-5 border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                     settings.showContactIcons
                       ? 'bg-blue-700 border-blue-700'
                       : 'bg-white border-steel-grey'
@@ -524,9 +566,10 @@ interface MarginSliderProps {
   label: string;
   value: number;
   onChange: (value: number) => void;
+  disabled?: boolean;
 }
 
-const MarginSlider: React.FC<MarginSliderProps> = ({ label, value, onChange }) => {
+const MarginSlider: React.FC<MarginSliderProps> = ({ label, value, onChange, disabled }) => {
   return (
     <div className="flex items-center gap-2">
       <span className="font-mono text-xs w-12 text-ink-soft">{label}:</span>
@@ -536,7 +579,8 @@ const MarginSlider: React.FC<MarginSliderProps> = ({ label, value, onChange }) =
         max={25}
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
-        className="flex-1 h-1 bg-paper-tint rounded-none appearance-none cursor-pointer
+        disabled={disabled}
+        className="flex-1 h-1 bg-paper-tint rounded-none appearance-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed
                    [&::-webkit-slider-thumb]:appearance-none
                    [&::-webkit-slider-thumb]:w-3
                    [&::-webkit-slider-thumb]:h-3
@@ -563,9 +607,10 @@ interface SpacingSelectorProps {
   label: string;
   value: SpacingLevel;
   onChange: (value: SpacingLevel) => void;
+  disabled?: boolean;
 }
 
-const SpacingSelector: React.FC<SpacingSelectorProps> = ({ label, value, onChange }) => {
+const SpacingSelector: React.FC<SpacingSelectorProps> = ({ label, value, onChange, disabled }) => {
   const levels: SpacingLevel[] = [1, 2, 3, 4, 5];
 
   return (
@@ -576,7 +621,8 @@ const SpacingSelector: React.FC<SpacingSelectorProps> = ({ label, value, onChang
           <button
             key={level}
             onClick={() => onChange(level)}
-            className={`w-6 h-6 font-mono text-xs border transition-all ${
+            disabled={disabled}
+            className={`w-6 h-6 font-mono text-xs border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
               value === level
                 ? 'bg-blue-700 text-white border-blue-700 shadow-sw-xs'
                 : 'bg-white text-ink-soft border-steel-grey hover:border-black'

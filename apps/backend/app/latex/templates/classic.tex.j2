@@ -1,6 +1,6 @@
 <# Classic: the single-column article layout from the reference CV.
      `article` 10pt, titlesec rules, tabularx header, fontawesome5 icons. #>
-\documentclass[a4paper,<< settings.get('fontSize', 10) | int >>pt]{article}
+\documentclass[<< 'letterpaper' if settings.get('pageSize') == 'LETTER' else 'a4paper' >>,<< settings.get('fontSize', 10) | int >>pt]{article}
 
 \usepackage{url}
 \usepackage{parskip}

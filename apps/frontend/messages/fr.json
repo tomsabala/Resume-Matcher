@@ -97,7 +97,7 @@
       "parsingFailed": "CV téléversé mais l'analyse par IA a échoué. Vous pouvez toujours le personnaliser manuellement.",
       "failed": "Échec du téléversement.",
       "dropzoneTitle": "Cliquez ou déposez un fichier",
-      "dropzoneSubtitle": "PDF, DOC, DOCX (Max 4 Mo)",
+      "dropzoneSubtitle": "PDF, DOC, DOCX, TEX (Max 4 Mo)",
       "tryDifferentFile": "Essayer un autre fichier",
       "parsingFailedKeepOpen": "L'analyse par IA a échoué. Essayez un autre fichier ou fermez cette boîte de dialogue."
     },
@@ -307,7 +307,7 @@
         },
         "latex": {
           "name": "Serif académique",
-          "description": "Mise en page serif à filets, rendue par le navigateur. Pour du LaTeX compilé, utilisez l'onglet LaTeX."
+          "description": "Mise en page serif à filets, rendue par le navigateur"
         },
         "clean": {
           "name": "Épuré",
@@ -316,6 +316,14 @@
         "vivid": {
           "name": "Vif",
           "description": "Mise en page deux colonnes colorée avec en-têtes accentués et puces fléchées"
+        },
+        "texClassic": {
+          "name": "LaTeX Classique",
+          "description": "Computer Modern compilé par le moteur, titres en petites capitales filetés"
+        },
+        "texCompact": {
+          "name": "LaTeX Compact",
+          "description": "Compilé par le moteur, plus dense : marges resserrées et titres sans filet"
         }
       },
       "accentColor": "Couleur d'accentuation",
@@ -360,7 +368,8 @@
       "effectiveHeaderFont": "Police des en-têtes",
       "effectiveBodyFont": "Police du corps",
       "compactHint": "Le mode compact resserre l'espacement et l'interligne. Les marges et la taille de police de base restent littérales.",
-      "resetDefaults": "Rétablir les valeurs par défaut"
+      "resetDefaults": "Rétablir les valeurs par défaut",
+      "texNotice": "Un modèle LaTeX est compilé par le moteur, qui ne lit que le format de page. Les autres réglages de mise en forme s'appliquent aux modèles rendus par le navigateur."
     },
     "leftPanel": {
       "editorPanel": "Panneau d'édition",
@@ -986,7 +995,7 @@
       "upload": {
         "kicker": "Fichier existant",
         "title": "Téléverser un CV",
-        "description": "Commencez avec un fichier PDF, DOC ou DOCX et laissez Resume Matcher l'analyser dans votre profil principal.",
+        "description": "Commencez avec un fichier PDF, DOC, DOCX ou TEX et laissez Resume Matcher l'analyser dans votre profil principal.",
         "action": "Téléverser un CV"
       },
       "wizard": {
@@ -1236,6 +1245,7 @@
       "save": "Échec de l’enregistrement de la source LaTeX",
       "reset": "Échec de la réinitialisation de la source LaTeX",
       "compile": "Échec de la compilation LaTeX"
-    }
+    },
+    "htmlTemplateNotice": "Un modèle HTML est sélectionné : cette source est affichée à titre de référence. Passez à un modèle LaTeX pour exporter depuis elle."
   }
 }

@@ -97,7 +97,7 @@
       "parsingFailed": "履歴書はアップロードされましたが、AI解析に失敗しました。手動でカスタマイズすることは可能です。",
       "failed": "アップロードに失敗しました。",
       "dropzoneTitle": "クリックまたはファイルをドラッグ",
-      "dropzoneSubtitle": "PDF、DOC、DOCX（最大 4MB）",
+      "dropzoneSubtitle": "PDF、DOC、DOCX、TEX（最大 4MB）",
       "tryDifferentFile": "別のファイルを試す",
       "parsingFailedKeepOpen": "AI 解析に失敗しました。別のファイルを試すか、このダイアログを閉じてください。"
     },
@@ -307,7 +307,7 @@
         },
         "latex": {
           "name": "アカデミック・セリフ",
-          "description": "ブラウザで描画される、罫線付き見出しのセリフレイアウト。エンジンでコンパイルする LaTeX は「LaTeX」タブを使用します。"
+          "description": "ブラウザで描画される、罫線付き見出しのセリフレイアウト"
         },
         "clean": {
           "name": "クリーン",
@@ -316,6 +316,14 @@
         "vivid": {
           "name": "ビビッド",
           "description": "アクセント見出しと矢印箇条書きのカラフルな2カラムレイアウト"
+        },
+        "texClassic": {
+          "name": "LaTeX クラシック",
+          "description": "エンジンでコンパイルする Computer Modern。罫線付きスモールキャップス見出し"
+        },
+        "texCompact": {
+          "name": "LaTeX コンパクト",
+          "description": "エンジンでコンパイルし、より高密度。余白を詰め、見出しの罫線なし"
         }
       },
       "accentColor": "アクセントカラー",
@@ -360,7 +368,8 @@
       "effectiveHeaderFont": "見出しフォント",
       "effectiveBodyFont": "本文フォント",
       "compactHint": "コンパクトモードでは間隔と行間が詰まります。余白と本文フォントサイズは維持されます。",
-      "resetDefaults": "デフォルトに戻す"
+      "resetDefaults": "デフォルトに戻す",
+      "texNotice": "LaTeX テンプレートはエンジンがコンパイルし、用紙サイズのみを読み取ります。その他の書式設定はブラウザ描画のテンプレートに適用されます。"
     },
     "leftPanel": {
       "editorPanel": "編集パネル",
@@ -986,7 +995,7 @@
       "upload": {
         "kicker": "既存ファイル",
         "title": "履歴書をアップロード",
-        "description": "PDF、DOC、DOCX ファイルから始め、Resume Matcher にマスタープロフィールへ解析させます。",
+        "description": "PDF、DOC、DOCX、TEX ファイルから始め、Resume Matcher にマスタープロフィールへ解析させます。",
         "action": "履歴書をアップロード"
       },
       "wizard": {
@@ -1236,6 +1245,7 @@
       "save": "LaTeX ソースの保存に失敗しました",
       "reset": "LaTeX ソースのリセットに失敗しました",
       "compile": "LaTeX のコンパイルに失敗しました"
-    }
+    },
+    "htmlTemplateNotice": "HTML テンプレートが選択されているため、このソースは参考表示です。これを書き出す履歴書にするには LaTeX テンプレートに切り替えてください。"
   }
 }

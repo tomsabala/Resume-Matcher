@@ -97,7 +97,7 @@
       "parsingFailed": "Resume uploaded but AI parsing failed. You can still tailor it manually.",
       "failed": "Upload failed.",
       "dropzoneTitle": "Click or Drag File",
-      "dropzoneSubtitle": "PDF, DOC, DOCX (Max 4MB)",
+      "dropzoneSubtitle": "PDF, DOC, DOCX, TEX (Max 4MB)",
       "tryDifferentFile": "Try Different File",
       "parsingFailedKeepOpen": "AI parsing failed. Try a different file or close this dialog."
     },
@@ -307,7 +307,7 @@
         },
         "latex": {
           "name": "Academic Serif",
-          "description": "Browser-rendered serif layout with ruled section headers. For engine-compiled LaTeX, use the LaTeX tab."
+          "description": "Browser-rendered serif layout with ruled section headers"
         },
         "clean": {
           "name": "Clean",
@@ -316,6 +316,14 @@
         "vivid": {
           "name": "Vivid",
           "description": "Colorful two-column layout with accent headers and arrow bullets"
+        },
+        "texClassic": {
+          "name": "LaTeX Classic",
+          "description": "Engine-compiled Computer Modern with ruled small-caps headings"
+        },
+        "texCompact": {
+          "name": "LaTeX Compact",
+          "description": "Engine-compiled, denser: tighter margins and unruled headings"
         }
       },
       "accentColor": "Accent Color",
@@ -360,7 +368,8 @@
       "effectiveHeaderFont": "Header Font",
       "effectiveBodyFont": "Body Font",
       "compactHint": "Compact mode tightens spacing and line height. Margins and base font size stay literal.",
-      "resetDefaults": "Reset to Defaults"
+      "resetDefaults": "Reset to Defaults",
+      "texNotice": "A LaTeX template is compiled by the engine, which reads only the page size. The other formatting controls apply to the browser-rendered templates."
     },
     "leftPanel": {
       "editorPanel": "Editor Panel",
@@ -986,7 +995,7 @@
       "upload": {
         "kicker": "Existing File",
         "title": "Upload a resume",
-        "description": "Start from a PDF, DOC, or DOCX file and let Resume Matcher parse it into your master profile.",
+        "description": "Start from a PDF, DOC, DOCX, or TEX file and let Resume Matcher parse it into your master profile.",
         "action": "Upload Resume"
       },
       "wizard": {
@@ -1236,6 +1245,7 @@
       "save": "Failed to save LaTeX source",
       "reset": "Failed to reset LaTeX source",
       "compile": "LaTeX compilation failed"
-    }
+    },
+    "htmlTemplateNotice": "An HTML template is selected, so this source is shown for reference. Switch to a LaTeX template to make it the resume you export."
   }
 }

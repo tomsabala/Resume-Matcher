@@ -23,10 +23,21 @@ def client():
 
 class TestUploadGuards:
     async def test_rejects_unsupported_file_type(self, client):
+        """`.tex` made text/plain an accepted MIME type, so a .txt upload is
+        now caught by the extension/MIME agreement check instead."""
         async with client:
             resp = await client.post(
                 "/api/v1/resumes/upload",
                 files={"file": ("resume.txt", b"hello", "text/plain")},
+            )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "Upload a valid PDF, DOC, DOCX, or TEX file."
+
+    async def test_rejects_an_unsupported_mime_type_outright(self, client):
+        async with client:
+            resp = await client.post(
+                "/api/v1/resumes/upload",
+                files={"file": ("resume.rtf", b"hello", "application/rtf")},
             )
         assert resp.status_code == 400
         assert "Invalid file type" in resp.json()["detail"]

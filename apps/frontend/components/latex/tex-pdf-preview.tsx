@@ -4,10 +4,13 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from '@/lib/i18n';
 import { compileTexPdf, TexCompileError, TexUnavailableError } from '@/lib/api/tex';
 import type { TexTemplateId } from '@/lib/api/tex';
+import type { PageSize } from '@/lib/types/template-settings';
 
 interface TexPdfPreviewProps {
   resumeId: string;
   template: TexTemplateId;
+  /** The picker's page size — the one formatting control the engine reads. */
+  pageSize: PageSize;
   /** Bumped by the parent after a save or reset, so the compile reruns. */
   revision: number;
 }
@@ -30,7 +33,7 @@ type Failure =
  * never what its Download PDF produced. This compiles the same source the
  * download does, so the preview is the artifact.
  */
-export function TexPdfPreview({ resumeId, template, revision }: TexPdfPreviewProps) {
+export function TexPdfPreview({ resumeId, template, pageSize, revision }: TexPdfPreviewProps) {
   const { t } = useTranslations();
   const [url, setUrl] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -43,7 +46,7 @@ export function TexPdfPreview({ resumeId, template, revision }: TexPdfPreviewPro
     setCompiling(true);
     setFailure(null);
 
-    compileTexPdf(resumeId, template)
+    compileTexPdf(resumeId, template, pageSize)
       .then((blob) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
@@ -71,7 +74,7 @@ export function TexPdfPreview({ resumeId, template, revision }: TexPdfPreviewPro
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [resumeId, template, revision]);
+  }, [resumeId, template, pageSize, revision]);
 
   if (failure) {
     return (

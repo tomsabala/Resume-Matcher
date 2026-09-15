@@ -22,6 +22,11 @@ PDF export now has **two independent renderers**. Both consume the same
 > `apps/backend/app/latex/templates/`. In prose: **"the `latex` HTML
 > template"** vs **"the LaTeX export"**.
 
+Both targets are offered by the **same** template picker in the builder: each
+`TEMPLATE_OPTIONS` row carries `target: 'html' | 'tex'`, and the selection
+decides which endpoint the preview and the export use. See
+[Builder UI](#builder-ui).
+
 The Chromium path is documented in
 [pdf-template-guide.md](../design/pdf-template-guide.md) and
 [template-system.md](../design/template-system.md); its controls are in
@@ -143,9 +148,11 @@ empty PDF, and registers the helper filters below.
 
 `render_document_tex(document, template_id="tex-classic", settings=None)` is
 the whole API. `settings` is an optional dict of template knobs; each template
-reads only the keys it supports and ignores the rest. **No endpoint passes one
-today** — both the `/tex*` routes and the diff's `mode: "tex"` render with
-defaults — so the values below are what a generated `.tex` actually uses.
+reads only the keys it supports and ignores the rest. The `/tex*` routes pass
+exactly one: `{"pageSize": pageSize}` from their `pageSize` query parameter
+(`A4` | `LETTER`), which selects `a4paper` or `letterpaper` in both preambles.
+The diff's `mode: "tex"` still renders with defaults, so every other value
+below is what a generated `.tex` actually uses.
 
 **Sections with nothing to show emit no heading.** `_renderable_sections`
 drops invisible sections and sections that are empty *for their kind* — blank
@@ -256,11 +263,11 @@ All under the `/api/v1` prefix; router `app/routers/tex.py`, schemas
 | Method | Path | Query / body | Returns |
 | ------ | ---- | ------------ | ------- |
 | `GET` | `/resumes/tex/capabilities` | — | `{ engine, can_compile, templates }` — `engine` is the bare binary name or `null` |
-| `GET` | `/resumes/{id}/tex` | `template` (default `tex-classic`), `regenerate` (default `false`) | `{ resume_id, source, is_override, template, engine }` |
+| `GET` | `/resumes/{id}/tex` | `template` (default `tex-classic`), `pageSize` (default `A4`), `regenerate` (default `false`) | `{ resume_id, source, is_override, template, engine }` |
 | `PUT` | `/resumes/{id}/tex` | body `{ source }`, 1–400,000 chars | the same shape with `is_override: true`, `template: "custom"` |
-| `DELETE` | `/resumes/{id}/tex` | `template` | the regenerated source with `is_override: false` |
-| `GET` | `/resumes/{id}/tex/source` | `template` | the `.tex` as `application/x-tex`, `Content-Disposition: attachment` |
-| `GET` | `/resumes/{id}/tex/pdf` | `template` | `application/pdf`, `Content-Disposition: attachment` |
+| `DELETE` | `/resumes/{id}/tex` | `template`, `pageSize` | the regenerated source with `is_override: false` |
+| `GET` | `/resumes/{id}/tex/source` | `template`, `pageSize` | the `.tex` as `application/x-tex`, `Content-Disposition: attachment` |
+| `GET` | `/resumes/{id}/tex/pdf` | `template`, `pageSize` | `application/pdf`, `Content-Disposition: attachment` |
 
 `regenerate=true` ignores a saved override for that one read — a preview of
 what resetting would give you, without touching stored state.
@@ -311,20 +318,39 @@ carry `origin: "tex_edit"`. See the version-history contract in
 
 ## Builder UI
 
-A **LaTeX** tab in `apps/frontend/components/builder/resume-builder.tsx`
+**One picker chooses the renderer.** Template & Formatting lists all nine
+templates (`TEMPLATE_OPTIONS`), each carrying `target: 'html' | 'tex'`, and
+`isTexTemplate(settings.template)` is the single predicate every call site
+reads. Selecting **LaTeX Classic** or **LaTeX Compact** switches the RESUME
+pane to the engine-compiled PDF and routes the header's Download PDF through
+`compileTexPdf`; `getResumePdfUrl` throws for a tex template rather than
+emitting a `/pdf` URL, and `GET /resumes/{id}/pdf` answers **400** for one.
+Before this, the picker and the LaTeX tab held two separate choices and
+Download PDF always used Chromium.
+
+Page size is the only formatting control a tex selection keeps; the margin,
+spacing, font-size, font-family, compact-mode, contact-icon and accent-colour
+controls are disabled with a notice, because the engine reads none of them.
+The two tex options render `disabled` when `getTexCapabilities()` reports no
+engine — selecting one there would 503 on every preview and download.
+
+The **LaTeX** tab (`apps/frontend/components/builder/resume-builder.tsx`)
 renders `apps/frontend/components/latex/latex-panel.tsx` beside
 `apps/frontend/components/latex/tex-pdf-preview.tsx` — the *engine-compiled*
 PDF, not the browser-rendered HTML template. Those are two different
 renderers with different fonts and metrics, so previewing the HTML one here
-showed something the tab's own Download PDF could never produce. The builder
-owns the selected template (`texTemplate`) and a `texRevision` counter so the
-panel and the preview always compile the same thing. The tab is disabled
-until the resume has been saved, since generation reads the stored document.
+showed something the tab's own Download PDF could never produce. The tab
+follows `templateSettings.template`, falling back to `tex-classic` (with a
+notice offering to switch) when an HTML template is selected, and a
+`texRevision` counter keeps the panel and the preview compiling the same
+thing. The tab is disabled until the resume has been saved, since generation
+reads the stored document.
 
 | Panel behaviour | Detail |
 | --------------- | ------ |
 | State badge | `Generated` / `Edited`, from `is_override` |
-| Template buttons | `Classic` / `Compact`; **disabled while an override is active**, because the override is not a template render |
+| Template chip | The selected tex template, read-only — the picker owns the choice |
+| HTML-selection notice | Shown when the picker holds an HTML template; a button switches to `tex-classic` |
 | Override notice | Explains that document changes no longer update this source until reset |
 | No-engine notice | Shown when `capabilities.can_compile` is false; the Download PDF button is disabled with the same message as its tooltip |
 | Save | `PUT`, enabled only when the textarea differs from the server copy |
@@ -332,7 +358,7 @@ until the resume has been saved, since generation reads the stored document.
 | Download `.tex` | Always available — the one export that cannot fail |
 | Download PDF | Compiles; on 422 the engine log is rendered in a scrollable `<pre>` under the error |
 | Refresh | The parent bumps a `revision` prop after a document save so a *generated* source refetches |
-| Compiled preview | `compileTexPdf` on mount and on every template/revision change, shown in an `<object>`; object URLs are revoked on cleanup. A missing engine, a compile failure (with its log) and any other error each render in place |
+| Compiled preview | `compileTexPdf` on mount and on every template/page-size/revision change, shown in an `<object>`; object URLs are revoked on cleanup. A missing engine, a compile failure (with its log) and any other error each render in place |
 
 Strings live under the `latex.*` i18n block in every locale
 (`apps/frontend/messages/*.json`) — see [i18n.md](i18n.md).
@@ -374,7 +400,9 @@ the override. Full deployment reference: [SETUP.md](../../../SETUP.md).
 | `apps/backend/app/schemas/tex.py` | `TexCapabilities`, `TexSourceResponse`, `TexSourceUpdate` |
 | `apps/backend/migrations/versions/` | `0004_tex_source` — `resumes.tex_source` |
 | `apps/frontend/lib/api/tex.ts` | Client, plus `TexCompileError` / `TexUnavailableError` |
+| `apps/frontend/lib/types/template-settings.ts` | `TEMPLATE_OPTIONS` with each template's `target`, and `isTexTemplate` |
 | `apps/frontend/components/latex/latex-panel.tsx` | The editor and export panel |
+| `apps/frontend/components/latex/tex-pdf-preview.tsx` | The compiled-PDF pane used by the RESUME, HISTORY and LaTeX panes |
 | `Dockerfile`, `docker-compose.yml` | `INSTALL_LATEX`, bundle warm-up, `RESUME_MATCHER_LATEX_ENGINE` |
 
 Dependency: `jinja2==3.1.6` (`apps/backend/pyproject.toml`).

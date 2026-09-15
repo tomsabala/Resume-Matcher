@@ -6,10 +6,11 @@
 
 ```
 POST /api/v1/resumes/upload
-├── Validate file (PDF/DOCX, ≤4MB)
-├── parse_document() → Markdown
+├── Validate file (PDF/DOC/DOCX/TEX, ≤4MB; extension must match declared MIME)
+├── parse_document() → Markdown (`.tex` → LaTeX source; PDF links appended)
 ├── db.create_resume(status="processing")
 ├── parse_resume_to_json() → LLM
+│   ├── restore_dates_from_markdown() + restore_links_from_markdown()
 │   ├── Success: status="ready"
 │   └── Failure: status="failed"
 └── Return {resume_id}

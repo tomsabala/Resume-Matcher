@@ -6,13 +6,15 @@ instead of a 500.
 """
 
 import copy
+import io
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from pypdf import PdfReader
 
-from app.latex.compile import LatexCompileError, LatexUnavailableError
+from app.latex.compile import LatexCompileError, LatexUnavailableError, latex_engine
 from app.main import app
 from app.schemas.document import ResumeDocument
 from tests.integration.test_dynamic_sections_api import owner_document
@@ -348,3 +350,56 @@ async def test_restoring_a_pre_override_version_brings_back_its_source(
 
     assert after["is_override"] is False
     assert after["source"] != mine
+
+
+async def test_the_picker_page_size_reaches_the_generated_source(
+    isolated_db: Any, sample_resume: dict[str, Any]
+) -> None:
+    """Page size is the one formatting control the templates read. Without it
+    the preamble hardcodes A4 and the picker's US Letter does nothing."""
+    resume_id = await _seed(isolated_db, sample_resume)
+
+    async with _client() as client:
+        a4 = await client.get(f"/api/v1/resumes/{resume_id}/tex")
+        letter = await client.get(
+            f"/api/v1/resumes/{resume_id}/tex", params={"pageSize": "LETTER"}
+        )
+
+    assert "a4paper" in a4.json()["source"]
+    assert "letterpaper" in letter.json()["source"]
+    assert "a4paper" not in letter.json()["source"]
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+async def test_a_us_letter_compile_produces_a_us_letter_page(
+    isolated_db: Any, sample_resume: dict[str, Any]
+) -> None:
+    resume_id = await _seed(isolated_db, sample_resume)
+
+    async with _client() as client:
+        response = await client.get(
+            f"/api/v1/resumes/{resume_id}/tex/pdf", params={"pageSize": "LETTER"}
+        )
+
+    assert response.status_code == 200, response.text
+    page = PdfReader(io.BytesIO(response.content)).pages[0]
+    assert (round(float(page.mediabox.width)), round(float(page.mediabox.height))) == (
+        612,
+        792,
+    )
+
+
+async def test_the_chromium_route_refuses_a_latex_template(
+    isolated_db: Any, sample_resume: dict[str, Any]
+) -> None:
+    """It used to accept any template string and silently render swiss-single,
+    which is how a LaTeX selection produced a browser-rendered PDF."""
+    resume_id = await _seed(isolated_db, sample_resume)
+
+    async with _client() as client:
+        response = await client.get(
+            f"/api/v1/resumes/{resume_id}/pdf", params={"template": "tex-classic"}
+        )
+
+    assert response.status_code == 400
+    assert "/tex/pdf" in response.json()["detail"]

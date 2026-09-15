@@ -637,18 +637,35 @@ async def _generate_auxiliary_messages(
 
 router = APIRouter(route_class=AIOperationRoute, prefix="/resumes", tags=["Resumes"])
 
-ALLOWED_TYPES = {
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-}
+# One extension maps to the set of MIME types browsers actually send for it.
+# A .tex file has no single registered type: it arrives as text/x-tex,
+# application/x-tex, text/plain or application/octet-stream depending on the OS.
 DOCUMENT_TYPES_BY_EXTENSION = {
-    ".pdf": "application/pdf",
-    ".doc": "application/msword",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pdf": frozenset({"application/pdf"}),
+    ".doc": frozenset({"application/msword"}),
+    ".docx": frozenset(
+        {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+    ),
+    ".tex": frozenset(
+        {"text/x-tex", "application/x-tex", "text/plain", "application/octet-stream"}
+    ),
 }
+ALLOWED_TYPES = frozenset().union(*DOCUMENT_TYPES_BY_EXTENSION.values())
 MAX_FILE_SIZE = 4 * 1024 * 1024  # 4MB
 UPLOAD_READ_CHUNK_SIZE = 64 * 1024
+# The templates the print route knows how to render. Mirrors the
+# `target: 'html'` rows of TEMPLATE_OPTIONS in the frontend.
+HTML_TEMPLATES = frozenset(
+    {
+        "swiss-single",
+        "swiss-two-column",
+        "modern",
+        "modern-two-column",
+        "latex",
+        "clean",
+        "vivid",
+    }
+)
 
 
 def _validate_upload_type(file: UploadFile) -> None:
@@ -656,14 +673,17 @@ def _validate_upload_type(file: UploadFile) -> None:
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type: {file.content_type}. Allowed: PDF, DOC, DOCX",
+            detail=(
+                f"Invalid file type: {file.content_type}. "
+                "Allowed: PDF, DOC, DOCX, TEX"
+            ),
         )
 
     suffix = Path(file.filename or "").suffix.lower()
-    if DOCUMENT_TYPES_BY_EXTENSION.get(suffix) != file.content_type:
+    if file.content_type not in DOCUMENT_TYPES_BY_EXTENSION.get(suffix, frozenset()):
         raise HTTPException(
             status_code=400,
-            detail="Upload a valid PDF, DOC, or DOCX file.",
+            detail="Upload a valid PDF, DOC, DOCX, or TEX file.",
         )
 
 
@@ -860,7 +880,10 @@ async def upload_resume(
         logger.exception("Document parsing failed")
         raise HTTPException(
             status_code=422,
-            detail="Failed to parse document. Please upload a valid PDF, DOC, or DOCX file.",
+            detail=(
+                "Failed to parse document. "
+                "Please upload a valid PDF, DOC, DOCX, or TEX file."
+            ),
         )
 
     # Validate extracted text is not empty (image-based PDFs / scanned documents)
@@ -1986,7 +2009,9 @@ async def download_resume_pdf(
     """Generate a PDF for a resume using headless Chromium.
 
     Accepts template settings for customization:
-    - template: swiss-single, swiss-two-column, modern, modern-two-column, latex, clean, or vivid
+    - template: swiss-single, swiss-two-column, modern, modern-two-column,
+      latex, clean, or vivid. A LaTeX template (tex-classic, tex-compact) is
+      compiled by GET /resumes/{resume_id}/tex/pdf and rejected here.
     - pageSize: A4 or LETTER
     - marginTop/Bottom/Left/Right: page margins in mm (5-25)
     - sectionSpacing: gap between sections (1-5)
@@ -2000,6 +2025,17 @@ async def download_resume_pdf(
     - showContactIcons: show icons in contact info
     - lang: locale used for print page translations
     """
+    # This endpoint is the Chromium renderer. A Query(pattern=...) would return
+    # a 422 with no explanation, and accepting any string silently rendered
+    # swiss-single — the confusion this rejection exists to end.
+    if template not in HTML_TEMPLATES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "LaTeX templates are compiled by "
+                "GET /resumes/{resume_id}/tex/pdf."
+            ),
+        )
     resume = await db.get_resume(resume_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")

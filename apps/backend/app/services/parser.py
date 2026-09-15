@@ -8,13 +8,17 @@ import re
 import tempfile
 import zipfile
 import zlib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, Sequence
+from urllib.parse import urlsplit, urlunsplit
 
 import anyio
 from markitdown import MarkItDown
 from pdfminer.ascii85 import ascii85decode, asciihexdecode
 from pdfminer.ccitt import CCITTFaxDecoder
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LAParams, LTTextLineHorizontal
 from pdfminer.lzw import LZWDecoder
 from pdfminer.pdfdocument import PDFDocument
 from pdfminer.pdfdevice import PDFDevice
@@ -36,6 +40,7 @@ from pdfminer.pdftypes import (
     apply_png_predictor,
     apply_tiff_predictor,
     int_value,
+    resolve1,
 )
 from pdfminer.psparser import PSKeyword, literal_name
 
@@ -56,6 +61,13 @@ MAX_PDF_SCANLINE_COLUMNS = 32_768
 MAX_PDF_SCANLINE_BYTES = 256 * 1024
 DOCUMENT_CONVERSION_WORKERS = 2
 DOCUMENT_CONVERSION_TIMEOUT_SECONDS = 120.0
+MAX_EXTRACTED_LINKS = 100
+MAX_LINK_URI_CHARS = 2048
+MAX_LINK_CONTEXT_CHARS = 120
+# Links this far down page 1 belong to the header contact row. cv.pdf's header
+# links sit at 7.9% of an A4 page; its topmost entry link at 56%.
+HEADER_LINK_BAND = 0.15
+LINKS_BLOCK_HEADING = "## Links extracted from the PDF file"
 _DOCUMENT_BACKGROUND_WORKERS: set[asyncio.Task[str]] = set()
 _DOCUMENT_CONVERSION_LIMITER = anyio.CapacityLimiter(DOCUMENT_CONVERSION_WORKERS)
 
@@ -352,6 +364,201 @@ def _validate_pdf_container(path: Path) -> None:
         ) from exc
 
 
+@dataclass(frozen=True)
+class ExtractedLink:
+    """One hyperlink annotation recovered from an uploaded PDF."""
+
+    url: str  # normalised, scheme-allowlisted
+    kind: str  # github | linkedin | email | phone | website
+    context: str  # text of the line the annotation sits on, sanitised
+    page: int  # 0-based
+    top: float  # points from the top of the page
+    page_height: float  # points, for the header-band test
+
+    @property
+    def scope(self) -> str:
+        """Return ``header`` for a contact-row link, ``entry`` otherwise."""
+        in_band = self.top <= self.page_height * HEADER_LINK_BAND
+        return "header" if self.page == 0 and in_band else "entry"
+
+
+_LINK_SCHEMES = frozenset({"http", "https", "mailto", "tel"})
+# Icon glyphs: the FontAwesome private use area, plus pdfminer's "(cid:NNN)"
+# fallback for a glyph whose font has no usable ToUnicode map. An icon-only
+# contact row extracts as "§ | (cid:239) | …", which is noise as context.
+_ICON_GLYPH_RE = re.compile(r"[\ue000-\uf8ff]|\(cid:\d+\)")
+
+
+def _link_kind(url: str) -> str:
+    """Classify a URL the way the document schema names contacts and links."""
+    parsed = urlsplit(url)
+    scheme = parsed.scheme.lower()
+    if scheme == "mailto":
+        return "email"
+    if scheme == "tel":
+        return "phone"
+    host = (parsed.hostname or "").lower()
+    if host == "github.com" or host.endswith(".github.com"):
+        return "github"
+    if host == "linkedin.com" or host.endswith(".linkedin.com"):
+        return "linkedin"
+    return "website"
+
+
+def normalise_link_url(url: str) -> str:
+    """Return a comparison form of ``url``: lowercase host, no trailing slash."""
+    parsed = urlsplit(url.strip())
+    if parsed.scheme and parsed.netloc:
+        url = urlunsplit(
+            (
+                parsed.scheme.lower(),
+                parsed.netloc.lower(),
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
+    elif parsed.scheme:
+        url = f"{parsed.scheme.lower()}:{url.strip()[len(parsed.scheme) + 1 :]}"
+    return url.rstrip("/")
+
+
+def _sanitise_link_context(text: str) -> str:
+    """Collapse a text line into a short, icon-free context string."""
+    return " ".join(_ICON_GLYPH_RE.sub(" ", text).split())[:MAX_LINK_CONTEXT_CHARS]
+
+
+def _annotation_uris(path: Path) -> list[tuple[int, float, float, float, float, str]]:
+    """Return (page, top, y0, y1, page_height, url) for every URI annotation."""
+    found: list[tuple[int, float, float, float, float, str]] = []
+    with path.open("rb") as stream:
+        for page_index, page in enumerate(PDFPage.get_pages(stream)):
+            annots = resolve1(page.annots)
+            if not isinstance(annots, list):
+                continue
+            mediabox = [float(resolve1(value)) for value in page.mediabox]
+            page_top = mediabox[3]
+            page_height = mediabox[3] - mediabox[1]
+            for annot in annots:
+                obj = resolve1(annot)
+                if not isinstance(obj, dict):
+                    continue
+                action = resolve1(obj.get("A"))
+                if not isinstance(action, dict):
+                    continue
+                uri = resolve1(action.get("URI"))
+                if isinstance(uri, bytes):
+                    uri = uri.decode("utf-8", errors="replace")
+                if not isinstance(uri, str):
+                    continue
+                uri = uri.strip()
+                if not uri or len(uri) > MAX_LINK_URI_CHARS:
+                    continue
+                if urlsplit(uri).scheme.lower() not in _LINK_SCHEMES:
+                    continue
+                rect = resolve1(obj.get("Rect"))
+                if not isinstance(rect, list) or len(rect) != 4:
+                    continue
+                bounds = [float(resolve1(value)) for value in rect]
+                y0, y1 = min(bounds[1], bounds[3]), max(bounds[1], bounds[3])
+                found.append((page_index, page_top - y1, y0, y1, page_height, uri))
+    return found
+
+
+def _pdf_text_lines(path: Path) -> dict[int, list[tuple[float, float, str]]]:
+    """Lay the pages out once and return (y0, y1, text) per page index."""
+    lines: dict[int, list[tuple[float, float, str]]] = {}
+    for page_index, layout in enumerate(extract_pages(str(path), laparams=LAParams())):
+        page_lines: list[tuple[float, float, str]] = []
+        pending = [layout]
+        while pending:
+            element = pending.pop()
+            if isinstance(element, LTTextLineHorizontal):
+                page_lines.append(
+                    (element.y0, element.y1, _sanitise_link_context(element.get_text()))
+                )
+            elif hasattr(element, "__iter__"):
+                pending.extend(element)  # type: ignore[arg-type]
+        lines[page_index] = page_lines
+    return lines
+
+
+def _line_context(lines: list[tuple[float, float, str]], y0: float, y1: float) -> str:
+    """Return the text of the line sharing the most height with an annotation.
+
+    An icon-shaped hyperlink often lays out as its own one-glyph line beside
+    the row it labels, so near-ties on overlap are broken by length: the row
+    wins over the icon.
+    """
+    overlaps = [
+        (min(y1, line_y1) - max(y0, line_y0), text) for line_y0, line_y1, text in lines
+    ]
+    best_overlap = max((overlap for overlap, _ in overlaps), default=0.0)
+    if best_overlap <= 0:
+        return ""
+    return max(
+        (text for overlap, text in overlaps if overlap >= best_overlap * 0.8),
+        key=len,
+        default="",
+    )
+
+
+def _extract_pdf_links(path: Path) -> list[ExtractedLink]:
+    """Recover the hyperlinks a PDF carries in its ``/Annots`` arrays.
+
+    MarkItDown reads only the text stream, where a hyperlink is at best its
+    anchor text and at worst an icon glyph, so URLs never reach the LLM. This
+    reads the annotations instead and infers each link's kind in Python.
+
+    A malformed annotation must never fail an upload that would otherwise
+    parse: every failure degrades to "this document has no links".
+    """
+    try:
+        found = _annotation_uris(path)
+        if not found:
+            return []
+        text_lines = _pdf_text_lines(path)
+        links: list[ExtractedLink] = []
+        seen: set[tuple[str, int]] = set()
+        for page_index, top, y0, y1, page_height, uri in sorted(found):
+            url = normalise_link_url(uri)
+            key = (url, page_index)
+            if key in seen:
+                continue
+            seen.add(key)
+            links.append(
+                ExtractedLink(
+                    url=url,
+                    kind=_link_kind(url),
+                    context=_line_context(text_lines.get(page_index, []), y0, y1),
+                    page=page_index,
+                    top=top,
+                    page_height=page_height,
+                )
+            )
+            if len(links) >= MAX_EXTRACTED_LINKS:
+                break
+        return links
+    except Exception:
+        logger.warning("PDF link annotation extraction failed", exc_info=True)
+        return []
+
+
+def format_links_block(links: Sequence[ExtractedLink]) -> str:
+    """Render recovered links as a markdown block the parse prompt consumes."""
+    rows = "\n".join(
+        f'- kind={link.kind} scope={link.scope} '
+        f'context="{link.context.replace(chr(34), "")}" url={link.url}'
+        for link in links
+    )
+    return (
+        f"\n\n{LINKS_BLOCK_HEADING}\n\n"
+        "Real hyperlinks found in the document, with the text they were "
+        "attached to.\nAssign each one to the matching header contact or "
+        f"entry.\n{rows}\n"
+    )
+
+
 def _validate_docx_container(path: Path) -> None:
     """Require a bounded, readable Office Open XML word-processing package."""
     try:
@@ -611,6 +818,142 @@ def restore_dates_from_markdown(
     return parsed_data
 
 
+_LINK_BLOCK_LINE_RE = re.compile(
+    r'^- kind=(\w+) scope=(header|entry) context="([^"]*)" url=(\S+)$',
+    re.MULTILINE,
+)
+# EntryLink.kind is narrower than Contact.kind: a mail or phone link on an
+# entry row has no dedicated kind there.
+_ENTRY_LINK_KINDS = frozenset({"github", "website", "linkedin", "other"})
+
+
+def _link_identity(url: str) -> str:
+    """Return the scheme-free form two spellings of one link share."""
+    normalised = normalise_link_url(url)
+    parsed = urlsplit(normalised)
+    if parsed.scheme == "tel":
+        return re.sub(r"\D", "", normalised)
+    if not parsed.scheme:
+        return normalised.casefold()
+    return normalised[len(parsed.scheme) + 1 :].lstrip("/").casefold()
+
+
+def _comparable_title(value: str) -> str:
+    """Casefold and collapse a title to letters, digits and single spaces."""
+    return " ".join(re.sub(r"[^0-9a-z]+", " ", value.casefold()).split())
+
+
+def restore_links_from_markdown(
+    parsed_data: dict[str, Any],
+    markdown: str,
+) -> dict[str, Any]:
+    """Place hyperlinks the LLM dropped back onto the document it produced.
+
+    Sibling of :func:`restore_dates_from_markdown`. ``_parse_document_sync``
+    writes the links recovered from a PDF's annotations into the extracted
+    text as a "## Links extracted from the PDF file" block, and the prompt
+    asks for each url to be placed on its contact or entry. This makes that
+    true regardless of LLM behavior: it only ever adds what is missing.
+    """
+    if not isinstance(parsed_data, dict):
+        return parsed_data
+    rows = _LINK_BLOCK_LINE_RE.findall(markdown)
+    if not rows:
+        return parsed_data
+
+    header = parsed_data.setdefault("header", {})
+    if not isinstance(header, dict):
+        return parsed_data
+    contacts = header.get("contacts")
+    if not isinstance(contacts, list):
+        contacts = []
+        header["contacts"] = contacts
+
+    # An identity that is already an href is placed. One that only appears as
+    # readable text ("github.com/jane") means the model saw the anchor but not
+    # the url, which the header branch completes in place.
+    linked: set[str] = set()
+    mentioned: set[str] = set()
+    for contact in contacts:
+        if not isinstance(contact, dict):
+            continue
+        for field, sink in (("url", linked), ("value", mentioned)):
+            value = contact.get(field)
+            if isinstance(value, str) and value.strip():
+                sink.add(_link_identity(value))
+
+    entries: list[dict[str, Any]] = []
+    for section in sections_of(parsed_data):
+        for entry in entries_of(section):
+            links = entry.get("links")
+            if not isinstance(links, list):
+                links = []
+                entry["links"] = links
+            for link in links:
+                if isinstance(link, dict) and isinstance(link.get("url"), str):
+                    linked.add(_link_identity(link["url"]))
+            entries.append(entry)
+
+    restored = 0
+    for kind, scope, context, url in rows:
+        identity = _link_identity(url)
+        if not identity or identity in linked:
+            continue
+        if scope == "header":
+            unlinked = next(
+                (
+                    contact
+                    for contact in contacts
+                    if isinstance(contact, dict)
+                    and contact.get("kind") == kind
+                    and not contact.get("url")
+                ),
+                None,
+            )
+            if unlinked is not None:
+                unlinked["url"] = url
+            elif identity in mentioned:
+                continue
+            else:
+                contacts.append({"kind": kind, "label": "", "value": "", "url": url})
+        else:
+            if identity in mentioned:
+                continue
+            target = _entry_for_context(entries, context)
+            if target is None:
+                logger.info("Dropped entry link with no matching entry: %s", url)
+                continue
+            target["links"].append(
+                {
+                    "kind": kind if kind in _ENTRY_LINK_KINDS else "other",
+                    "url": url,
+                }
+            )
+        linked.add(identity)
+        restored += 1
+
+    if restored:
+        logger.info("Restored %d links from extracted PDF annotations", restored)
+
+    return parsed_data
+
+
+def _entry_for_context(
+    entries: Sequence[dict[str, Any]], context: str
+) -> dict[str, Any] | None:
+    """Return the first entry whose title matches a link's line context."""
+    normalised_context = _comparable_title(context)
+    if not normalised_context:
+        return None
+    for entry in entries:
+        title = _comparable_title(str(entry.get("title", "")))
+        if len(title) < 3:
+            continue
+        if title in normalised_context or normalised_context in title:
+            return entry
+    return None
+
+
 def has_meaningful_resume_content(resume_data: Any) -> bool:
     """Return whether a parsed document contains any user-facing content.
 
@@ -656,9 +999,46 @@ def has_meaningful_resume_content(resume_data: Any) -> bool:
     return False
 
 
+_TEX_COMMENT_RE = re.compile(r"(?<!\\)((?:\\\\)*)%[^\n]*")
+_TEX_BEGIN = "\\begin{document}"
+_TEX_END = "\\end{document}"
+
+
+def _extract_tex_source(content: bytes) -> str:
+    """Return the body of an uploaded LaTeX file as prompt-ready text.
+
+    The engine is never invoked: our compile sandbox exists for source *we*
+    generate, and uploaded source stays data. The LLM reads the markup
+    directly, which is why a ``.tex`` upload keeps links, bold and structure
+    that a PDF's text stream has already thrown away.
+    """
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise DocumentValidationError(
+            "The uploaded file is not a valid PDF, DOC, DOCX, or TEX document."
+        ) from exc
+
+    text = _TEX_COMMENT_RE.sub(r"\1", text)
+    begin = text.find(_TEX_BEGIN)
+    end = text.rfind(_TEX_END)
+    if begin != -1:
+        text = text[begin + len(_TEX_BEGIN) :]
+        end = text.rfind(_TEX_END)
+    if end != -1:
+        text = text[:end]
+    text = text.strip()
+    _validate_extracted_text(text)
+    return text
+
+
 def _parse_document_sync(content: bytes, filename: str) -> str:
     """Validate and convert a document inside a bounded worker thread."""
     suffix = Path(filename).suffix.lower()
+    if suffix == ".tex":
+        # MarkItDown would return the preamble as body text; LaTeX source is
+        # read as source instead, and never written to disk or compiled.
+        return _extract_tex_source(content)
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -678,6 +1058,14 @@ def _parse_document_sync(content: bytes, filename: str) -> str:
                 "The uploaded file is not a valid PDF, DOC, or DOCX document."
             )
         _validate_extracted_text(text)
+        if suffix == ".pdf":
+            # The upload route stores this string as the resume's content and
+            # re-parse re-runs the LLM on it, so recovered links have to live
+            # in the text itself or a re-parse loses them again.
+            links = _extract_pdf_links(tmp_path)
+            if links:
+                text += format_links_block(links)
+                _validate_extracted_text(text)
         return text
     finally:
         if tmp_path is not None:
@@ -693,14 +1081,14 @@ def _validate_parsed_resume(result: dict[str, Any]) -> dict[str, Any]:
 
 
 async def parse_document(content: bytes, filename: str) -> str:
-    """Convert a bounded PDF/DOC/DOCX without blocking the request event loop.
+    """Convert a bounded PDF/DOC/DOCX/TEX without blocking the request event loop.
 
     Args:
         content: Raw file bytes
         filename: Original filename for extension detection
 
     Returns:
-        Markdown text content
+        Markdown text content, or LaTeX source for a ``.tex`` upload
     """
     deadline = asyncio.get_running_loop().time() + DOCUMENT_CONVERSION_TIMEOUT_SECONDS
     borrower = object()
@@ -748,8 +1136,9 @@ async def parse_resume_to_json(markdown_text: str) -> dict[str, Any]:
     """Parse resume markdown to structured JSON using LLM.
 
     After LLM parsing, patches any year-only dates with month-inclusive
-    dates extracted from the raw markdown. This ensures months are never
-    lost regardless of LLM behavior.
+    dates extracted from the raw markdown, and re-attaches any hyperlink the
+    extracted-links block lists but the model did not place. This ensures
+    months and urls are never lost regardless of LLM behavior.
 
     Args:
         markdown_text: Resume content in markdown format
@@ -777,6 +1166,10 @@ async def parse_resume_to_json(markdown_text: str) -> dict[str, Any]:
 
     # Patch dates: restore months the LLM may have dropped
     result = restore_dates_from_markdown(result, markdown_text)
+
+    # Patch links: place hyperlinks recovered from PDF annotations that the
+    # LLM did not attach. Runs before validation so new items get ids there.
+    result = restore_links_from_markdown(result, markdown_text)
 
     # Validate against schema
     return _validate_parsed_resume(result)

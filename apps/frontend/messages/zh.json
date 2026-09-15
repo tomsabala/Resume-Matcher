@@ -97,7 +97,7 @@
       "parsingFailed": "简历已上传但AI解析失败。您仍可手动定制。",
       "failed": "上传失败。",
       "dropzoneTitle": "点击或拖拽文件",
-      "dropzoneSubtitle": "PDF、DOC、DOCX（最大 4MB）",
+      "dropzoneSubtitle": "PDF、DOC、DOCX、TEX（最大 4MB）",
       "tryDifferentFile": "尝试其他文件",
       "parsingFailedKeepOpen": "AI 解析失败。请尝试其他文件，或关闭此对话框。"
     },
@@ -307,7 +307,7 @@
         },
         "latex": {
           "name": "学术衬线",
-          "description": "由浏览器渲染的衬线排版，带分隔线标题。需要引擎编译的 LaTeX 请使用 LaTeX 选项卡。"
+          "description": "由浏览器渲染的衬线排版，带分隔线标题"
         },
         "clean": {
           "name": "简洁",
@@ -316,6 +316,14 @@
         "vivid": {
           "name": "鲜明",
           "description": "彩色双栏布局，强调色标题与箭头项目符号"
+        },
+        "texClassic": {
+          "name": "LaTeX 经典",
+          "description": "由引擎编译的 Computer Modern，小型大写字母标题带分隔线"
+        },
+        "texCompact": {
+          "name": "LaTeX 紧凑",
+          "description": "由引擎编译，更紧凑：页边距更小且标题无分隔线"
         }
       },
       "accentColor": "强调色",
@@ -360,7 +368,8 @@
       "effectiveHeaderFont": "标题字体",
       "effectiveBodyFont": "正文字体",
       "compactHint": "紧凑模式会收紧间距与行高；页边距与正文字号保持不变。",
-      "resetDefaults": "恢复默认设置"
+      "resetDefaults": "恢复默认设置",
+      "texNotice": "LaTeX 模板由引擎编译，只读取页面尺寸。其余排版控件适用于浏览器渲染的模板。"
     },
     "leftPanel": {
       "editorPanel": "编辑面板",
@@ -986,7 +995,7 @@
       "upload": {
         "kicker": "现有文件",
         "title": "上传简历",
-        "description": "从 PDF、DOC 或 DOCX 文件开始，让 Resume Matcher 将其解析为你的主档案。",
+        "description": "从 PDF、DOC、DOCX 或 TEX 文件开始，让 Resume Matcher 将其解析为你的主档案。",
         "action": "上传简历"
       },
       "wizard": {
@@ -1236,6 +1245,7 @@
       "save": "保存 LaTeX 源码失败",
       "reset": "重置 LaTeX 源码失败",
       "compile": "LaTeX 编译失败"
-    }
+    },
+    "htmlTemplateNotice": "当前选择的是 HTML 模板，此源码仅作参考。切换到 LaTeX 模板后即以它导出。"
   }
 }

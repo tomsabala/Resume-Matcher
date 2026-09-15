@@ -40,15 +40,15 @@ apps/backend/app/
 
 ### Resumes
 
-| Method | Endpoint              | Description          |
-| ------ | --------------------- | -------------------- |
-| POST   | `/resumes/upload`     | Upload PDF/DOC/DOCX  |
-| GET    | `/resumes?resume_id=` | Fetch resume         |
-| GET    | `/resumes/list`       | List all             |
-| POST   | `/resumes/improve`    | Tailor for job (LLM) |
-| PATCH  | `/resumes/{id}`       | Update               |
-| GET    | `/resumes/{id}/pdf`   | Download PDF         |
-| DELETE | `/resumes/{id}`       | Delete               |
+| Method | Endpoint              | Description             |
+| ------ | --------------------- | ----------------------- |
+| POST   | `/resumes/upload`     | Upload PDF/DOC/DOCX/TEX |
+| GET    | `/resumes?resume_id=` | Fetch resume            |
+| GET    | `/resumes/list`       | List all                |
+| POST   | `/resumes/improve`    | Tailor for job (LLM)    |
+| PATCH  | `/resumes/{id}`       | Update                  |
+| GET    | `/resumes/{id}/pdf`   | Download PDF            |
+| DELETE | `/resumes/{id}`       | Delete                  |
 
 ### Jobs
 
@@ -144,9 +144,17 @@ await complete_json(prompt, ...)   # 180s base, schema-aware bounded recovery
 ### Parser (`services/parser.py`)
 
 ```python
-await parse_document(content, filename) → str  # PDF/DOC/DOCX → Markdown
-await parse_resume_to_json(markdown) → dict    # LLM call
+await parse_document(content, filename) → str  # PDF/DOC/DOCX → Markdown, .tex → source
+await parse_resume_to_json(markdown) → dict    # LLM call + date/link restoration
 ```
+
+A PDF's hyperlinks are not in its text stream, so `_extract_pdf_links` reads
+each page's `/Annots` array and `format_links_block` appends the result to the
+extracted text as a `## Links extracted from the PDF file` block; after the LLM
+answers, `restore_links_from_markdown` re-attaches anything it dropped. A
+`.tex` upload skips MarkItDown entirely (`_extract_tex_source`) and is never
+handed to the TeX engine. See the
+[upload validation and resource policy](backend-guide.md#upload-validation-and-resource-policy).
 
 ### Improver (`services/improver.py`)
 

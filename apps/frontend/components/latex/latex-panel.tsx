@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useTranslations } from '@/lib/i18n';
+import type { PageSize } from '@/lib/types/template-settings';
 import {
   clearTexSource,
   compileTexPdf,
@@ -21,9 +22,18 @@ const TEMPLATES: TexTemplateId[] = ['tex-classic', 'tex-compact'];
 
 interface LatexPanelProps {
   resumeId: string;
-  /** Owned by the parent, so the preview compiles the template shown here. */
+  /**
+   * The template being edited. It comes from the one template picker in
+   * Template & Formatting; this panel does not own the choice.
+   */
   template: TexTemplateId;
+  /** True when the picker's selection is an HTML template, so this tab is
+   * showing `tex-classic` as a stand-in rather than the live selection. */
+  htmlTemplateSelected: boolean;
+  /** Used only by the notice that offers to switch to a LaTeX template. */
   onTemplateChange: (template: TexTemplateId) => void;
+  /** The picker's page size — the one formatting control the engine reads. */
+  pageSize: PageSize;
   /** Bumped by the parent after a document save, so a generated source refetches. */
   revision?: number;
   /** Invoked after a save or reset, which both land on the version timeline. */
@@ -50,7 +60,9 @@ function download(blob: Blob, filename: string): void {
 export function LatexPanel({
   resumeId,
   template,
+  htmlTemplateSelected,
   onTemplateChange,
+  pageSize,
   revision = 0,
   onSourceChanged,
 }: LatexPanelProps) {
@@ -85,7 +97,7 @@ export function LatexPanel({
       setLoading(true);
       setError(null);
       try {
-        const result = await getTexSource(resumeId, { template: nextTemplate });
+        const result = await getTexSource(resumeId, { template: nextTemplate, pageSize });
         setSource(result.source);
         setServerSource(result.source);
         setIsOverride(result.is_override);
@@ -95,7 +107,7 @@ export function LatexPanel({
         setLoading(false);
       }
     },
-    [resumeId, t]
+    [resumeId, pageSize, t]
   );
 
   useEffect(() => {
@@ -123,7 +135,7 @@ export function LatexPanel({
     setBusy('resetting');
     setError(null);
     try {
-      const result = await clearTexSource(resumeId, template);
+      const result = await clearTexSource(resumeId, template, pageSize);
       setSource(result.source);
       setServerSource(result.source);
       setIsOverride(false);
@@ -138,7 +150,7 @@ export function LatexPanel({
   const handleDownloadSource = async () => {
     setError(null);
     try {
-      download(await downloadTexSource(resumeId, template), `resume-${template}.tex`);
+      download(await downloadTexSource(resumeId, template, pageSize), `resume-${template}.tex`);
     } catch (downloadError) {
       setError(downloadError instanceof Error ? downloadError.message : t('latex.errors.load'));
     }
@@ -149,7 +161,7 @@ export function LatexPanel({
     setError(null);
     setCompileLog(null);
     try {
-      download(await compileTexPdf(resumeId, template), `resume-${template}.pdf`);
+      download(await compileTexPdf(resumeId, template, pageSize), `resume-${template}.pdf`);
     } catch (compileError) {
       if (compileError instanceof TexCompileError) {
         setError(compileError.message);
@@ -171,23 +183,27 @@ export function LatexPanel({
     <div className="flex flex-col h-full gap-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-xs uppercase text-steel-grey">{t('latex.template')}</span>
-        {TEMPLATES.map((id) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => onTemplateChange(id)}
-            disabled={isOverride}
-            className={`border-2 border-black px-3 py-1 font-mono text-xs uppercase rounded-none transition-none disabled:opacity-40 disabled:cursor-not-allowed ${
-              template === id ? 'bg-black text-white' : 'bg-white text-black hover:bg-paper-tint'
-            }`}
-          >
-            {t(`latex.templates.${id}`)}
-          </button>
-        ))}
+        <span className="border-2 border-black bg-black px-3 py-1 font-mono text-xs uppercase text-white">
+          {t(`latex.templates.${template}`)}
+        </span>
         <span className="ml-auto font-mono text-xs uppercase text-steel-grey">
           {isOverride ? t('latex.state.edited') : t('latex.state.generated')}
         </span>
       </div>
+
+      {htmlTemplateSelected && (
+        <div className="flex flex-wrap items-center gap-2 border-2 border-black bg-paper-tint px-3 py-2">
+          <p className="font-mono text-xs">{t('latex.htmlTemplateNotice')}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            onClick={() => onTemplateChange('tex-classic')}
+          >
+            {t('latex.templates.tex-classic')}
+          </Button>
+        </div>
+      )}
 
       {isOverride && (
         <p className="border-2 border-black bg-alert-orange/10 px-3 py-2 font-mono text-xs">

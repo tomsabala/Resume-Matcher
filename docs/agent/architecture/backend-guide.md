@@ -277,7 +277,7 @@ GET  /api/v1/health              # liveness probe (no LLM call)
 GET  /api/v1/status              # Full status (LLM + DB isolated; 200 on partial failure)
 GET/PUT /api/v1/config/llm-api-key            # no longer persists a key
 GET/POST/DELETE /api/v1/config/api-keys       # per-provider encrypted keys
-POST /api/v1/resumes/upload      # PDF/DOC/DOCX
+POST /api/v1/resumes/upload      # PDF/DOC/DOCX/TEX
 GET  /api/v1/resumes?resume_id=   # ResumeDocument in data.processed_resume
 PATCH /api/v1/resumes/{id}        # body: a complete ResumeDocument
 POST /api/v1/resumes/improve/preview  + /improve/confirm   # tailor (LLM), then persist
@@ -297,14 +297,38 @@ GET  /api/v1/applications        # Kanban tracker: grouped list (+ POST/PATCH/DE
 
 ## Data Flow
 
-**Upload:** Bounded file read → container validation → worker-thread MarkItDown →
-bounded Markdown → LLM parse → token-guarded JSON/status commit → SQLite (via `db`)
+**Upload:** Bounded file read → container validation → worker-thread MarkItDown
+(or LaTeX source extraction for `.tex`) → bounded Markdown → LLM parse →
+deterministic date/link restoration → token-guarded JSON/status commit → SQLite
+(via `db`)
+
+**Preview:** Resume + Job → keywords → targeted differences/refinement → registered preview.
+**Confirm:** validate/claim preview → optional outputs → atomic resume/improvement/response commit.
+Successful retries replay the recorded result. Routers call
+services; services call `app/llm.py`; persistence goes through the async `db` facade.
+`/improve/confirm` also best-effort auto-creates an `applied` card in the tracker.
 
 ### Upload validation and resource policy
 
-- Supported filename/MIME pairs are PDF (`.pdf`), legacy Word (`.doc`) and
-  Office Open XML Word (`.docx`). MIME alone does not establish the format:
-  PDF structure, the DOC compound-file header, or the DOCX ZIP/package must validate.
+- Supported formats are PDF (`.pdf`), legacy Word (`.doc`), Office Open XML Word
+  (`.docx`) and LaTeX source (`.tex`). `DOCUMENT_TYPES_BY_EXTENSION` maps each
+  extension to a **set** of acceptable MIME types, because `.tex` has no single
+  registered type: browsers send `text/x-tex`, `application/x-tex`, `text/plain`
+  or `application/octet-stream` depending on the OS. Extension and MIME must
+  still agree — `text/plain` is accepted for `.tex` and rejected for `.pdf` —
+  and a mismatch returns 400 `Upload a valid PDF, DOC, DOCX, or TEX file.`
+  while an entirely unknown type returns 400
+  `Invalid file type: {type}. Allowed: PDF, DOC, DOCX, TEX`.
+- MIME alone does not establish a binary format either: PDF structure, the DOC
+  compound-file header, or the DOCX ZIP/package must validate.
+- A `.tex` upload is read as source, not converted: `_extract_tex_source`
+  decodes UTF-8 (invalid bytes are a validation error, so a binary file renamed
+  `.tex` is rejected), strips `%` comments while preserving `\%`, and keeps only
+  the `\begin{document}`…`\end{document}` body when those markers are present.
+  MarkItDown is skipped — it would return the preamble as body text — and the
+  **TeX engine is never invoked**: the compile sandbox exists for source the app
+  generates, and uploaded source stays data. This is also the lossless ingest
+  path, since the source still carries `\href` links and `\textbf` emphasis.
 - Raw input is read in 64 KiB chunks and capped at 4 MiB. DOCX packages permit
   at most 1,024 members and 16 MiB total expanded bytes, checked from metadata
   and again while streaming members. Extracted UTF-8 text is capped at 2 MiB
@@ -318,11 +342,44 @@ bounded Markdown → LLM parse → token-guarded JSON/status commit → SQLite (
   commit `ready` or `failed`; superseded requests receive 409. If the row is
   deleted while parsing, completion receives 404 and does not recreate or update it.
 
-**Preview:** Resume + Job → keywords → targeted differences/refinement → registered preview.
-**Confirm:** validate/claim preview → optional outputs → atomic resume/improvement/response commit.
-Successful retries replay the recorded result. Routers call
-services; services call `app/llm.py`; persistence goes through the async `db` facade.
-`/improve/confirm` also best-effort auto-creates an `applied` card in the tracker.
+### PDF link recovery
+
+MarkItDown reads only a PDF's text stream, where a hyperlink is at best its
+anchor text and at worst an icon glyph (a FontAwesome private-use character, or
+pdfminer's `(cid:NNN)` fallback), so a LaTeX-built CV's GitHub, LinkedIn and
+project URLs never reached the model. The URLs are in the file, in each page's
+`/Annots` array, which the text extractor never visits.
+
+- `_extract_pdf_links` (pdfminer.six) resolves every annotation's `/A` → `/URI`,
+  accepts only the `http`, `https`, `mailto` and `tel` schemes, caps a URI at
+  2,048 characters and a document at 100 links, and de-duplicates on the
+  normalised URL (lowercased host, no trailing slash) per page. Any failure logs
+  a warning and yields no links: a malformed `/Annots` must never fail an upload
+  that would otherwise parse.
+- `kind` is inferred in Python, never asked of the model — `mailto:` → `email`,
+  `tel:` → `phone`, a `github.com`/`linkedin.com` host → `github`/`linkedin`,
+  anything else → `website`. `scope` is geometric: `header` for a link on page 1
+  within the top 15% of the page, `entry` below it. `context` is the laid-out
+  text line sharing the most height with the annotation rectangle, with icon
+  glyphs stripped and truncated to 120 characters.
+- `format_links_block` appends the result to the extracted text as a
+  `## Links extracted from the PDF file` block — one
+  `- kind=… scope=… context="…" url=…` row per link, in document order — and the
+  2 MiB text cap is re-checked afterwards. `PARSE_RESUME_PROMPT` declares the
+  block ground truth rather than resume content and asks for each URL to be
+  placed on its contact or entry.
+- The block lives **inside** the stored text on purpose: the upload route stores
+  that string as the resume's `content` (`content_type="md"`, and as
+  `original_markdown`), and `POST /api/v1/resumes/{id}/retry-processing` re-runs
+  the LLM on that stored markdown. Links passed out of band would be lost on the
+  next parse.
+- `restore_links_from_markdown` is the deterministic backstop and the sibling of
+  `restore_dates_from_markdown`: `parse_resume_to_json` calls it immediately
+  after the date restore and before final `ResumeDocument` validation, so
+  anything it adds gets an id there. It re-reads the block and only ever adds
+  what is missing — a header link fills an existing same-kind contact's empty
+  `url` or appends a new contact, and an entry link attaches to the entry whose
+  normalised title matches its context, or is dropped rather than guessed.
 
 ## Error Handling
 

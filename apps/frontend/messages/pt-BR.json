@@ -97,7 +97,7 @@
       "parsingFailed": "Currículo enviado, mas a análise de IA falhou. Você ainda pode personalizá-lo manualmente.",
       "failed": "Falha no upload.",
       "dropzoneTitle": "Clique ou Arraste o Arquivo",
-      "dropzoneSubtitle": "PDF, DOC, DOCX (Máximo 4MB)",
+      "dropzoneSubtitle": "PDF, DOC, DOCX, TEX (Máximo 4MB)",
       "tryDifferentFile": "Tentar outro arquivo",
       "parsingFailedKeepOpen": "A análise de IA falhou. Tente outro arquivo ou feche este diálogo."
     },
@@ -305,7 +305,7 @@
         },
         "latex": {
           "name": "Serifa acadêmica",
-          "description": "Layout serifado com cabeçalhos sublinhados, renderizado no navegador. Para LaTeX compilado, use a aba LaTeX."
+          "description": "Layout serifado com cabeçalhos sublinhados, renderizado no navegador"
         },
         "clean": {
           "name": "Limpo",
@@ -314,6 +314,14 @@
         "vivid": {
           "name": "Vívido",
           "description": "Layout de duas colunas colorido com cabeçalhos de destaque e marcadores em seta"
+        },
+        "texClassic": {
+          "name": "LaTeX Clássico",
+          "description": "Computer Modern compilado pelo motor, com cabeçalhos em versalete sublinhados"
+        },
+        "texCompact": {
+          "name": "LaTeX Compacto",
+          "description": "Compilado pelo motor e mais denso: margens menores e cabeçalhos sem filete"
         }
       },
       "accentColors": {
@@ -360,7 +368,8 @@
       "effectiveHeaderFont": "Fonte do Cabeçalho",
       "effectiveBodyFont": "Fonte do Corpo",
       "compactHint": "O modo compacto reduz espaçamento e altura da linha. Margens e tamanho de fonte base permanecem literais.",
-      "resetDefaults": "Restaurar Padrões"
+      "resetDefaults": "Restaurar Padrões",
+      "texNotice": "Um modelo LaTeX é compilado pelo motor, que lê apenas o tamanho da página. Os outros controles de formatação valem para os modelos renderizados no navegador."
     },
     "leftPanel": {
       "editorPanel": "Painel do Editor",
@@ -986,7 +995,7 @@
       "upload": {
         "kicker": "Arquivo existente",
         "title": "Enviar um currículo",
-        "description": "Comece com um arquivo PDF, DOC ou DOCX e deixe o Resume Matcher convertê-lo no seu perfil mestre.",
+        "description": "Comece com um arquivo PDF, DOC, DOCX ou TEX e deixe o Resume Matcher convertê-lo no seu perfil mestre.",
         "action": "Enviar currículo"
       },
       "wizard": {
@@ -1236,6 +1245,7 @@
       "save": "Falha ao salvar o código LaTeX",
       "reset": "Falha ao redefinir o código LaTeX",
       "compile": "Falha na compilação do LaTeX"
-    }
+    },
+    "htmlTemplateNotice": "Um modelo HTML está selecionado, então esta fonte aparece apenas como referência. Troque para um modelo LaTeX para exportar a partir dela."
   }
 }

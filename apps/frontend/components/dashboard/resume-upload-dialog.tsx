@@ -35,6 +35,11 @@ const ACCEPTED_FILE_TYPES = [
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
   'application/msword', // .doc
+  'text/x-tex',
+  'application/x-tex',
+  // The OS file picker knows no MIME type for LaTeX on most platforms, so the
+  // extension is what makes a .tex file selectable at all.
+  '.tex',
 ];
 const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB
 

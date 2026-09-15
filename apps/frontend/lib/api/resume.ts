@@ -3,7 +3,8 @@ import type {
   InterviewPrepData,
 } from '@/components/common/resume_previewer_context';
 import type { ResumeDocument } from '@/lib/types/document';
-import { type TemplateSettings } from '@/lib/types/template-settings';
+import { isTexTemplate, type TemplateSettings } from '@/lib/types/template-settings';
+import { compileTexPdf, type TexTemplateId } from '@/lib/api/tex';
 import { type Locale } from '@/i18n/config';
 import { clearResumeWizardCompletion } from '@/lib/utils/resume-wizard-storage';
 import { API_BASE, DEFAULT_TIMEOUT_MS, apiPost, apiPatch, apiDelete, apiFetch } from './client';
@@ -183,11 +184,21 @@ export async function updateResume(
   return payload.data;
 }
 
+/**
+ * The Chromium PDF URL for an HTML template.
+ *
+ * A LaTeX template has no such URL: it is compiled by the engine, and
+ * emitting a `/pdf` link for it is what used to make Download PDF silently
+ * render the wrong document.
+ */
 export function getResumePdfUrl(
   resumeId: string,
   settings?: TemplateSettings,
   locale?: Locale
 ): string {
+  if (settings && isTexTemplate(settings.template)) {
+    throw new Error(`${settings.template} is a LaTeX template; use compileTexPdf`);
+  }
   const normalizedId = normalizeResumeId(resumeId);
   const params = new URLSearchParams();
 
@@ -219,11 +230,19 @@ export function getResumePdfUrl(
   return `${API_BASE}/resumes/${encodeURIComponent(normalizedId)}/pdf?${params.toString()}`;
 }
 
+/** Export the resume with the renderer its selected template belongs to. */
 export async function downloadResumePdf(
   resumeId: string,
   settings?: TemplateSettings,
   locale?: Locale
 ): Promise<Blob> {
+  if (settings && isTexTemplate(settings.template)) {
+    return await compileTexPdf(
+      normalizeResumeId(resumeId),
+      settings.template as TexTemplateId,
+      settings.pageSize
+    );
+  }
   const url = getResumePdfUrl(resumeId, settings, locale);
   const res = await apiFetch(url);
   if (!res.ok) {

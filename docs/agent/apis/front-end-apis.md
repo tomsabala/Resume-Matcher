@@ -179,11 +179,29 @@ Action rules enforced by `apply_diffs`:
 - `reorder` — same items, new order; unverified new items are dropped and
   omitted originals are appended back.
 
-Resume upload accepts matching PDF, DOC or DOCX filename/MIME pairs. The backend
-returns 400 for unsupported or mismatched types, 413 for raw/expanded/extracted
-size limits, and 422 for malformed or textless/scanned documents. Upload and
-retry processing return 409 when a newer processing attempt supersedes the
-request, or 404 when the resume is deleted while processing.
+Resume upload accepts matching PDF, DOC, DOCX or TEX filename/MIME pairs. One
+extension maps to a *set* of acceptable MIME types — `.tex` arrives as
+`text/x-tex`, `application/x-tex`, `text/plain` or `application/octet-stream`
+depending on the OS — but extension and MIME must still agree, so `text/plain`
+with a `.pdf` filename is rejected. The backend returns 400 for unsupported or
+mismatched types (`Invalid file type: {type}. Allowed: PDF, DOC, DOCX, TEX` and
+`Upload a valid PDF, DOC, DOCX, or TEX file.`), 413 for raw/expanded/extracted
+size limits, and 422 for malformed or textless/scanned documents
+(`Failed to parse document. Please upload a valid PDF, DOC, DOCX, or TEX
+file.`). Upload and retry processing return 409 when a newer processing attempt
+supersedes the request, or 404 when the resume is deleted while processing.
+
+A `.tex` upload is read as source, never compiled: comments are stripped (`\%`
+survives) and only the `\begin{document}`…`\end{document}` body is kept when
+those markers are present. A PDF upload goes through MarkItDown, which reads
+only the text stream, so its hyperlinks are recovered separately from each
+page's `/Annots` array, appended to the extracted text as a
+`## Links extracted from the PDF file` block, and re-attached after the LLM by
+`restore_links_from_markdown`. Both land in the string the upload route stores
+as the resume's `content`, which `POST /resumes/{id}/retry-processing` re-runs
+the LLM on — links passed out of band would be lost on re-parse. See
+[the upload/parse pipeline](../architecture/backend-guide.md#upload-validation-and-resource-policy)
+and [PDF link recovery](../architecture/backend-guide.md#pdf-link-recovery).
 
 ## Preview and confirmation
 
@@ -459,7 +477,7 @@ export const PROVIDER_INFO = {
 import { fetchResume, API_BASE, PROVIDER_INFO } from '@/lib/api';
 ```
 
-Legacy `.doc` files pass compound-file header validation, but the bundled MarkItDown DOCX converter does not guarantee binary Word conversion. Convert legacy Word documents to PDF or DOCX for reliable upload.
+Legacy `.doc` files pass compound-file header validation, but the bundled MarkItDown DOCX converter does not guarantee binary Word conversion. Convert legacy Word documents to PDF or DOCX for reliable upload. A LaTeX-built CV is best uploaded as `.tex`, which keeps the links and bold that a PDF's text stream drops.
 
 ## Refinement and monitoring statistics
 

@@ -97,13 +97,17 @@ in a sidebar. A single-column template simply ignores `column`.
 |---|---|
 | `components/resume/index.ts` | `export { ResumeMyTemplate } from './resume-my-template';` |
 | `lib/types/template-settings.ts` → `TemplateType` | the new id (`'my-template'`) |
-| `lib/types/template-settings.ts` → `TEMPLATE_OPTIONS` | `{ id, name, description }` for the selector UI |
+| `lib/types/template-settings.ts` → `TEMPLATE_OPTIONS` | `{ id, name, description, target: 'html' }` for the picker — `target` is what routes the export, and `'html'` keeps it on the Chromium route |
 | `lib/types/template-settings.ts` → `TEMPLATE_FONT_PRESETS` | only if the template is single-typeface and needs signature fonts |
-| `components/dashboard/resume-component.tsx` → `TEMPLATE_COMPONENTS` | id → component (this `Record<TemplateType, …>` is exhaustive, so `tsc` fails until you add it) |
-| `app/print/resumes/[id]/page.tsx` → `parseTemplate` allow-list | the new id, so the PDF route accepts it |
+| `components/dashboard/resume-component.tsx` → `TEMPLATE_COMPONENTS` | id → component. **Do not skip this.** The map is `Partial<Record<TemplateType, …>>` (the `tex-*` ids have no React component), so `tsc` no longer fails when an id is missing: the lookup falls back to `ResumeSingleColumn` and your template silently never renders |
+| `app/print/resumes/[id]/page.tsx` → `parseTemplate` allow-list | the new id, so the PDF route accepts it. The allow-list is HTML-only **by design** — it mirrors the `target: 'html'` rows, the `tex-*` ids are deliberately absent, and an unrecognised value falls back to `'swiss-single'` |
+| `components/builder/formatting-controls.tsx` → `templateLabels` | `builder.formatting.templates.<camelId>.{name,description}` keys, in every `messages/*.json`. The record is indexed by the id, so a missing entry is a type error |
+| `components/builder/template-selector.tsx` → `TemplateThumbnail` | a silhouette branch for the new id. This file exports **only** `TemplateThumbnail` (the old `TemplateSelector` component is gone — the live picker is the grid inside `formatting-controls.tsx`), and its `latex` branch also serves `tex-classic`/`tex-compact`. With no branch the id gets the two-column fallback thumbnail |
 
-`TEMPLATE_OPTIONS` drives the selector; there is no second literal list of
-template names to update.
+`TEMPLATE_OPTIONS` drives the picker, which lists both render targets (nine
+templates: seven HTML plus `tex-classic`/`tex-compact`); there is no second
+literal list of template names to update. A **LaTeX** template is a different
+job — see [latex-export.md](latex-export.md).
 
 ### 4. CSS
 

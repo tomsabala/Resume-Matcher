@@ -130,7 +130,11 @@ function parseMargin(value: string | undefined, defaultValue: number): number {
  * Validate template type
  */
 function parseTemplate(value: string | undefined): TemplateType {
-  // Allow-list mirrors TEMPLATE_OPTIONS in lib/types/template-settings.ts — keep in sync.
+  // Allow-list mirrors the `target: 'html'` rows of TEMPLATE_OPTIONS in
+  // lib/types/template-settings.ts — keep in sync. The `tex-*` ids are
+  // deliberately absent: this route is the Chromium renderer, and a LaTeX
+  // template is compiled by GET /resumes/{id}/tex/pdf instead. An unknown
+  // value still falls back to 'swiss-single'.
   if (
     value === 'swiss-single' ||
     value === 'swiss-two-column' ||

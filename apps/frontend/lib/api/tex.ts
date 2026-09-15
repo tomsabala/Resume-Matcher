@@ -8,6 +8,7 @@
  */
 
 import { apiFetch, apiPut, apiDelete } from './client';
+import type { PageSize } from '@/lib/types/template-settings';
 
 export type TexTemplateId = 'tex-classic' | 'tex-compact';
 
@@ -67,11 +68,12 @@ export async function getTexCapabilities(): Promise<TexCapabilities> {
 
 export async function getTexSource(
   resumeId: string,
-  options: { template?: TexTemplateId; regenerate?: boolean } = {}
+  options: { template?: TexTemplateId; regenerate?: boolean; pageSize?: PageSize } = {}
 ): Promise<TexSource> {
   const params = new URLSearchParams();
   if (options.template) params.set('template', options.template);
   if (options.regenerate) params.set('regenerate', 'true');
+  params.set('pageSize', options.pageSize ?? 'A4');
   const query = params.toString();
   const response = await apiFetch(`/resumes/${resumeId}/tex${query ? `?${query}` : ''}`);
   if (!response.ok) await readError(response, 'Failed to load LaTeX source');
@@ -86,9 +88,12 @@ export async function saveTexSource(resumeId: string, source: string): Promise<T
 
 export async function clearTexSource(
   resumeId: string,
-  template: TexTemplateId = 'tex-classic'
+  template: TexTemplateId = 'tex-classic',
+  pageSize: PageSize = 'A4'
 ): Promise<TexSource> {
-  const response = await apiDelete(`/resumes/${resumeId}/tex?template=${template}`);
+  const response = await apiDelete(
+    `/resumes/${resumeId}/tex?template=${template}&pageSize=${pageSize}`
+  );
   if (!response.ok) await readError(response, 'Failed to reset LaTeX source');
   return (await response.json()) as TexSource;
 }
@@ -101,9 +106,12 @@ export async function clearTexSource(
  */
 export async function downloadTexSource(
   resumeId: string,
-  template: TexTemplateId = 'tex-classic'
+  template: TexTemplateId = 'tex-classic',
+  pageSize: PageSize = 'A4'
 ): Promise<Blob> {
-  const response = await apiFetch(`/resumes/${resumeId}/tex/source?template=${template}`);
+  const response = await apiFetch(
+    `/resumes/${resumeId}/tex/source?template=${template}&pageSize=${pageSize}`
+  );
   if (!response.ok) await readError(response, 'Failed to download LaTeX source');
   return await response.blob();
 }
@@ -116,9 +124,12 @@ export async function downloadTexSource(
  */
 export async function compileTexPdf(
   resumeId: string,
-  template: TexTemplateId = 'tex-classic'
+  template: TexTemplateId = 'tex-classic',
+  pageSize: PageSize = 'A4'
 ): Promise<Blob> {
-  const response = await apiFetch(`/resumes/${resumeId}/tex/pdf?template=${template}`);
+  const response = await apiFetch(
+    `/resumes/${resumeId}/tex/pdf?template=${template}&pageSize=${pageSize}`
+  );
   if (response.status === 503) {
     const detail = await response
       .json()

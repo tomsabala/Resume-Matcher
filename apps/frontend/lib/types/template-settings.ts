@@ -12,7 +12,9 @@ export type TemplateType =
   | 'modern-two-column'
   | 'latex'
   | 'clean'
-  | 'vivid';
+  | 'vivid'
+  | 'tex-classic'
+  | 'tex-compact';
 
 export type PageSize = 'A4' | 'LETTER';
 
@@ -240,6 +242,12 @@ export interface TemplateInfo {
   id: TemplateType;
   name: string;
   description: string;
+  /**
+   * Which renderer produces the PDF: headless Chromium over the print route,
+   * or the LaTeX engine. One picker, two targets — the selection decides the
+   * export, so nothing silently renders with the other engine.
+   */
+  target: 'html' | 'tex';
 }
 
 export const TEMPLATE_OPTIONS: TemplateInfo[] = [
@@ -247,39 +255,66 @@ export const TEMPLATE_OPTIONS: TemplateInfo[] = [
     id: 'swiss-single',
     name: 'Single Column',
     description: 'Traditional full-width layout with maximum content density',
+    target: 'html',
   },
   {
     id: 'swiss-two-column',
     name: 'Two Column',
     description: 'Experience-focused main column with sidebar for skills',
+    target: 'html',
   },
   {
     id: 'modern',
     name: 'Modern',
     description: 'Colorful accents with customizable theme colors',
+    target: 'html',
   },
   {
     id: 'modern-two-column',
     name: 'Modern Two Column',
     description: 'Two-column layout with modern colorful accents and themes',
+    target: 'html',
   },
   {
     id: 'latex',
     name: 'Academic Serif',
-    description:
-      'Browser-rendered serif layout with ruled section headers. For engine-compiled LaTeX, use the LaTeX tab.',
+    description: 'Browser-rendered serif layout with ruled section headers',
+    target: 'html',
   },
   {
     id: 'clean',
     name: 'Clean',
     description: 'Minimal sans layout with large understated section headers',
+    target: 'html',
   },
   {
     id: 'vivid',
     name: 'Vivid',
     description: 'Colorful two-column layout with accent headers and arrow bullets',
+    target: 'html',
+  },
+  {
+    id: 'tex-classic',
+    name: 'LaTeX Classic',
+    description: 'Engine-compiled Computer Modern with ruled small-caps headings',
+    target: 'tex',
+  },
+  {
+    id: 'tex-compact',
+    name: 'LaTeX Compact',
+    description: 'Engine-compiled, denser: tighter margins and unruled headings',
+    target: 'tex',
   },
 ];
+
+/**
+ * Whether a template is compiled by the LaTeX engine rather than Chromium.
+ * Read from `TEMPLATE_OPTIONS` so adding a template is a one-line change and
+ * no call site pattern-matches on the id.
+ */
+export function isTexTemplate(template: TemplateType): boolean {
+  return TEMPLATE_OPTIONS.find((option) => option.id === template)?.target === 'tex';
+}
 
 /**
  * Signature font presets for single-typeface templates.
