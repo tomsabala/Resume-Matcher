@@ -26,6 +26,16 @@ from app.prompts.enrichment import (
     REGENERATE_SKILLS_PROMPT,
 )
 from app.prompts.templates import get_language_name
+from app.schemas.document import (
+    Bullet,
+    Entry,
+    ResumeDocument,
+    Section,
+    SectionKind,
+    TagGroup,
+    migrate_document,
+)
+from app.services.document_diff import diff_value_lists
 from app.schemas.enrichment import (
     AnalysisResponse,
     AnswerInput,
@@ -97,48 +107,81 @@ def _validate_analysis_result(result: dict[str, Any]) -> dict[str, Any]:
     return AnalysisResponse.model_validate(result).model_dump()
 
 
+def _split_item_id(item_id: str) -> tuple[str, str] | None:
+    """Parse an item id of the form ``<section_key>:<entry_id>``."""
+    if not isinstance(item_id, str) or ":" not in item_id:
+        return None
+    section_key, entry_id = item_id.split(":", 1)
+    if not section_key or not entry_id:
+        return None
+    return section_key, entry_id
+
+
+def _find_entry(
+    document: ResumeDocument, item_id: str
+) -> tuple[Section, Entry] | None:
+    """Resolve ``<section_key>:<entry_id>`` to its live section and entry.
+
+    Ids are stable for the entry's life, so an entry reordered between
+    preview and apply still resolves to the same content — the positional
+    ``exp_0`` scheme silently retargeted a different job.
+    """
+    parsed = _split_item_id(item_id)
+    if parsed is None:
+        return None
+    section_key, entry_id = parsed
+    section = document.section(section_key)
+    if section is None or section.kind is not SectionKind.ENTRIES:
+        return None
+    entry = next((e for e in section.entries if e.id == entry_id), None)
+    return (section, entry) if entry is not None else None
+
+
+def _find_value_list(
+    document: ResumeDocument, item_id: str
+) -> tuple[Section, TagGroup | None] | None:
+    """Resolve ``<key>:#tags`` or ``<key>:#group:<index>`` to its value list.
+
+    Returns the owning section and, for a grouped list, the group; ``None``
+    for the group means the section's own ``tags``.
+    """
+    parsed = _split_item_id(item_id)
+    if parsed is None:
+        return None
+    section_key, selector = parsed
+    section = document.section(section_key)
+    if section is None:
+        return None
+    if selector == "#tags" and section.kind is SectionKind.TAGS:
+        return section, None
+    if selector.startswith("#group:") and section.kind is SectionKind.GROUPS:
+        try:
+            index = int(selector.removeprefix("#group:"))
+        except ValueError:
+            return None
+        if 0 <= index < len(section.groups):
+            return section, section.groups[index]
+    return None
+
+
 def _extract_item_from_resume(processed_data: dict, item_id: str) -> dict:
     """Derive item details from resume data using the item_id pattern.
 
     Avoids a redundant LLM analysis call when the frontend already knows
     which item each answer belongs to.
     """
-    try:
-        prefix, idx_str = item_id.split("_", 1)
-        index = int(idx_str)
-    except (ValueError, AttributeError):
+    found = _find_entry(migrate_document(processed_data), item_id)
+    if found is None:
         return {}
-
-    if index < 0:
-        return {}
-
-    if prefix == "exp":
-        entries = processed_data.get("workExperience", [])
-        if not isinstance(entries, list) or index >= len(entries):
-            return {}
-        entry = entries[index]
-        desc = entry.get("description", [])
-        return {
-            "item_id": item_id,
-            "item_type": "experience",
-            "title": entry.get("title", ""),
-            "subtitle": entry.get("company", ""),
-            "current_description": desc if isinstance(desc, list) else [desc] if isinstance(desc, str) and desc else [],
-        }
-    elif prefix == "proj":
-        entries = processed_data.get("personalProjects", [])
-        if not isinstance(entries, list) or index >= len(entries):
-            return {}
-        entry = entries[index]
-        desc = entry.get("description", [])
-        return {
-            "item_id": item_id,
-            "item_type": "project",
-            "title": entry.get("name", ""),
-            "subtitle": entry.get("role", ""),
-            "current_description": desc if isinstance(desc, list) else [desc] if isinstance(desc, str) and desc else [],
-        }
-    return {}
+    section, entry = found
+    return {
+        "item_id": item_id,
+        "item_type": "entry",
+        "section_heading": section.heading or section.key,
+        "title": entry.title,
+        "subtitle": entry.subtitle,
+        "current_description": [bullet.text for bullet in entry.bullets],
+    }
 
 
 @router.post("/analyze/{resume_id}", response_model=AnalysisResponse)
@@ -189,7 +232,8 @@ async def analyze_resume(resume_id: str) -> AnalysisResponse:
         items_to_enrich = [
             EnrichmentItem(
                 item_id=item.get("item_id", f"item_{i}"),
-                item_type=item.get("item_type", "experience"),
+                item_type=item.get("item_type", "entry"),
+                section_heading=item.get("section_heading", ""),
                 title=item.get("title", ""),
                 subtitle=item.get("subtitle"),
                 current_description=item.get("current_description", []),
@@ -368,7 +412,9 @@ async def generate_enhancements(request: EnhanceRequest) -> EnhancementPreview:
         output_language = get_language_name(language)
 
         prompt = ENHANCE_DESCRIPTION_PROMPT.format(
-            item_type=item.get("item_type", "experience"),
+            # The prompt wants a human label ("Military Service"), not the
+            # machine category.
+            item_type=item.get("section_heading") or item.get("item_type", "entry"),
             title=item.get("title", ""),
             subtitle=item.get("subtitle", ""),
             current_description=current_desc_text,
@@ -388,7 +434,8 @@ async def generate_enhancements(request: EnhanceRequest) -> EnhancementPreview:
             enhancements.append(
                 EnhancedDescription(
                     item_id=item_id,
-                    item_type=item.get("item_type", "experience"),
+                    item_type=item.get("item_type", "entry"),
+                    section_heading=item.get("section_heading", ""),
                     title=item.get("title", ""),
                     original_description=current_desc,
                     enhanced_description=additional_bullets,  # These are NEW bullets to add
@@ -405,7 +452,8 @@ async def generate_enhancements(request: EnhanceRequest) -> EnhancementPreview:
             errors.append(
                 EnhancementItemError(
                     item_id=item_id,
-                    item_type=item.get("item_type", "experience"),
+                    item_type=item.get("item_type", "entry"),
+                    section_heading=item.get("section_heading", ""),
                     title=item.get("title", ""),
                     subtitle=item.get("subtitle"),
                     message=message,
@@ -447,54 +495,31 @@ async def apply_enhancements(
             detail="Resume has no processed data.",
         )
 
-    # Make a copy to modify
-    updated_data = copy.deepcopy(processed_data)
+    document = migrate_document(processed_data)
 
-    # Apply each enhancement by ADDING new bullets to existing description
+    # Apply each enhancement by ADDING new bullets to the existing ones.
     for enhancement in request.enhancements:
-        item_id = enhancement.item_id
-        item_type = enhancement.item_type
-        additional_bullets = enhancement.enhanced_description  # These are NEW bullets to add
+        found = _find_entry(document, enhancement.item_id)
+        if found is None:
+            logger.warning(
+                "Could not apply enhancement for unknown item %s",
+                enhancement.item_id,
+            )
+            continue
+        _, entry = found
+        entry.bullets.extend(
+            Bullet(text=text) for text in enhancement.enhanced_description if text.strip()
+        )
 
-        if item_type == "experience":
-            # Parse item_id like "exp_0" to get index
-            try:
-                index = int(item_id.split("_")[1])
-                if "workExperience" in updated_data and index < len(updated_data["workExperience"]):
-                    # Get existing description and ADD new bullets
-                    existing_desc = updated_data["workExperience"][index].get("description", [])
-                    if isinstance(existing_desc, list):
-                        updated_data["workExperience"][index]["description"] = existing_desc + additional_bullets
-                    else:
-                        # Handle edge case where description might be a string
-                        updated_data["workExperience"][index]["description"] = [existing_desc] + additional_bullets if existing_desc else additional_bullets
-            except (ValueError, IndexError) as e:
-                logger.warning(f"Could not apply experience enhancement for {item_id}: {e}")
-
-        elif item_type == "project":
-            # Parse item_id like "proj_0" to get index
-            try:
-                index = int(item_id.split("_")[1])
-                if "personalProjects" in updated_data and index < len(updated_data["personalProjects"]):
-                    # Get existing description and ADD new bullets
-                    existing_desc = updated_data["personalProjects"][index].get("description", [])
-                    if isinstance(existing_desc, list):
-                        updated_data["personalProjects"][index]["description"] = existing_desc + additional_bullets
-                    else:
-                        # Handle edge case where description might be a string
-                        updated_data["personalProjects"][index]["description"] = [existing_desc] + additional_bullets if existing_desc else additional_bullets
-            except (ValueError, IndexError) as e:
-                logger.warning(f"Could not apply project enhancement for {item_id}: {e}")
-
-    # Update the resume in database
-    updated_content = json.dumps(updated_data, indent=2)
+    updated_data = document.model_dump(mode="json")
     try:
-        await db.update_resume(
+        # Through the version funnel: enrichment used to overwrite the master
+        # in place with no snapshot, so a bad enhancement was unrecoverable.
+        await db.commit_resume_version(
             resume_id,
-            {
-                "content": updated_content,
-                "processed_data": updated_data,
-            },
+            updated_data,
+            origin="ai_enrich",
+            resume_updates={"content": json.dumps(updated_data, indent=2)},
         )
     except DatabaseBusyError:
         raise
@@ -553,6 +578,9 @@ async def _regenerate_experience_or_project(
         subtitle=item.subtitle,
         original_content=item.current_content,
         new_content=new_bullets,
+        rows=diff_value_lists(
+            item.current_content, new_bullets, path=item.item_id, kind="bullet"
+        ),
         diff_summary=str(result.get("change_summary") or ""),
     )
 
@@ -587,6 +615,9 @@ async def _regenerate_skills(
         subtitle=item.subtitle,
         original_content=item.current_content,
         new_content=new_skills,
+        rows=diff_value_lists(
+            item.current_content, new_skills, path=item.item_id, kind="tag"
+        ),
         diff_summary=str(result.get("change_summary") or ""),
     )
 
@@ -614,7 +645,7 @@ async def regenerate_items(request: RegenerateRequest) -> RegenerateResponse:
 
     async def regenerate_one(item: RegenerateItemInput) -> RegeneratedItem:
         async with semaphore:
-            if item.item_type == "skills":
+            if item.item_type == "values":
                 return await _regenerate_skills(
                     item, request.instruction, output_language
                 )
@@ -684,213 +715,65 @@ async def apply_regenerated_items(
             detail="Resume has no processed data.",
         )
 
-    # Make a copy to modify
-    updated_data = copy.deepcopy(processed_data)
-
-    def _normalize_match_value(value: str | None) -> str:
-        return (value or "").strip().casefold()
+    document = migrate_document(processed_data)
 
     def _normalize_lines(value: object) -> list[str]:
         if value is None:
             return []
         if isinstance(value, list):
-            normalized: list[str] = []
-            for entry in value:
-                text = str(entry).strip()
-                if text:
-                    normalized.append(text)
-            return normalized
+            return [text for text in (str(item).strip() for item in value) if text]
         text = str(value).strip()
         return [text] if text else []
 
     def _lines_equal(left: object, right: object) -> bool:
-        left_norm = [line.casefold() for line in _normalize_lines(left)]
-        right_norm = [line.casefold() for line in _normalize_lines(right)]
-        return left_norm == right_norm
-
-    def _find_unique_index_by_metadata(
-        entries: list[dict],
-        *,
-        title_key: str,
-        subtitle_key: str,
-        expected_title: str,
-        expected_subtitle: str | None,
-        expected_original_content: list[str],
-        content_key: str,
-    ) -> int | None:
-        expected_title_norm = _normalize_match_value(expected_title)
-        expected_subtitle_norm = _normalize_match_value(expected_subtitle)
-
-        if not expected_title_norm:
-            return None
-
-        matches: list[int] = []
-        for i, entry in enumerate(entries):
-            if not isinstance(entry, dict):
-                continue
-            entry_title = _normalize_match_value(str(entry.get(title_key, "")))
-            entry_subtitle = _normalize_match_value(str(entry.get(subtitle_key, "")))
-
-            if entry_title != expected_title_norm:
-                continue
-            if expected_subtitle_norm and entry_subtitle != expected_subtitle_norm:
-                continue
-            matches.append(i)
-
-        if len(matches) == 1:
-            return matches[0]
-
-        # If metadata is ambiguous, try to disambiguate using the original content.
-        matches_by_content = [
-            i for i in matches if _lines_equal(entries[i].get(content_key), expected_original_content)
+        return [line.casefold() for line in _normalize_lines(left)] == [
+            line.casefold() for line in _normalize_lines(right)
         ]
-        if len(matches_by_content) == 1:
-            return matches_by_content[0]
-
-        return None
-
-    def _parse_index(item_id: str, pattern: str) -> int | None:
-        match = re.fullmatch(pattern, item_id)
-        if not match:
-            return None
-        return int(match.group(1))
 
     apply_failures: list[str] = []
 
-    # Apply each regenerated item (all-or-nothing to avoid corrupting user data)
+    # Apply each regenerated item (all-or-nothing to avoid corrupting user
+    # data). Targets resolve by stable id, so the only remaining check is that
+    # the content the user reviewed is still the content on disk.
     for item in regenerated_items:
-        item_id = item.item_id
-        item_type = item.item_type
-        new_content = item.new_content
-
-        if item_type == "experience":
-            experiences = updated_data.get("workExperience", [])
-            if not isinstance(experiences, list):
-                apply_failures.append(item_id)
+        entry_target = _find_entry(document, item.item_id)
+        if entry_target is not None:
+            _, entry = entry_target
+            if not _lines_equal(
+                [bullet.text for bullet in entry.bullets], item.original_content
+            ):
+                apply_failures.append(item.item_id)
                 continue
-
-            index = _parse_index(item_id, r"exp_(\d+)")
-            if index is None:
-                apply_failures.append(item_id)
-                continue
-
-            expected_title = item.title
-            expected_company = item.subtitle
-            expected_original_content = item.original_content
-
-            resolved_index: int | None = None
-            if 0 <= index < len(experiences):
-                entry = experiences[index] if isinstance(experiences[index], dict) else {}
-                entry_title = _normalize_match_value(str(entry.get("title", "")))
-                entry_company = _normalize_match_value(str(entry.get("company", "")))
-                if entry_title == _normalize_match_value(expected_title) and (
-                    not _normalize_match_value(expected_company)
-                    or entry_company == _normalize_match_value(expected_company)
-                ) and _lines_equal(entry.get("description"), expected_original_content):
-                    resolved_index = index
-
-            if resolved_index is None:
-                resolved_index = _find_unique_index_by_metadata(
-                    experiences,
-                    title_key="title",
-                    subtitle_key="company",
-                    expected_title=expected_title,
-                    expected_subtitle=expected_company,
-                    expected_original_content=expected_original_content,
-                    content_key="description",
+            styles = [bullet.style for bullet in entry.bullets]
+            entry.bullets = [
+                Bullet(
+                    text=text,
+                    style=styles[index] if index < len(styles) else "bullet",
                 )
+                for index, text in enumerate(item.new_content)
+            ]
+            continue
 
-            if resolved_index is None:
-                logger.warning(
-                    "apply-regenerated: experience item mismatch; resume may have changed. "
-                    f"resume_id={resume_id} item_id={item_id} expected_title={expected_title!r} "
-                    f"expected_company={expected_company!r}"
-                )
-                apply_failures.append(item_id)
-                continue
+        values_target = _find_value_list(document, item.item_id)
+        if values_target is None:
+            logger.warning(
+                "apply-regenerated: unknown item. resume_id=%s item_id=%s",
+                resume_id,
+                item.item_id,
+            )
+            apply_failures.append(item.item_id)
+            continue
+        section, group = values_target
+        current = section.tags if group is None else group.values
+        if not _lines_equal(current, item.original_content):
+            apply_failures.append(item.item_id)
+            continue
+        new_values = _normalize_lines(item.new_content)
+        if group is None:
+            section.tags = new_values
+        else:
+            group.values = new_values
 
-            entry = experiences[resolved_index]
-            if isinstance(entry, dict):
-                if not _lines_equal(entry.get("description"), expected_original_content):
-                    apply_failures.append(item_id)
-                    continue
-                entry["description"] = new_content
-            else:
-                apply_failures.append(item_id)
-
-        elif item_type == "project":
-            projects = updated_data.get("personalProjects", [])
-            if not isinstance(projects, list):
-                apply_failures.append(item_id)
-                continue
-
-            index = _parse_index(item_id, r"proj_(\d+)")
-            if index is None:
-                apply_failures.append(item_id)
-                continue
-
-            expected_name = item.title
-            expected_role = item.subtitle
-            expected_original_content = item.original_content
-
-            resolved_index = None
-            if 0 <= index < len(projects):
-                entry = projects[index] if isinstance(projects[index], dict) else {}
-                entry_name = _normalize_match_value(str(entry.get("name", "")))
-                entry_role = _normalize_match_value(str(entry.get("role", "")))
-                if entry_name == _normalize_match_value(expected_name) and (
-                    not _normalize_match_value(expected_role)
-                    or entry_role == _normalize_match_value(expected_role)
-                ) and _lines_equal(entry.get("description"), expected_original_content):
-                    resolved_index = index
-
-            if resolved_index is None:
-                resolved_index = _find_unique_index_by_metadata(
-                    projects,
-                    title_key="name",
-                    subtitle_key="role",
-                    expected_title=expected_name,
-                    expected_subtitle=expected_role,
-                    expected_original_content=expected_original_content,
-                    content_key="description",
-                )
-
-            if resolved_index is None:
-                logger.warning(
-                    "apply-regenerated: project item mismatch; resume may have changed. "
-                    f"resume_id={resume_id} item_id={item_id} expected_name={expected_name!r} "
-                    f"expected_role={expected_role!r}"
-                )
-                apply_failures.append(item_id)
-                continue
-
-            entry = projects[resolved_index]
-            if isinstance(entry, dict):
-                if not _lines_equal(entry.get("description"), expected_original_content):
-                    apply_failures.append(item_id)
-                    continue
-                entry["description"] = new_content
-            else:
-                apply_failures.append(item_id)
-
-        elif item_type == "skills":
-            # Update technical skills (stored in additional.technicalSkills)
-            expected_original_content = item.original_content
-
-            additional = updated_data.get("additional")
-            if isinstance(additional, dict) and "technicalSkills" in additional:
-                if not _lines_equal(additional.get("technicalSkills"), expected_original_content):
-                    apply_failures.append(item_id)
-                    continue
-                additional["technicalSkills"] = new_content
-            elif "technicalSkills" in updated_data:
-                # Fallback for legacy data structure
-                if not _lines_equal(updated_data.get("technicalSkills"), expected_original_content):
-                    apply_failures.append(item_id)
-                    continue
-                updated_data["technicalSkills"] = new_content
-            else:
-                apply_failures.append(item_id)
 
     if apply_failures:
         logger.warning(
@@ -905,15 +788,15 @@ async def apply_regenerated_items(
             ),
         )
 
-    # Update the resume in database
-    updated_content = json.dumps(updated_data, indent=2)
+    # Update the resume in database, through the version funnel so a
+    # regeneration the user dislikes can be restored away from.
+    updated_data = document.model_dump(mode="json")
     try:
-        await db.update_resume(
+        await db.commit_resume_version(
             resume_id,
-            {
-                "content": updated_content,
-                "processed_data": updated_data,
-            },
+            updated_data,
+            origin="ai_enrich",
+            resume_updates={"content": json.dumps(updated_data, indent=2)},
         )
     except DatabaseBusyError:
         raise

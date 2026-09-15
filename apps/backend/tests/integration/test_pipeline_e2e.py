@@ -28,7 +28,16 @@ from httpx import ASGITransport, AsyncClient
 
 from app.database import Database
 from app.main import app
-from app.schemas.models import ResumeData
+from app.schemas.document import ResumeDocument
+
+
+def _section(document: dict[str, Any], key: str) -> dict[str, Any]:
+    """Look up one section of a ``ResumeDocument`` payload by its stable key."""
+    return next(section for section in document["sections"] if section["key"] == key)
+
+
+def _summary(document: dict[str, Any]) -> str:
+    return _section(document, "summary")["text"]
 
 
 def _new_client():
@@ -107,10 +116,8 @@ class TestPipelineCore:
         assert master["is_master"] is True
         # processed_data round-tripped through TinyDB JSON storage.
         assert master["processed_data"] is not None
-        assert master["processed_data"]["personalInfo"]["name"] == "Jane Doe"
-        assert (
-            master["processed_data"]["summary"] == sample_resume["summary"]
-        )
+        assert master["processed_data"]["header"]["name"] == "Jane Doe"
+        assert _summary(master["processed_data"]) == _summary(sample_resume)
         # Exactly one resume exists, and it is the master.
         assert len(await isolated_db.list_resumes()) == 1
 
@@ -191,8 +198,8 @@ class TestPipelineCore:
         assert data["raw_resume"]["processing_status"] == "ready"
         processed = data["processed_resume"]
         assert processed is not None
-        assert processed["personalInfo"]["name"] == "Jane Doe"
-        assert processed["summary"] == sample_resume["summary"]
+        assert processed["header"]["name"] == "Jane Doe"
+        assert _summary(processed) == _summary(sample_resume)
 
         # Both resume and job live in the same isolated db.
         stats = await isolated_db.get_stats()
@@ -249,18 +256,21 @@ class TestTailoringPipeline:
         assert jobs_resp.status_code == 200
         job_id = jobs_resp.json()["job_id"][0]
 
-        # Canned tailored resume: identical personalInfo (required by the confirm
+        # Canned tailored resume: identical header (required by the confirm
         # invariant) with a tweaked summary so we can prove the *tailored* copy
         # is what gets stored.
         #
-        # Run it through ResumeData first so it carries the full, default-filled
-        # key set the real ``parse_resume_to_json``/``apply_diffs`` pipeline
-        # produces. The preview hashes this raw dict, while the preview *response*
-        # serializes ``ResumeData.model_validate(...)``; canonicalizing here makes
-        # the two byte-identical (mirroring production, where stored processed_data
-        # is already Pydantic-normalized) so the confirm preview_hash matches.
-        improved = ResumeData.model_validate(copy.deepcopy(sample_resume)).model_dump()
-        improved["summary"] = (
+        # Run it through ResumeDocument first so it carries the full,
+        # default-filled key set the real ``parse_resume_to_json``/``apply_diffs``
+        # pipeline produces. The preview hashes this raw dict, while the preview
+        # *response* serializes ``ResumeDocument.model_validate(...)``;
+        # canonicalizing here makes the two byte-identical (mirroring production,
+        # where stored processed_data is already Pydantic-normalized) so the
+        # confirm preview_hash matches.
+        improved = ResumeDocument.model_validate(
+            copy.deepcopy(sample_resume)
+        ).model_dump(mode="json")
+        _section(improved, "summary")["text"] = (
             "Senior backend engineer with 6 years building scalable Python and "
             "FastAPI services on AWS and Docker."
         )
@@ -317,7 +327,7 @@ class TestTailoringPipeline:
             assert preview_data["resume_id"] is None
             assert preview_data["job_id"] == job_id
             preview_resume = preview_data["resume_preview"]
-            assert preview_resume["summary"] == improved["summary"]
+            assert _summary(preview_resume) == _summary(improved)
             # Preview must NOT have persisted a tailored resume.
             assert (await isolated_db.get_stats())["total_resumes"] == 1
             # The preview_hash was persisted on the job for the confirm handshake.
@@ -349,11 +359,10 @@ class TestTailoringPipeline:
         assert stored_tailored["is_master"] is False
         assert stored_tailored["parent_id"] == resume_id
         assert stored_tailored["processing_status"] == "ready"
-        assert stored_tailored["processed_data"]["summary"] == improved["summary"]
-        # personalInfo preserved from the master (the confirm invariant).
+        assert _summary(stored_tailored["processed_data"]) == _summary(improved)
+        # Header preserved from the master (the confirm invariant).
         assert (
-            stored_tailored["processed_data"]["personalInfo"]
-            == sample_resume["personalInfo"]
+            stored_tailored["processed_data"]["header"] == sample_resume["header"]
         )
 
         # An improvements record links original -> tailored for this job.
@@ -368,7 +377,7 @@ class TestTailoringPipeline:
         assert stats["total_improvements"] == 1
         master = await isolated_db.get_master_resume()
         assert master["resume_id"] == resume_id
-        assert master["processed_data"]["summary"] == sample_resume["summary"]
+        assert _summary(master["processed_data"]) == _summary(sample_resume)
 
     async def test_preview_confirm_succeeds_for_non_canonical_stored_resume(
         self, isolated_db, sample_resume
@@ -376,13 +385,13 @@ class TestTailoringPipeline:
         """A stored resume whose ``processed_data`` OMITS optional schema fields
         must still tailor + confirm successfully (regression for the confirm 400).
 
-        ``improve/preview`` hashes the raw ``improved_data`` — here a project that
-        omits the optional ``github``/``website`` keys ``ResumeData`` defaults to
-        ``None`` — while ``improve/confirm`` hashes the schema-defaulted
-        ``ResumeData`` round-trip. Before ``_hash_improved_data`` canonicalized
-        both sides these diverged and confirm returned 400 ("preview hash
-        mismatch"). NO canonicalize workaround is applied to ``improved`` here —
-        that is exactly the point.
+        ``improve/preview`` hashes the raw ``improved_data`` — here an entry that
+        omits the optional ``id``/``meta``/``period``/``links``/``summary`` keys
+        ``ResumeDocument`` defaults — while ``improve/confirm`` hashes the
+        schema-defaulted ``ResumeDocument`` round-trip. Before
+        ``_hash_improved_data`` canonicalized both sides these diverged and
+        confirm returned 400 ("preview hash mismatch"). NO canonicalize
+        workaround is applied to ``improved`` here — that is exactly the point.
         """
         upload_resp = await _upload_resume(isolated_db, sample_resume)
         assert upload_resp.status_code == 200
@@ -396,23 +405,26 @@ class TestTailoringPipeline:
         assert jobs_resp.status_code == 200
         job_id = jobs_resp.json()["job_id"][0]
 
-        # Non-canonical tailored data: a project missing the optional
-        # github/website fields. personalInfo stays canonical/unchanged so the
-        # confirm identity invariant holds; only personalProjects is non-canonical.
-        improved = ResumeData.model_validate(copy.deepcopy(sample_resume)).model_dump()
-        improved["summary"] = (
+        # Non-canonical tailored data: a project entry missing every optional
+        # field. The header stays canonical/unchanged so the confirm identity
+        # invariant holds; only the projects section is non-canonical.
+        improved = ResumeDocument.model_validate(
+            copy.deepcopy(sample_resume)
+        ).model_dump(mode="json")
+        _section(improved, "summary")["text"] = (
             "Senior backend engineer building Python and FastAPI services."
         )
-        improved["personalProjects"] = [
+        _section(improved, "projects")["entries"] = [
             {
-                "id": 1,
-                "name": "Sidecar",
-                "role": "Author",
-                "years": "2022",
-                "description": ["Shipped a CLI"],
-            }  # deliberately NO github/website keys
+                "title": "OpenAPI Generator",
+                "subtitle": "Creator & Maintainer",
+                "bullets": [
+                    {"text": "CLI tool generating API clients from OpenAPI specs"},
+                    {"text": "500+ GitHub stars, used by 30+ companies"},
+                ],
+            }  # deliberately NO id/meta/period/links/summary keys
         ]
-        assert "github" not in improved["personalProjects"][0]
+        assert "period" not in _section(improved, "projects")["entries"][0]
 
         with (
             patch(
@@ -460,7 +472,9 @@ class TestTailoringPipeline:
             preview_resume = preview_data["resume_preview"]
             # The preview RESPONSE is schema-complete even though the stored
             # improved_data wasn't — this asymmetry is what used to break confirm.
-            assert "github" in preview_resume["personalProjects"][0]
+            project = _section(preview_resume, "projects")["entries"][0]
+            assert {"id", "meta", "period", "links", "summary"} <= set(project)
+            assert project["bullets"][0]["style"] == "bullet"
 
             async with _new_client() as client:
                 confirm_resp = await client.post(

@@ -33,7 +33,7 @@ function deferred<T>() {
 
 const selected = {
   item_id: 'exp_0',
-  item_type: 'experience' as const,
+  item_type: 'entry' as const,
   title: 'Engineer',
   current_content: ['Built tools'],
 };
@@ -43,6 +43,17 @@ const generated: RegenerateResponse = {
       ...selected,
       original_content: ['Built tools'],
       new_content: ['Built useful tools'],
+      rows: [
+        {
+          kind: 'bullet' as const,
+          status: 'modified' as const,
+          path: 'exp_0[0]',
+          base_text: 'Built tools',
+          head_text: 'Built useful tools',
+          spans: [],
+          anchor: { index: 0 },
+        },
+      ],
       diff_summary: 'Clarity',
     },
   ],
@@ -52,7 +63,7 @@ const analysis = {
   items_to_enrich: [
     {
       item_id: 'exp_0',
-      item_type: 'experience',
+      item_type: 'entry',
       title: 'Engineer',
       current_description: ['Built tools'],
       weakness_reason: 'Detail',
@@ -185,7 +196,7 @@ describe('enrichment partial-result visibility', () => {
     const enhancements = [
       {
         item_id: 'exp_0',
-        item_type: 'experience',
+        item_type: 'entry',
         title: 'Engineer',
         original_description: ['Built tools'],
         enhanced_description: ['Built Python tools'],
@@ -194,7 +205,7 @@ describe('enrichment partial-result visibility', () => {
     const errors = [
       {
         item_id: 'project_0',
-        item_type: 'project',
+        item_type: 'entry',
         title: 'Portfolio',
         message: 'Enhancement unavailable. Please try again.',
       },

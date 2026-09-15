@@ -337,6 +337,22 @@ class Settings(BaseSettings):
             return 86400
         return max(60, min(604800, seconds))
 
+    # Builder autosave fires on every pause, so consecutive manual saves inside
+    # this window replace the previous version in place instead of stacking
+    # hundreds of near-identical rows. AI, import, wizard, restore and tex_edit
+    # origins never coalesce — each is a deliberate checkpoint.
+    resume_version_coalesce_seconds: int = Field(default=300, ge=0, le=3600)
+
+    @field_validator("resume_version_coalesce_seconds", mode="before")
+    @classmethod
+    def clamp_version_coalesce(cls, value: Any) -> int:
+        """Keep an invalid coalescing window from preventing startup."""
+        try:
+            seconds = int(float(str(value).strip()))
+        except (TypeError, ValueError, OverflowError):
+            return 300
+        return max(0, min(3600, seconds))
+
     @field_validator("request_timeout_seconds", mode="before")
     @classmethod
     def clamp_request_timeout(cls, v: Any) -> int:

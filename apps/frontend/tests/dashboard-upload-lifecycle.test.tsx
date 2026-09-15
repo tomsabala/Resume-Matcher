@@ -5,6 +5,11 @@ import DashboardPage from '@/app/(default)/dashboard/page';
 import { StatusCacheProvider, useStatusCache } from '@/lib/context/status-cache';
 import { fetchSystemStatus } from '@/lib/api/config';
 import { fetchResume, fetchResumeList } from '@/lib/api/resume';
+import { sampleDocument } from './fixtures/document';
+
+vi.mock('@/lib/context/workspace-context', () => ({
+  useWorkspace: () => ({ revision: 0 }),
+}));
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/lib/i18n', () => ({
@@ -53,14 +58,7 @@ beforeEach(() => {
       created_at: '2026-09-05T00:00:00Z',
       processing_status: 'ready',
     },
-    processed_resume: {
-      personalInfo: { name: 'Synthetic Person', email: 'synthetic@example.com' },
-      summary: 'Synthetic resume',
-      workExperience: [],
-      education: [],
-      personalProjects: [],
-      additional: {},
-    },
+    processed_resume: sampleDocument({ header: { name: 'Synthetic Person' } }),
   });
   vi.stubGlobal(
     'fetch',

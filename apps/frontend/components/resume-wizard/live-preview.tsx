@@ -1,10 +1,11 @@
 'use client';
 
-import type { ResumeData } from '@/components/dashboard/resume-component';
+import type { ResumeDocument, Section } from '@/lib/types/document';
+import { sectionHeading, visibleSections } from '@/lib/utils/section-helpers';
 import { useTranslations } from '@/lib/i18n';
 
 interface LivePreviewProps {
-  resumeData: ResumeData;
+  doc: ResumeDocument;
   inferredSkills: string[];
 }
 
@@ -23,22 +24,30 @@ function dedupeSkills(skills: string[]): string[] {
   return unique;
 }
 
-export function LivePreview({ resumeData, inferredSkills }: LivePreviewProps) {
+/** Every short value already written into the document, for dedupe against suggestions. */
+function writtenValues(sections: Section[]): Set<string> {
+  const values = new Set<string>();
+  for (const section of sections) {
+    for (const tag of section.tags) values.add(tag.trim().toLowerCase());
+    for (const group of section.groups) {
+      for (const value of group.values) values.add(value.trim().toLowerCase());
+    }
+  }
+  return values;
+}
+
+export function LivePreview({ doc, inferredSkills }: LivePreviewProps) {
   const { t } = useTranslations();
-  const personalInfo = resumeData.personalInfo ?? {};
-  const experience = resumeData.workExperience ?? [];
-  const projects = resumeData.personalProjects ?? [];
-  const education = resumeData.education ?? [];
-  const technicalSkills = resumeData.additional?.technicalSkills ?? [];
-  const skills = dedupeSkills([...technicalSkills, ...inferredSkills]);
-  const inferredKeys = new Set(inferredSkills.map((s) => s.trim().toLowerCase()));
+  const sections = visibleSections(doc);
+  const alreadyWritten = writtenValues(sections);
+  // Only surface a suggestion the document does not already carry; the rest are
+  // rendered by their own section below.
+  const suggestedSkills = dedupeSkills(inferredSkills).filter(
+    (skill) => !alreadyWritten.has(skill.toLowerCase())
+  );
 
   const hasAnyContent =
-    Boolean(personalInfo.name?.trim()) ||
-    experience.length > 0 ||
-    projects.length > 0 ||
-    education.length > 0 ||
-    skills.length > 0;
+    Boolean(doc.header.name.trim()) || sections.length > 0 || suggestedSkills.length > 0;
 
   return (
     <aside
@@ -55,91 +64,110 @@ export function LivePreview({ resumeData, inferredSkills }: LivePreviewProps) {
         <div className="mt-3 space-y-5">
           <div>
             <h2 className="font-serif text-2xl font-bold leading-tight">
-              {personalInfo.name?.trim() || t('resumeWizard.preview.unnamed')}
+              {doc.header.name.trim() || t('resumeWizard.preview.unnamed')}
             </h2>
-            {personalInfo.title?.trim() && (
-              <p className="font-sans text-sm text-steel-grey">{personalInfo.title}</p>
+            {doc.header.headline.trim() && (
+              <p className="font-sans text-sm text-steel-grey">{doc.header.headline}</p>
             )}
           </div>
 
-          {experience.length > 0 && (
-            <section>
+          {sections.map((section) => (
+            <section key={section.id}>
               <p className="border-b border-black pb-1 font-mono text-xs font-bold uppercase tracking-wider">
-                {t('resumeWizard.preview.experience')}
+                {sectionHeading(section, t)}
               </p>
-              {experience.map((item) => (
-                <div key={item.id} className="mt-2">
-                  <p className="font-sans text-sm font-bold">
-                    {[item.title, item.company].filter(Boolean).join(' · ')}
-                  </p>
-                  {item.years?.trim() && (
-                    <p className="font-mono text-xs text-steel-grey">{item.years}</p>
-                  )}
-                  <ul className="mt-1 list-none space-y-1">
-                    {(item.description ?? []).map((line, index) => (
-                      <li key={index} className="font-sans text-xs leading-snug">
-                        {line}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
+              <SectionSummary section={section} />
             </section>
-          )}
+          ))}
 
-          {projects.length > 0 && (
-            <section>
-              <p className="border-b border-black pb-1 font-mono text-xs font-bold uppercase tracking-wider">
-                {t('resumeWizard.preview.projects')}
-              </p>
-              {projects.map((item) => (
-                <p key={item.id} className="mt-2 font-sans text-sm font-bold">
-                  {item.name}
-                </p>
-              ))}
-            </section>
-          )}
-
-          {education.length > 0 && (
-            <section>
-              <p className="border-b border-black pb-1 font-mono text-xs font-bold uppercase tracking-wider">
-                {t('resumeWizard.preview.education')}
-              </p>
-              {education.map((item) => (
-                <p key={item.id} className="mt-2 font-sans text-sm">
-                  {[item.degree, item.institution].filter(Boolean).join(' · ')}
-                </p>
-              ))}
-            </section>
-          )}
-
-          {skills.length > 0 && (
+          {suggestedSkills.length > 0 && (
             <section>
               <p className="border-b border-black pb-1 font-mono text-xs font-bold uppercase tracking-wider">
                 {t('resumeWizard.preview.skills')}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
-                {skills.map((skill) => {
-                  const isNew = inferredKeys.has(skill.toLowerCase());
-                  return (
-                    <span
-                      key={skill}
-                      className={
-                        isNew
-                          ? 'border border-green-700 bg-background px-2 py-1 font-mono text-xs text-green-700'
-                          : 'border border-black bg-background px-2 py-1 font-mono text-xs'
-                      }
-                    >
-                      {skill}
-                      {isNew && <span aria-hidden="true"> ✓</span>}
-                    </span>
-                  );
-                })}
+                {suggestedSkills.map((skill) => (
+                  <span
+                    key={skill}
+                    className="border border-green-700 bg-background px-2 py-1 font-mono text-xs text-green-700"
+                  >
+                    {skill}
+                    <span aria-hidden="true"> ✓</span>
+                  </span>
+                ))}
               </div>
             </section>
           )}
         </div>
       )}
     </aside>
+  );
+}
+
+/** Compact rendering of whichever field group the section's kind selects. */
+function SectionSummary({ section }: { section: Section }) {
+  if (section.kind === 'text') {
+    return <p className="mt-2 font-sans text-xs leading-snug">{section.text}</p>;
+  }
+
+  if (section.kind === 'tags') {
+    return (
+      <div className="mt-2 flex flex-wrap gap-2">
+        {section.tags.map((tag) => (
+          <span key={tag} className="border border-black bg-background px-2 py-1 font-mono text-xs">
+            {tag}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  if (section.kind === 'groups') {
+    return (
+      <div className="mt-2 space-y-2">
+        {section.groups.map((group, index) => (
+          <div key={index}>
+            {group.label && (
+              <p className="font-mono text-xs uppercase text-steel-grey">{group.label}</p>
+            )}
+            <div className="mt-1 flex flex-wrap gap-2">
+              {group.values.map((value) => (
+                <span
+                  key={value}
+                  className="border border-black bg-background px-2 py-1 font-mono text-xs"
+                >
+                  {value}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {section.entries.map((entry) => (
+        <div key={entry.id} className="mt-2">
+          <p className="font-sans text-sm font-bold">
+            {[entry.title, entry.subtitle].filter(Boolean).join(' · ')}
+          </p>
+          {entry.period.trim() && (
+            <p className="font-mono text-xs text-steel-grey">{entry.period}</p>
+          )}
+          {entry.summary.trim() && (
+            <p className="mt-1 font-sans text-xs leading-snug">{entry.summary}</p>
+          )}
+          <ul className="mt-1 list-none space-y-1">
+            {entry.bullets.map((bullet, index) => (
+              <li key={index} className="font-sans text-xs leading-snug">
+                {bullet.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </>
   );
 }

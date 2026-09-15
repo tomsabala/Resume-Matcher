@@ -1,67 +1,223 @@
 {
-  "personalInfo": {
+  "schemaVersion": 2,
+  "header": {
     "name": "Jane Doe",
-    "title": "Senior Backend Engineer",
-    "email": "jane@example.com",
-    "phone": "+1-555-0100",
-    "location": "San Francisco, CA",
-    "website": "https://janedoe.dev",
-    "linkedin": "linkedin.com/in/janedoe",
-    "github": "github.com/janedoe"
+    "headline": "Senior Backend Engineer",
+    "contacts": [
+      {
+        "id": "c-email",
+        "kind": "email",
+        "label": "jane@example.com",
+        "value": "jane@example.com",
+        "url": ""
+      },
+      {
+        "id": "c-phone",
+        "kind": "phone",
+        "label": "+1-555-0100",
+        "value": "+1-555-0100",
+        "url": ""
+      },
+      {
+        "id": "c-location",
+        "kind": "location",
+        "label": "San Francisco, CA",
+        "value": "San Francisco, CA",
+        "url": ""
+      },
+      {
+        "id": "c-website",
+        "kind": "website",
+        "label": "https://janedoe.dev",
+        "value": "https://janedoe.dev",
+        "url": ""
+      },
+      {
+        "id": "c-linkedin",
+        "kind": "linkedin",
+        "label": "",
+        "value": "linkedin.com/in/janedoe",
+        "url": ""
+      },
+      {
+        "id": "c-github",
+        "kind": "github",
+        "label": "",
+        "value": "github.com/janedoe",
+        "url": ""
+      }
+    ]
   },
-  "summary": "Backend engineer with 6 years of experience building scalable Python APIs and microservices.",
-  "workExperience": [
+  "sections": [
     {
-      "id": 1,
-      "title": "Senior Backend Engineer",
-      "company": "Acme Corp",
-      "location": "San Francisco, CA",
-      "years": "Jan 2021 - Present",
-      "description": [
-        "Built REST APIs serving 50K requests/day using Python and FastAPI",
-        "Led migration from monolith to microservices architecture",
-        "Mentored 3 junior developers on backend best practices"
-      ]
+      "id": "s-summary",
+      "key": "summary",
+      "heading": "Summary",
+      "headingI18nKey": "resume.sections.summary",
+      "kind": "text",
+      "visible": true,
+      "column": "main",
+      "text": "Backend engineer with 6 years of experience building scalable Python APIs and microservices.",
+      "entries": [],
+      "tags": [],
+      "groups": []
     },
     {
-      "id": 2,
-      "title": "Software Engineer",
-      "company": "StartupCo",
-      "location": "New York, NY",
-      "years": "Jun 2018 - Dec 2020",
-      "description": [
-        "Developed payment processing system handling $2M monthly",
-        "Wrote unit and integration tests improving coverage from 40% to 85%"
+      "id": "s-experience",
+      "key": "experience",
+      "heading": "Experience",
+      "headingI18nKey": "resume.sections.experience",
+      "kind": "entries",
+      "visible": true,
+      "column": "main",
+      "text": "",
+      "entries": [
+        {
+          "id": "e-experience-1",
+          "title": "Senior Backend Engineer",
+          "subtitle": "Acme Corp",
+          "meta": "San Francisco, CA",
+          "period": "Jan 2021 - Present",
+          "links": [],
+          "summary": "",
+          "bullets": [
+            {
+              "text": "Built REST APIs serving 50K requests/day using Python and FastAPI",
+              "style": "bullet"
+            },
+            {
+              "text": "Led migration from monolith to microservices architecture",
+              "style": "bullet"
+            },
+            {
+              "text": "Mentored 3 junior developers on backend best practices",
+              "style": "bullet"
+            }
+          ]
+        },
+        {
+          "id": "e-experience-2",
+          "title": "Software Engineer",
+          "subtitle": "StartupCo",
+          "meta": "New York, NY",
+          "period": "Jun 2018 - Dec 2020",
+          "links": [],
+          "summary": "",
+          "bullets": [
+            {
+              "text": "Developed payment processing system handling $2M monthly",
+              "style": "bullet"
+            },
+            {
+              "text": "Wrote unit and integration tests improving coverage from 40% to 85%",
+              "style": "bullet"
+            }
+          ]
+        }
+      ],
+      "tags": [],
+      "groups": []
+    },
+    {
+      "id": "s-education",
+      "key": "education",
+      "heading": "Education",
+      "headingI18nKey": "resume.sections.education",
+      "kind": "entries",
+      "visible": true,
+      "column": "main",
+      "text": "",
+      "entries": [
+        {
+          "id": "e-education-1",
+          "title": "MIT",
+          "subtitle": "B.S. Computer Science",
+          "meta": "",
+          "period": "2014 - 2018",
+          "links": [],
+          "summary": "Graduated with honors, Dean's List",
+          "bullets": []
+        }
+      ],
+      "tags": [],
+      "groups": []
+    },
+    {
+      "id": "s-projects",
+      "key": "projects",
+      "heading": "Projects",
+      "headingI18nKey": "resume.sections.projects",
+      "kind": "entries",
+      "visible": true,
+      "column": "main",
+      "text": "",
+      "entries": [
+        {
+          "id": "e-projects-1",
+          "title": "OpenAPI Generator",
+          "subtitle": "Creator & Maintainer",
+          "meta": "",
+          "period": "Mar 2021 - Present",
+          "links": [],
+          "summary": "",
+          "bullets": [
+            {
+              "text": "CLI tool generating API clients from OpenAPI specs",
+              "style": "bullet"
+            },
+            {
+              "text": "500+ GitHub stars, used by 30+ companies",
+              "style": "bullet"
+            }
+          ]
+        }
+      ],
+      "tags": [],
+      "groups": []
+    },
+    {
+      "id": "s-skills",
+      "key": "skills",
+      "heading": "Skills & Awards",
+      "headingI18nKey": "resume.sections.skills",
+      "kind": "groups",
+      "visible": true,
+      "column": "main",
+      "text": "",
+      "entries": [],
+      "tags": [],
+      "groups": [
+        {
+          "label": "Technical Skills",
+          "values": [
+            "Python",
+            "FastAPI",
+            "Docker",
+            "AWS",
+            "PostgreSQL",
+            "Redis"
+          ]
+        },
+        {
+          "label": "Languages",
+          "values": [
+            "English (Native)",
+            "Spanish (Conversational)"
+          ]
+        },
+        {
+          "label": "Certifications & Training",
+          "values": [
+            "AWS Solutions Architect Associate"
+          ]
+        },
+        {
+          "label": "Awards",
+          "values": [
+            "Employee of the Year 2022"
+          ]
+        }
       ]
     }
-  ],
-  "education": [
-    {
-      "id": 1,
-      "institution": "MIT",
-      "degree": "B.S. Computer Science",
-      "years": "2014 - 2018",
-      "description": "Graduated with honors, Dean's List"
-    }
-  ],
-  "personalProjects": [
-    {
-      "id": 1,
-      "name": "OpenAPI Generator",
-      "role": "Creator & Maintainer",
-      "years": "Mar 2021 - Present",
-      "description": [
-        "CLI tool generating API clients from OpenAPI specs",
-        "500+ GitHub stars, used by 30+ companies"
-      ]
-    }
-  ],
-  "additional": {
-    "technicalSkills": ["Python", "FastAPI", "Docker", "AWS", "PostgreSQL", "Redis"],
-    "languages": ["English (Native)", "Spanish (Conversational)"],
-    "certificationsTraining": ["AWS Solutions Architect Associate"],
-    "awards": ["Employee of the Year 2022"]
-  },
-  "customSections": {},
-  "sectionMeta": []
+  ]
 }

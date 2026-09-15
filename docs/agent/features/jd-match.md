@@ -22,6 +22,16 @@ The Resume Builder includes a "JD Match" tab that shows how well a tailored resu
 - **Match statistics**: Shows total keywords, matches found, and match percentage
 - **Color-coded percentage**: Green (≥50%), yellow (≥30%), red (<30%)
 
+## What counts as "the resume"
+
+Both the statistics and the highlighting walk the document rather than a fixed
+set of fields: `visibleSections(doc)` and, per section, whichever content its
+`kind` holds — `text`, `tags`, group labels and values, and each entry's
+title/subtitle/meta/summary/bullet text. A section the user added therefore
+contributes to the match score, and a hidden section does not, so the stats
+describe the document actually being sent. Headings are rendered through
+`sectionHeading` so the panel labels match the PDF.
+
 ## Key Files
 
 | File | Purpose |

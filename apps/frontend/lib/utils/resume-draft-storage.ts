@@ -1,4 +1,4 @@
-import type { ResumeData } from '@/components/dashboard/resume-component';
+import { SCHEMA_VERSION, type ResumeDocument } from '@/lib/types/document';
 
 export const LEGACY_RESUME_DRAFT_STORAGE_KEY = 'resume_builder_draft';
 export const RESUME_DRAFT_STORAGE_PREFIX = `${LEGACY_RESUME_DRAFT_STORAGE_KEY}:`;
@@ -20,7 +20,7 @@ export const RESUME_DRAFT_MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000; // 1 day
 export interface ResumeDraftEnvelope {
   resumeId: string | null;
   updatedAt: number;
-  data: ResumeData;
+  data: ResumeDocument;
 }
 
 interface ParseResumeDraftOptions {
@@ -42,7 +42,7 @@ export function getResumeDraftStorageKey(resumeId: string | null | undefined): s
 
 export function buildResumeDraft(
   resumeId: string | null | undefined,
-  data: ResumeData,
+  data: ResumeDocument,
   updatedAt = Date.now()
 ): ResumeDraftEnvelope {
   return {
@@ -60,26 +60,22 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !Array.isArray(value);
 }
 
-export function isResumeDataShape(value: unknown): value is ResumeData {
+/**
+ * Whether a persisted value is a schema-2 resume document.
+ *
+ * `schemaVersion` is checked, not inferred: a pre-migration draft carries the
+ * old six-section shape, and silently restoring it would overwrite a migrated
+ * server document with fields nothing renders any more.
+ */
+export function isResumeDocumentShape(value: unknown): value is ResumeDocument {
   if (!isObjectRecord(value)) {
     return false;
   }
 
   return (
-    [
-      'personalInfo',
-      'summary',
-      'workExperience',
-      'education',
-      'personalProjects',
-      'additional',
-    ].some((key) => key in value) &&
-    (value.personalInfo === undefined || isObjectRecord(value.personalInfo)) &&
-    (value.summary === undefined || typeof value.summary === 'string') &&
-    (value.workExperience === undefined || Array.isArray(value.workExperience)) &&
-    (value.education === undefined || Array.isArray(value.education)) &&
-    (value.personalProjects === undefined || Array.isArray(value.personalProjects)) &&
-    (value.additional === undefined || isObjectRecord(value.additional))
+    value.schemaVersion === SCHEMA_VERSION &&
+    isObjectRecord(value.header) &&
+    Array.isArray(value.sections)
   );
 }
 
@@ -96,7 +92,7 @@ function isResumeDraftEnvelope(value: unknown): value is ResumeDraftEnvelope {
     // comparison against NaN is false), so a malformed draft would be treated
     // as permanently fresh.
     Number.isFinite(value.updatedAt) &&
-    isResumeDataShape(value.data)
+    isResumeDocumentShape(value.data)
   );
 }
 
@@ -131,11 +127,11 @@ export function parseResumeDraft(
       return parsed;
     }
 
-    if (options.allowLegacyPlainData === false || !isResumeDataShape(parsed)) {
+    if (options.allowLegacyPlainData === false || !isResumeDocumentShape(parsed)) {
       return null;
     }
 
-    return buildResumeDraft(resumeId, parsed as ResumeData, fallbackUpdatedAt);
+    return buildResumeDraft(resumeId, parsed, fallbackUpdatedAt);
   } catch {
     return null;
   }
@@ -149,8 +145,8 @@ export function parseResumeDraft(
  * equality is key-order sensitive: a client-authored draft and a
  * Pydantic-serialised server response can carry identical data with different
  * key order and compare unequal, surfacing a recovery prompt whose two options
- * are indistinguishable. Arrays stay order-sensitive — order is meaningful for
- * description rows and their parallel styles.
+ * are indistinguishable. Arrays stay order-sensitive — section order, entry
+ * order and bullet order are all user-visible.
  */
 const deepEqual = (left: unknown, right: unknown): boolean => {
   if (left === right) return true;
@@ -180,15 +176,15 @@ const deepEqual = (left: unknown, right: unknown): boolean => {
   return Number.isNaN(left) && Number.isNaN(right);
 };
 
-export function isSameResumeData(left: ResumeData, right: ResumeData): boolean {
+export function isSameResumeDocument(left: ResumeDocument, right: ResumeDocument): boolean {
   return deepEqual(left, right);
 }
 
 export function shouldPromptForDraftRestore(
   draft: ResumeDraftEnvelope | null,
-  serverData: ResumeData
+  serverData: ResumeDocument
 ): boolean {
-  return Boolean(draft && !isSameResumeData(draft.data, serverData));
+  return Boolean(draft && !deepEqual(draft.data, serverData));
 }
 
 /**

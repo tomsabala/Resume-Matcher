@@ -8,6 +8,7 @@
 import { API_BASE } from '@/lib/api/client';
 import { translate } from '@/lib/i18n/server';
 import { resolveLocale } from '@/lib/i18n/locale';
+import { emptyHeader, type Header, type ResumeDocument } from '@/lib/types/document';
 
 const PAGE_DIMENSIONS = {
   A4: { width: 210, height: 297 },
@@ -24,17 +25,9 @@ type PageProps = {
   }>;
 };
 
-interface PersonalInfo {
-  name?: string;
-  email?: string;
-  phone?: string;
-  location?: string;
-  linkedin?: string;
-}
-
 interface CoverLetterData {
   coverLetter: string;
-  personalInfo: PersonalInfo;
+  header: Header;
 }
 
 async function fetchCoverLetterData(resumeId: string): Promise<CoverLetterData> {
@@ -47,15 +40,13 @@ async function fetchCoverLetterData(resumeId: string): Promise<CoverLetterData> 
   const payload = (await res.json()) as {
     data: {
       cover_letter?: string;
-      processed_resume?: {
-        personalInfo?: PersonalInfo;
-      };
+      processed_resume?: ResumeDocument;
     };
   };
 
   return {
     coverLetter: payload.data.cover_letter || '',
-    personalInfo: payload.data.processed_resume?.personalInfo || {},
+    header: payload.data.processed_resume?.header ?? emptyHeader(),
   };
 }
 
@@ -75,7 +66,7 @@ export default async function PrintCoverLetterPage({ params, searchParams }: Pag
   const locale = resolveLocale(resolvedSearchParams?.lang);
 
   // Fetch cover letter data from API (same pattern as resume)
-  const { coverLetter, personalInfo } = await fetchCoverLetterData(resolvedParams.id);
+  const { coverLetter, header } = await fetchCoverLetterData(resolvedParams.id);
 
   // Standard cover letter margins
   const margins = { top: 25, right: 25, bottom: 25, left: 25 };
@@ -123,7 +114,7 @@ export default async function PrintCoverLetterPage({ params, searchParams }: Pag
             letterSpacing: '-0.02em',
           }}
         >
-          {personalInfo.name || nameFallback}
+          {header.name || nameFallback}
         </h1>
         <div
           style={{
@@ -136,10 +127,10 @@ export default async function PrintCoverLetterPage({ params, searchParams }: Pag
             gap: '4mm',
           }}
         >
-          {personalInfo.email && <span>{personalInfo.email}</span>}
-          {personalInfo.phone && <span>{personalInfo.phone}</span>}
-          {personalInfo.location && <span>{personalInfo.location}</span>}
-          {personalInfo.linkedin && <span>{personalInfo.linkedin}</span>}
+          {header.contacts.map((contact) => {
+            const text = contact.label.trim() || contact.value.trim();
+            return text ? <span key={contact.id}>{text}</span> : null;
+          })}
         </div>
       </header>
 

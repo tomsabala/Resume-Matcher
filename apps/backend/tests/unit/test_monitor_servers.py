@@ -92,8 +92,8 @@ def test_owned_backend_reads_seed_and_selected_credentials_then_tears_down(
         )
         assert response.status_code == 200
         assert (
-            response.json()["data"]["processed_resume"]["personalInfo"]["name"]
-            == sample_resume["personalInfo"]["name"]
+            response.json()["data"]["processed_resume"]["header"]["name"]
+            == sample_resume["header"]["name"]
         )
         probe = subprocess.run(
             [

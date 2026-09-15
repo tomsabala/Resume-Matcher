@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { RegenerateDialog } from '@/components/builder/regenerate-dialog';
+import { RegenerateDialog, type RegenerateGroup } from '@/components/builder/regenerate-dialog';
 import { RegenerateDiffPreview } from '@/components/builder/regenerate-diff-preview';
 import type { RegenerateItemInput, RegeneratedItem } from '@/lib/api/enrichment';
 
@@ -25,9 +25,7 @@ describe('RegenerateDialog', () => {
       <RegenerateDialog
         open
         onOpenChange={vi.fn()}
-        experienceItems={[]}
-        projectItems={[]}
-        skillsItem={null}
+        groups={[]}
         selectedItems={[]}
         onSelectionChange={vi.fn()}
         onContinue={vi.fn()}
@@ -43,20 +41,26 @@ describe('RegenerateDialog', () => {
   });
 
   it('uses i18n pluralization keys for content counts', () => {
-    const experienceItems: RegenerateItemInput[] = [
+    const groups: RegenerateGroup[] = [
       {
-        item_id: 'exp_0',
-        item_type: 'experience',
-        title: 'Senior Software Engineer',
-        subtitle: 'Google',
-        current_content: ['Did thing'],
-      },
-      {
-        item_id: 'exp_1',
-        item_type: 'experience',
-        title: 'Staff Engineer',
-        subtitle: 'Acme',
-        current_content: ['Did A', 'Did B'],
+        key: 'experience',
+        heading: 'Experience',
+        items: [
+          {
+            item_id: 'experience:e1',
+            item_type: 'entry',
+            title: 'Senior Software Engineer',
+            subtitle: 'Google',
+            current_content: ['Did thing'],
+          },
+          {
+            item_id: 'experience:e2',
+            item_type: 'entry',
+            title: 'Staff Engineer',
+            subtitle: 'Acme',
+            current_content: ['Did A', 'Did B'],
+          },
+        ],
       },
     ];
 
@@ -64,9 +68,7 @@ describe('RegenerateDialog', () => {
       <RegenerateDialog
         open
         onOpenChange={vi.fn()}
-        experienceItems={experienceItems}
-        projectItems={[]}
-        skillsItem={null}
+        groups={groups}
         selectedItems={[]}
         onSelectionChange={vi.fn()}
         onContinue={vi.fn()}
@@ -77,14 +79,58 @@ describe('RegenerateDialog', () => {
     expect(screen.getByText('2 items')).toBeInTheDocument();
   });
 
-  it('enables Continue after selecting an item', () => {
-    const experienceItems: RegenerateItemInput[] = [
+  it('groups by the document section heading, including sections it has never heard of', () => {
+    const groups: RegenerateGroup[] = [
       {
-        item_id: 'exp_0',
-        item_type: 'experience',
-        title: 'Senior Software Engineer',
-        subtitle: 'Google',
-        current_content: ['Did thing'],
+        key: 'military_service',
+        heading: 'Military Service',
+        items: [
+          {
+            item_id: 'military_service:e1',
+            item_type: 'entry',
+            title: 'Signals Officer',
+            subtitle: 'Royal Corps of Signals',
+            current_content: ['Ran the radio net'],
+          },
+        ],
+      },
+    ];
+
+    render(
+      <RegenerateDialog
+        open
+        onOpenChange={vi.fn()}
+        groups={groups}
+        selectedItems={[]}
+        onSelectionChange={vi.fn()}
+        onContinue={vi.fn()}
+      />
+    );
+
+    const groupToggle = screen.getByRole('button', { name: /Military Service/i });
+    expect(groupToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /Signals Officer/i })).toBeInTheDocument();
+
+    // Collapsing hides the section's items but keeps the section itself.
+    fireEvent.click(groupToggle);
+    expect(groupToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: /Signals Officer/i })).not.toBeInTheDocument();
+  });
+
+  it('enables Continue after selecting an item', () => {
+    const groups: RegenerateGroup[] = [
+      {
+        key: 'experience',
+        heading: 'Experience',
+        items: [
+          {
+            item_id: 'experience:e1',
+            item_type: 'entry',
+            title: 'Senior Software Engineer',
+            subtitle: 'Google',
+            current_content: ['Did thing'],
+          },
+        ],
       },
     ];
 
@@ -96,9 +142,7 @@ describe('RegenerateDialog', () => {
         <RegenerateDialog
           open
           onOpenChange={vi.fn()}
-          experienceItems={experienceItems}
-          projectItems={[]}
-          skillsItem={null}
+          groups={groups}
           selectedItems={selectedItems}
           onSelectionChange={setSelectedItems}
           onContinue={onContinue}
@@ -141,20 +185,34 @@ it('offers refresh retry after saved changes and prevents rejecting an applied r
 });
 
 describe('RegenerateDiffPreview', () => {
-  it('shows human-friendly titles instead of technical IDs', () => {
+  it('renders the server-computed rows under a human-friendly title', () => {
     const regeneratedItems: RegeneratedItem[] = [
       {
-        item_id: 'exp_0',
-        item_type: 'experience',
+        item_id: 'experience:e1',
+        item_type: 'entry',
         title: 'Senior Software Engineer',
         subtitle: 'Google',
         original_content: ['Old bullet'],
         new_content: ['New bullet'],
+        rows: [
+          {
+            kind: 'bullet',
+            status: 'modified',
+            path: 'experience:e1[0]',
+            base_text: 'Old bullet',
+            head_text: 'New bullet',
+            spans: [
+              { side: 'base', start: 0, end: 3, op: 'replace' },
+              { side: 'head', start: 0, end: 3, op: 'replace' },
+            ],
+            anchor: { index: 0 },
+          },
+        ],
         diff_summary: 'Summary',
       },
     ];
 
-    const { container } = render(
+    render(
       <RegenerateDiffPreview
         open
         onOpenChange={vi.fn()}
@@ -167,9 +225,13 @@ describe('RegenerateDiffPreview', () => {
     );
 
     expect(screen.getByText('Senior Software Engineer | Google')).toBeInTheDocument();
-    expect(screen.queryByText('exp_0')).not.toBeInTheDocument();
+    expect(screen.queryByText('experience:e1')).not.toBeInTheDocument();
 
-    // Swiss style: avoid left-border-only diff indicators.
-    expect(container.querySelector('.border-l-4')).toBeNull();
+    // Both sides of the proposal, with the changed words marked.
+    expect(screen.getByText(/Old/)).toBeInTheDocument();
+    expect(screen.getByText(/New/)).toBeInTheDocument();
+    expect(document.body.querySelector('[data-status="modified"]')?.className).toContain(
+      'border-l-4 border-orange-500'
+    );
   });
 });

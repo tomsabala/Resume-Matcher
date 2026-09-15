@@ -7,7 +7,12 @@ from app.db_engine import init_models_sync, make_sync_engine
 
 
 def test_processing_token_migration_is_idempotent(tmp_path: Path) -> None:
-    """Existing resume tables gain exactly one nullable ownership column."""
+    """A pre-Alembic database gains exactly one nullable ownership column.
+
+    The fixture is the schema a released pre-Alembic build actually left on
+    disk: ``create_all`` of the tables of that era, before the three
+    hand-written ``ALTER TABLE`` patches were introduced.
+    """
     engine = make_sync_engine(tmp_path / "legacy.db")
     try:
         with engine.begin() as connection:
@@ -16,9 +21,51 @@ def test_processing_token_migration_is_idempotent(tmp_path: Path) -> None:
                 CREATE TABLE resumes (
                     resume_id TEXT PRIMARY KEY,
                     content TEXT NOT NULL,
-                    content_type TEXT DEFAULT 'md'
+                    content_type TEXT NOT NULL,
+                    filename TEXT,
+                    is_master BOOLEAN NOT NULL,
+                    parent_id TEXT,
+                    processed_data JSON,
+                    processing_status TEXT NOT NULL,
+                    cover_letter TEXT,
+                    outreach_message TEXT,
+                    title TEXT,
+                    original_markdown TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
                 )
                 """
+            )
+            connection.exec_driver_sql(
+                "CREATE UNIQUE INDEX ux_resumes_single_master"
+                " ON resumes (is_master) WHERE is_master = 1"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE jobs (job_id TEXT PRIMARY KEY, content TEXT NOT NULL,"
+                " resume_id TEXT, created_at TEXT NOT NULL, metadata_json JSON NOT NULL)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE improvements (request_id TEXT PRIMARY KEY,"
+                " original_resume_id TEXT NOT NULL, tailored_resume_id TEXT NOT NULL,"
+                " job_id TEXT NOT NULL, improvements JSON NOT NULL, created_at TEXT NOT NULL)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE tailoring_previews (preview_id TEXT PRIMARY KEY,"
+                " source_id TEXT NOT NULL, job_id TEXT NOT NULL, payload_hash TEXT NOT NULL,"
+                " source_hash TEXT NOT NULL, job_hash TEXT NOT NULL, created_at TEXT NOT NULL,"
+                " expires_at TEXT NOT NULL, result_resume_id TEXT, claim_token TEXT,"
+                " claim_expires_at TEXT, response_data JSON)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE applications (application_id TEXT PRIMARY KEY,"
+                " job_id TEXT NOT NULL, resume_id TEXT NOT NULL, master_resume_id TEXT,"
+                " status TEXT NOT NULL, company TEXT, role TEXT, applied_at TEXT, notes TEXT,"
+                " position INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,"
+                " CONSTRAINT uq_application_job_resume UNIQUE (job_id, resume_id))"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE api_keys (provider TEXT PRIMARY KEY,"
+                " ciphertext TEXT NOT NULL, updated_at TEXT NOT NULL)"
             )
 
         init_models_sync(engine)
@@ -32,6 +79,9 @@ def test_processing_token_migration_is_idempotent(tmp_path: Path) -> None:
             )
         names = [column["name"] for column in columns]
         assert names.count("processing_token") == 1
+        assert names.count("interview_prep") == 1
+        # The workspace migration must also have run on the upgraded database.
+        assert names.count("workspace_id") == 1
     finally:
         engine.dispose()
 

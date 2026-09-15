@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { DiffPreviewModal } from '@/components/tailor/diff-preview-modal';
-import type {
-  ResumeDiffSummary,
-  ResumeFieldDiff,
-} from '@/components/common/resume_previewer_context';
+import { makeDocumentDiff, makeRow, makeSectionDiff, makeStats } from './fixtures/diff';
 
 vi.mock('@/lib/i18n', () => ({
   useTranslations: () => ({
@@ -12,32 +9,32 @@ vi.mock('@/lib/i18n', () => ({
   }),
 }));
 
-const diffSummary: ResumeDiffSummary = {
-  total_changes: 2,
-  skills_added: 1,
-  skills_removed: 0,
-  descriptions_modified: 1,
-  certifications_added: 0,
-  high_risk_changes: 1,
-};
+const summaryPath = 'sections.summary.text';
+const bulletPath = 'sections.experience.entries[0].bullets[0].text';
 
-const detailedChanges: ResumeFieldDiff[] = [
-  {
-    field_path: 'summary',
-    field_type: 'summary',
-    change_type: 'modified',
-    original_value: 'old summary',
-    new_value: 'new summary',
-    confidence: 'medium',
-  },
-  {
-    field_path: 'additional.technicalSkills',
-    field_type: 'skill',
-    change_type: 'added',
-    new_value: 'Go',
-    confidence: 'high',
-  },
-];
+const diff = makeDocumentDiff({
+  stats: makeStats({ bullets_modified: 1, total_changes: 2 }),
+  sections: [
+    makeSectionDiff({
+      base_key: 'summary',
+      head_key: 'summary',
+      base_heading: 'Summary',
+      head_heading: 'Summary',
+      rows: [
+        makeRow({
+          kind: 'text',
+          status: 'modified',
+          path: summaryPath,
+          base_text: 'Engineer',
+          head_text: 'Staff engineer',
+        }),
+      ],
+    }),
+    makeSectionDiff({
+      rows: [makeRow({ status: 'added', path: bulletPath, head_text: 'Shipped the migration' })],
+    }),
+  ],
+});
 
 describe('DiffPreviewModal', () => {
   it('renders fallback dialog when diff data is missing', () => {
@@ -47,65 +44,79 @@ describe('DiffPreviewModal', () => {
 
     expect(screen.getByText('tailor.missingDiffDialog.title')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'tailor.missingDiffDialog.confirmLabel' }));
-    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith(null);
   });
 
-  it('shows warning banner and renders high-risk icon only for added high changes', () => {
-    render(
-      <DiffPreviewModal
-        isOpen
-        onClose={vi.fn()}
-        onReject={vi.fn()}
-        onConfirm={vi.fn()}
-        diffSummary={diffSummary}
-        detailedChanges={detailedChanges}
-      />
-    );
-
-    expect(screen.getByText('tailor.diffModal.warningTitle', { exact: false })).toBeInTheDocument();
-    // Dialog uses createPortal to document.body, so the test's `container`
-    // wrapper does not contain the rendered dialog content. Query
-    // document.body directly to find the icons rendered inside the portal.
-    const alertIcons = document.body.querySelectorAll('.lucide-triangle-alert');
-    expect(alertIcons.length).toBe(2);
-  });
-
-  it('toggles section visibility on header click', () => {
-    render(
-      <DiffPreviewModal
-        isOpen
-        onClose={vi.fn()}
-        onReject={vi.fn()}
-        onConfirm={vi.fn()}
-        diffSummary={diffSummary}
-        detailedChanges={detailedChanges}
-      />
-    );
-
-    expect(screen.getByText('new summary')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /tailor\.diffModal\.summaryChanges/i }));
-    expect(screen.queryByText('new summary')).not.toBeInTheDocument();
-  });
-
-  it('fires confirm and reject handlers', () => {
+  it('accepts the whole preview by default', () => {
     const onConfirm = vi.fn();
-    const onReject = vi.fn();
+    render(
+      <DiffPreviewModal
+        isOpen
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onConfirm={onConfirm}
+        diff={diff}
+      />
+    );
 
+    expect(screen.getByText('Staff engineer')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'tailor.diffModal.confirmButton' }));
+    // `null` means "take everything", including changes no single row owns.
+    expect(onConfirm).toHaveBeenCalledWith(null);
+  });
+
+  it('confirms only the rows left ticked', () => {
+    const onConfirm = vi.fn();
+    render(
+      <DiffPreviewModal
+        isOpen
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onConfirm={onConfirm}
+        diff={diff}
+      />
+    );
+
+    const boxes = screen.getAllByRole('checkbox');
+    expect(boxes).toHaveLength(2);
+    fireEvent.click(boxes[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'tailor.diffModal.confirmButton' }));
+
+    expect(onConfirm).toHaveBeenCalledWith([bulletPath]);
+  });
+
+  it('cannot confirm an empty selection', () => {
+    const onConfirm = vi.fn();
+    render(
+      <DiffPreviewModal
+        isOpen
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onConfirm={onConfirm}
+        diff={diff}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'diff.clearAll' }));
+    const confirm = screen.getByRole('button', { name: 'tailor.diffModal.confirmButton' });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it('fires the reject handler', () => {
+    const onReject = vi.fn();
     render(
       <DiffPreviewModal
         isOpen
         onClose={vi.fn()}
         onReject={onReject}
-        onConfirm={onConfirm}
-        diffSummary={diffSummary}
-        detailedChanges={detailedChanges}
+        onConfirm={vi.fn()}
+        diff={diff}
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'tailor.diffModal.confirmButton' }));
     fireEvent.click(screen.getByRole('button', { name: 'tailor.diffModal.rejectButton' }));
-
-    expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onReject).toHaveBeenCalledTimes(1);
   });
 });

@@ -15,6 +15,14 @@ from app.services.improver import (
 )
 
 
+def _section(document: dict[str, Any], key: str) -> dict[str, Any]:
+    return next(section for section in document["sections"] if section["key"] == key)
+
+
+def _summary_text(document: dict[str, Any]) -> str:
+    return _section(document, "summary")["text"]
+
+
 class TestExtractJobKeywords:
     """Tests for extract_job_keywords() with mocked LLM."""
 
@@ -51,9 +59,9 @@ class TestGenerateResumeDiffs:
         mock_llm.return_value = {
             "changes": [
                 {
-                    "path": "summary",
+                    "path": "sections.summary.text",
                     "action": "replace",
-                    "original": sample_resume["summary"],
+                    "original": _summary_text(sample_resume),
                     "value": "Updated summary with keywords.",
                     "reason": "Added keywords",
                 }
@@ -69,7 +77,7 @@ class TestGenerateResumeDiffs:
             original_resume_data=sample_resume,
         )
         assert len(result.changes) == 1
-        assert result.changes[0].path == "summary"
+        assert result.changes[0].path == "sections.summary.text"
         assert result.strategy_notes == "Focused on backend keywords"
 
     @patch("app.services.improver.complete_json", new_callable=AsyncMock)
@@ -179,7 +187,7 @@ class TestGenerateResumeDiffs:
     async def test_uses_json_resume_when_months_present(self, mock_llm, sample_resume, sample_job_keywords):
         """When structured data has month precision, use JSON not markdown."""
         mock_llm.return_value = {"changes": [], "strategy_notes": "test"}
-        # sample_resume has "Jan 2021 - Present" — has months
+        # sample_resume's first experience entry has period "Jan 2021 - Present"
         await generate_resume_diffs(
             original_resume="# Markdown resume",
             job_description="JD",
@@ -190,8 +198,8 @@ class TestGenerateResumeDiffs:
         call_args = mock_llm.call_args
         prompt = call_args.kwargs.get("prompt") or (call_args.args[0] if call_args.args else "")
         # Should contain the serialized JSON resume with month-precision dates
-        assert "Jan 2021 - Present" in prompt  # Month from sample_resume workExperience[0].years
-        assert "Acme Corp" in prompt  # Company from sample_resume
+        assert "Jan 2021 - Present" in prompt  # month-precision entry period
+        assert "Acme Corp" in prompt  # entry subtitle from sample_resume
         assert "# Markdown resume" not in prompt  # Should NOT use the markdown input
 
     @patch("app.services.improver.complete_json", new_callable=AsyncMock)
@@ -306,15 +314,25 @@ class TestGenerateResumeDiffsEdgeCases:
         """When structured data has year-only dates, should use markdown instead."""
         mock_llm.return_value = {"changes": [], "strategy_notes": "test"}
         year_only_resume = {
-            "personalInfo": {"name": "Test", "email": "", "title": "", "phone": "", "location": ""},
-            "summary": "Engineer.",
-            "workExperience": [
-                {"title": "Dev", "company": "Co", "years": "2020 - 2023", "description": ["Worked"]},
+            "schemaVersion": 2,
+            "header": {"name": "Test"},
+            "sections": [
+                {
+                    "id": "s-experience",
+                    "key": "experience",
+                    "heading": "Experience",
+                    "kind": "entries",
+                    "entries": [
+                        {
+                            "id": "e-co",
+                            "title": "Dev",
+                            "subtitle": "Co",
+                            "period": "2020 - 2023",
+                            "bullets": [{"text": "Worked", "style": "bullet"}],
+                        }
+                    ],
+                }
             ],
-            "education": [],
-            "personalProjects": [],
-            "additional": {"technicalSkills": [], "languages": [], "certificationsTraining": [], "awards": []},
-            "customSections": {},
         }
         await generate_resume_diffs(
             original_resume="# Markdown with Jan 2020",
@@ -349,10 +367,9 @@ class TestImproveResume:
 
     @patch("app.services.improver.complete_json", new_callable=AsyncMock)
     async def test_returns_validated_resume(self, mock_llm, sample_resume, sample_job_keywords, sample_job_description):
-        # Return a valid resume structure (without personalInfo, as the prompt instructs)
+        # A writer returns the whole document; the header is restored downstream.
         mock_output = copy.deepcopy(sample_resume)
-        mock_output.pop("personalInfo", None)
-        mock_output["summary"] = "Improved summary."
+        _section(mock_output, "summary")["text"] = "Improved summary."
         mock_llm.return_value = mock_output
 
         result = await improve_resume(
@@ -363,9 +380,12 @@ class TestImproveResume:
             prompt_id="keywords",
             original_resume_data=sample_resume,
         )
-        # Should be validated by ResumeData.model_validate
-        assert "summary" in result
-        assert isinstance(result.get("workExperience"), list)
+        # Validated and canonicalized through ResumeDocument.
+        assert _summary_text(result) == "Improved summary."
+        assert [entry["subtitle"] for entry in _section(result, "experience")["entries"]] == [
+            "Acme Corp",
+            "StartupCo",
+        ]
 
     @patch("app.services.improver.complete_json", new_callable=AsyncMock)
     async def test_raises_on_invalid_json(self, mock_llm):

@@ -75,7 +75,7 @@ def _say(msg: str) -> None:
 def cmd_sweep(args: argparse.Namespace) -> int:
     ensure_enabled()
     from app.config import load_config_file
-    from app.schemas import ResumeData
+    from app.schemas import ResumeDocument
 
     bundle = Bundle(root=_ARTIFACTS, run_id=_run_id())
     bundle.ensure()
@@ -97,7 +97,7 @@ def cmd_sweep(args: argparse.Namespace) -> int:
             raw_master = json.loads(
                 (_FIXTURES / "master.json").read_text(encoding="utf-8")
             )
-            master = ResumeData.model_validate(raw_master).model_dump()
+            master = ResumeDocument.model_validate(raw_master).model_dump(mode="json")
             resume_id = asyncio.run(seed_master_db(bundle.data_dir, master))
             bundle.write_json(bundle.master_dir / "processed_data.json", master)
             step["detail"] = {"resume_id": resume_id}

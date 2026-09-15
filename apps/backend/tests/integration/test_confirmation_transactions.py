@@ -20,7 +20,13 @@ from app.main import app
 from app.models import Improvement, Job, Resume, TailoringPreview
 from app.preview import PreviewBusyError, PreviewConflictError
 from app.routers import resumes
-from app.schemas.models import ImproveDiffResult, ResumeChange, ResumeData
+from app.schemas.document import ResumeDocument
+from app.schemas.models import ImproveDiffResult, ResumeChange
+
+
+def _section(document: dict[str, Any], key: str) -> dict[str, Any]:
+    """Look up one section of a ``ResumeDocument`` payload by its stable key."""
+    return next(section for section in document["sections"] if section["key"] == key)
 
 
 @pytest.fixture
@@ -69,7 +75,7 @@ async def preview_payload(
     client: AsyncClient,
     sample: dict[str, Any],
 ) -> dict[str, Any]:
-    data = ResumeData.model_validate(copy.deepcopy(sample)).model_dump()
+    data = ResumeDocument.model_validate(copy.deepcopy(sample)).model_dump(mode="json")
     source = await database.create_resume_atomic_master(
         content=json.dumps(data),
         processed_data=data,
@@ -179,7 +185,7 @@ async def test_changed_inputs_invalidate_unconfirmed_preview(
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     if target == "source":
         changed = copy.deepcopy(sample_resume)
-        changed["summary"] = "New source edit"
+        _section(changed, "summary")["text"] = "New source edit"
         await isolated_db.update_resume(
             payload["resume_id"], {"processed_data": changed}
         )
@@ -282,10 +288,11 @@ async def test_independent_concurrent_previews_remain_confirmable(
         return ImproveDiffResult(
             changes=[
                 ResumeChange(
-                    path="summary",
+                    path="sections.summary.text",
                     action="replace",
-                    original=sample_resume["summary"],
-                    value=sample_resume["summary"] + f" {prompt} wording.",
+                    original=_section(sample_resume, "summary")["text"],
+                    value=_section(sample_resume, "summary")["text"]
+                    + f" {prompt} wording.",
                     reason="Clarify summary",
                 )
             ]
@@ -345,7 +352,7 @@ async def test_preview_binding_and_expiry_are_enforced(
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     assert payload["preview_id"]
     if change == "payload":
-        payload["improved_data"]["summary"] = "Tampered output"
+        _section(payload["improved_data"], "summary")["text"] = "Tampered output"
     elif change == "source_id":
         other = await isolated_db.create_resume(
             content=json.dumps(sample_resume),
@@ -380,7 +387,7 @@ async def test_committed_replay_survives_later_input_changes_and_expiry(
     assert first.status_code == 200
     await isolated_db.update_resume(
         payload["resume_id"],
-        {"processed_data": {"personalInfo": {"name": "Renamed source"}}},
+        {"processed_data": {"schemaVersion": 2, "header": {"name": "Renamed source"}}},
     )
     await isolated_db.update_job(payload["job_id"], {"content": "Edited job"})
     async with isolated_db._session() as session:
@@ -700,25 +707,51 @@ async def test_tokenless_replay_prefers_confirmed_over_new_identical_preview(iso
     assert len(await isolated_db.list_resumes()) == 2
 
 
-@pytest.mark.parametrize("section", ["languages", "certificationsTraining", "awards"])
-async def test_legacy_registered_preview_cannot_persist_unsupported_additions(isolated_db: Database, confirmation_client: AsyncClient, sample_resume: dict[str, Any], section: str) -> None:
+@pytest.mark.parametrize("action", ["append", "add_skill"])
+@pytest.mark.parametrize("group_index", [1, 2, 3])
+async def test_unverified_short_values_never_reach_a_preview_or_a_saved_resume(
+    isolated_db: Database,
+    confirmation_client: AsyncClient,
+    sample_resume: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    group_index: int,
+) -> None:
+    """Short values (languages, certifications, awards) have one legal door.
+
+    ``append`` is bullets-only and ``add_skill`` requires a verified target, so
+    a model that invents a qualification cannot get it past ``apply_diffs`` —
+    and the finalizer, which trusts short values precisely because that gate
+    exists, never sees it.
+    """
+    invented = "Unsupported synthetic qualification"
+    monkeypatch.setattr(
+        resumes,
+        "generate_resume_diffs",
+        AsyncMock(return_value=ImproveDiffResult(changes=[ResumeChange(
+            path=f"sections.skills.groups[{group_index}].values",
+            action=action,
+            value=invented,
+            reason="Synthetic unsupported qualification",
+        )])),
+    )
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
-    payload["improved_data"]["additional"][section].append("Unsupported synthetic qualification")
-    async with isolated_db._session() as session:
-        row = await session.get(TailoringPreview, payload["preview_id"])
-        assert row is not None
-        row.payload_hash = resumes._hash_improved_data(payload["improved_data"])
-        await session.commit()
-    response = await confirmation_client.post("/api/v1/resumes/improve/confirm", json=payload)
-    assert response.status_code == 400, response.text
-    assert len(await isolated_db.list_resumes()) == 1
+    groups = _section(payload["improved_data"], "skills")["groups"]
+    assert groups == _section(sample_resume, "skills")["groups"]
+    response = await confirmation_client.post(
+        "/api/v1/resumes/improve/confirm", json=payload
+    )
+    assert response.status_code == 200, response.text
+    saved = await isolated_db.get_resume(response.json()["data"]["resume_id"])
+    assert saved is not None
+    assert invented not in json.dumps(saved["processed_data"])
 
 
 async def test_legacy_preview_without_structured_source_requires_reprocessing(isolated_db: Database, confirmation_client: AsyncClient, sample_resume: dict[str, Any]) -> None:
     from app.preview import job_fingerprint, resume_fingerprint
     source = await isolated_db.create_resume(content="# Original unprocessed resume", processing_status="failed")
     job = await isolated_db.create_job("Synthetic engineer")
-    candidate = ResumeData.model_validate(sample_resume).model_dump()
+    candidate = ResumeDocument.model_validate(sample_resume).model_dump(mode="json")
     preview = await isolated_db.register_preview(source_id=source["resume_id"], job_id=job["job_id"], payload_hash=resumes._hash_improved_data(candidate), source_hash=resume_fingerprint(source["content"], None, None), job_hash=job_fingerprint(job["content"]), prompt_id="nudge", ttl_seconds=60)
     response = await confirmation_client.post("/api/v1/resumes/improve/confirm", json={"resume_id": source["resume_id"], "job_id": job["job_id"], "preview_id": preview["preview_id"], "improved_data": candidate, "improvements": []})
     assert response.status_code == 400, response.text
@@ -744,22 +777,23 @@ async def test_verified_description_append_survives_preview_and_confirmation(
         resumes,
         "generate_resume_diffs",
         AsyncMock(return_value=ImproveDiffResult(changes=[ResumeChange(
-            path="workExperience[0].description",
+            path="sections.experience.entries[0].bullets",
             action="append",
             value=appended_text,
             reason="Summarize relevant source experience",
         )])),
     )
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
-    descriptions = payload["improved_data"]["workExperience"][0]["description"]
-    assert (appended_text in descriptions) is retained
+    bullets = _section(payload["improved_data"], "experience")["entries"][0]["bullets"]
+    assert (appended_text in [bullet["text"] for bullet in bullets]) is retained
     response = await confirmation_client.post(
         "/api/v1/resumes/improve/confirm", json=payload
     )
     assert response.status_code == 200, response.text
     saved = await isolated_db.get_resume(response.json()["data"]["resume_id"])
     assert saved is not None
-    assert saved["processed_data"]["workExperience"][0]["description"] == descriptions
+    stored = _section(saved["processed_data"], "experience")["entries"][0]["bullets"]
+    assert stored == bullets
 
 
 async def test_optional_title_timeout_can_still_commit_required_resume(

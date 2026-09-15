@@ -15,8 +15,8 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.database import Database
-from app.schemas.models import ResumeData
-from tests.integration.test_pipeline_e2e import _upload_resume
+from app.schemas.document import ResumeDocument
+from tests.integration.test_pipeline_e2e import _section, _upload_resume
 
 
 def _new_client() -> AsyncClient:
@@ -41,8 +41,10 @@ async def _preview_then_confirm(
         )
     job_id = jobs_resp.json()["job_id"][0]
 
-    improved = ResumeData.model_validate(copy.deepcopy(sample_resume)).model_dump()
-    improved["summary"] = (
+    improved = ResumeDocument.model_validate(copy.deepcopy(sample_resume)).model_dump(
+        mode="json"
+    )
+    _section(improved, "summary")["text"] = (
         "Senior backend engineer building scalable Python and FastAPI services."
     )
 

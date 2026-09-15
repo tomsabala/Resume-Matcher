@@ -104,6 +104,28 @@
     "errors": {
       "loadFailed": "履歴書を読み込めませんでした。もう一度お試しください。",
       "deleteFailed": "履歴書を削除できませんでした。現在の履歴書は引き続き利用できます。"
+    },
+    "selection": {
+      "count": "{count} 件選択中",
+      "compare": "比較",
+      "clear": "選択解除",
+      "hint": "比較するには履歴書をちょうど 2 つ選択してください",
+      "selectResume": "{title} を選択"
+    },
+    "manage": {
+      "rename": "名前を変更",
+      "renameResume": "{title} の名前を変更",
+      "deleteResume": "{title} を削除",
+      "renameTitle": "履歴書の名前を変更",
+      "renameDescription": "ダッシュボードに表示される名前です。履歴書の内容は変わりません。",
+      "nameLabel": "履歴書名",
+      "namePlaceholder": "例: バックエンドエンジニア — Acme",
+      "nameRequired": "名前を入力してください",
+      "renameFailed": "この履歴書の名前を変更できませんでした。もう一度お試しください。",
+      "deleteTitle": "履歴書を削除",
+      "deleteDescription": "「{title}」とその履歴は完全に削除されます。",
+      "deleteMasterDescription": "「{title}」はマスター履歴書です。削除すると履歴も消えますが、カスタマイズ済みの履歴書は残ります。",
+      "deleteFailed": "この履歴書を削除できませんでした。もう一度お試しください。"
     }
   },
   "builder": {
@@ -134,62 +156,14 @@
       "leave": "ダッシュボードへ移動",
       "stay": "編集を続ける"
     },
-    "personalInfo": "個人情報",
-    "summary": "概要",
-    "experience": "職歴",
-    "education": "学歴",
-    "skills": "スキル",
-    "projects": "プロジェクト",
-    "certifications": "資格",
-    "languages": "言語",
-    "awards": "受賞歴",
     "addSection": "セクションを追加",
-    "removeSection": "セクションを削除",
     "saveChanges": "変更を保存",
     "discardChanges": "変更を破棄",
-    "placeholders": {
-      "summary": "職務要約を簡潔に入力してください..."
-    },
     "contentStats": {
       "wordsChars": "{wordCount}語 / {charCount}文字"
     },
-    "additionalForm": {
-      "instructions": "各項目を改行で区切って入力してください（1行につき1項目）。",
-      "placeholders": {
-        "technicalSkills": "React\nTypeScript\nNode.js",
-        "languages": "日本語\n英語",
-        "certifications": "AWS Solution Architect\nGoogle Analytics",
-        "awards": "月間MVP\nハッカソン優勝"
-      }
-    },
-    "customSections": {
-      "dialogTitle": "カスタムセクションを追加",
-      "dialogDescription": "任意の名前とタイプで新しいセクションを作成します。",
-      "sectionNameLabel": "セクション名",
-      "sectionNamePlaceholder": "例：出版、ボランティア、資格",
-      "sectionTypeLabel": "セクションタイプ",
-      "addCustomSectionButton": "カスタムセクションを追加",
-      "sectionTypes": {
-        "textBlockLabel": "テキストブロック",
-        "textBlockDescription": "単一のテキスト欄（概要など）",
-        "itemListLabel": "項目リスト",
-        "itemListDescription": "詳細を含む複数エントリ（職歴など）",
-        "stringListLabel": "シンプルリスト",
-        "stringListDescription": "シンプルな一覧（スキルなど）"
-      },
-      "contentLabel": "内容",
-      "contentPlaceholder": "{name} の内容を入力...",
-      "defaultTextPlaceholder": "内容を入力...",
-      "entryLabel": "エントリ",
-      "addEntryLabel": "エントリを追加",
-      "itemsLabel": "項目",
-      "itemsPlaceholder": "1行につき1項目を入力",
-      "unknownSectionType": "不明なセクションタイプ：{type}",
-      "unknownDefaultSection": "不明なデフォルトセクション：{section}"
-    },
     "sectionHeader": {
       "renameSection": "セクション名を変更",
-      "customTag": "カスタム",
       "hiddenFromPdfTag": "PDFに含めない",
       "hideSection": "セクションを非表示",
       "showSection": "セクションを表示",
@@ -197,14 +171,19 @@
       "moveDown": "下へ移動",
       "deleteSection": "セクションを削除",
       "deleteTitle": "セクションを削除",
-      "deleteDescription": "「{name}」を削除しますか？この操作は元に戻せません。"
+      "deleteDescription": "「{name}」を削除しますか？この操作は元に戻せません。",
+      "sidebarTag": "サイドバー",
+      "moveToSide": "サイドバーへ移動",
+      "moveToMain": "メイン列へ移動"
     },
     "previewTabs": {
       "resume": "履歴書",
       "coverLetter": "カバーレター",
       "outreach": "連絡メール",
       "jdMatch": "JD一致",
-      "interviewPrep": "面接準備"
+      "interviewPrep": "面接準備",
+      "history": "履歴",
+      "latex": "LaTeX"
     },
     "footer": {
       "moduleLabel": "履歴書ビルダーモジュール",
@@ -236,9 +215,6 @@
       "selectDialog": {
         "title": "再生成する項目を選択",
         "subtitle": "改善したい履歴書の部分を選択してください",
-        "experience": "職務経験",
-        "projects": "プロジェクト",
-        "skills": "技術スキル",
         "noItemsSelected": "少なくとも1つ選択してください",
         "noItemsAvailable": "再生成できる項目がありません。まず職務経験、プロジェクト、またはスキルを追加してください。",
         "itemCount": {
@@ -266,8 +242,6 @@
         "changesCount": "{count} 件変更",
         "rejectButton": "却下して再生成",
         "acceptButton": "変更を適用",
-        "originalLabel": "元の内容",
-        "newLabel": "新しい内容",
         "noContent": "内容なし",
         "applying": "適用中...",
         "loading": "改善された内容を生成中...",
@@ -309,80 +283,6 @@
         "keywordsExtracted": "抽出キーワード数: {count}",
         "matchesFound": "一致数: {count}",
         "matchRateLabel": "一致率:"
-      }
-    },
-    "genericItemForm": {
-      "itemLabel": "項目",
-      "addItemLabel": "{label}を追加",
-      "fields": {
-        "title": "タイトル",
-        "organization": "組織",
-        "location": "場所",
-        "years": "期間",
-        "descriptionPoints": "説明ポイント"
-      },
-      "actions": {
-        "addPoint": "ポイントを追加",
-        "togglePointStyle": "箇条書き記号を切り替え"
-      },
-      "placeholders": {
-        "title": "タイトル",
-        "organization": "組織",
-        "location": "場所",
-        "years": "2020年1月 - 現在",
-        "description": "あなたの貢献を説明..."
-      },
-      "noEntries": "// {label} の項目はありません",
-      "addFirstItem": "最初の{label}を追加"
-    },
-    "forms": {
-      "experience": {
-        "addJob": "職歴を追加",
-        "addFirstJob": "最初の職歴を追加",
-        "fields": {
-          "jobTitle": "職種",
-          "company": "会社"
-        },
-        "placeholders": {
-          "jobTitle": "シニアエンジニア",
-          "company": "Tech Corp",
-          "location": "リモート / 都市",
-          "years": "2020年1月 - 現在",
-          "description": "実績を説明..."
-        }
-      },
-      "education": {
-        "addSchool": "学歴を追加",
-        "addFirstSchool": "最初の学歴を追加",
-        "fields": {
-          "institution": "学校/機関",
-          "degree": "学位",
-          "description": "説明",
-          "descriptionOptional": "説明（任意）"
-        },
-        "placeholders": {
-          "institution": "大学名",
-          "degree": "学士（理学）",
-          "years": "2016年8月 - 2020年5月",
-          "description": "追加の詳細..."
-        }
-      },
-      "projects": {
-        "addProject": "プロジェクトを追加",
-        "addFirstProject": "最初のプロジェクトを追加",
-        "fields": {
-          "projectName": "プロジェクト名",
-          "role": "役割",
-          "website": "Webサイト"
-        },
-        "placeholders": {
-          "projectName": "Resume Matcher",
-          "role": "作成者",
-          "years": "2023年3月",
-          "github": "github.com/username/project",
-          "website": "https://project-demo.com",
-          "description": "プロジェクト詳細..."
-        }
       }
     },
     "formatting": {
@@ -462,18 +362,6 @@
       "compactHint": "コンパクトモードでは間隔と行間が詰まります。余白と本文フォントサイズは維持されます。",
       "resetDefaults": "デフォルトに戻す"
     },
-    "personalInfoForm": {
-      "placeholders": {
-        "name": "山田 太郎",
-        "title": "ソフトウェアエンジニア",
-        "email": "taro@example.com",
-        "phone": "+81 90-0000-0000",
-        "location": "都市、国",
-        "website": "portfolio.com",
-        "linkedin": "linkedin.com/in/taro",
-        "github": "github.com/taro"
-      }
-    },
     "leftPanel": {
       "editorPanel": "編集パネル",
       "coverLetterEditor": "カバーレター編集",
@@ -506,6 +394,124 @@
       "description": "最新の変更をサーバーと同期できず、このブラウザーにも保存できませんでした。今移動すると変更が失われる可能性があります。",
       "leave": "保存せずに移動",
       "stay": "編集を続ける"
+    },
+    "header": {
+      "title": "ヘッダー",
+      "fields": {
+        "name": "氏名",
+        "headline": "肩書き",
+        "contacts": "連絡先",
+        "contactLabel": "連絡先のラベル",
+        "contactValue": "連絡先の値",
+        "contactUrl": "連絡先のURL"
+      },
+      "placeholders": {
+        "name": "山田 太郎",
+        "headline": "ソフトウェアエンジニア",
+        "contactLabel": "メール",
+        "contactValue": "taro@example.com",
+        "contactUrl": "https://example.com"
+      },
+      "addContact": "連絡先を追加",
+      "removeContact": "連絡先を削除",
+      "noContacts": "// 連絡先なし",
+      "contactKinds": {
+        "email": "メール",
+        "phone": "電話",
+        "website": "ウェブサイト",
+        "github": "GitHub",
+        "linkedin": "LinkedIn",
+        "location": "所在地",
+        "other": "その他"
+      }
+    },
+    "sectionForms": {
+      "text": {
+        "label": "本文",
+        "placeholder": "このセクションを記入してください..."
+      },
+      "tags": {
+        "label": "項目",
+        "instructions": "改行で区切って項目を入力してください（各項目でEnterキー）。",
+        "placeholder": "React\nTypeScript\nNode.js"
+      },
+      "entries": {
+        "addEntry": "項目を追加",
+        "addFirstEntry": "最初の項目を追加",
+        "noEntries": "// 項目なし",
+        "removeEntry": "項目を削除",
+        "fields": {
+          "title": "タイトル",
+          "subtitle": "組織",
+          "meta": "場所",
+          "period": "期間",
+          "summary": "概要",
+          "links": "リンク",
+          "bullets": "箇条書き"
+        },
+        "placeholders": {
+          "title": "シニア開発者",
+          "subtitle": "テック株式会社",
+          "meta": "リモート / 都市",
+          "period": "2020年1月 - 現在",
+          "summary": "背景を1段落で...",
+          "bullet": "成果を記入してください...",
+          "linkUrl": "https://github.com/user/project"
+        },
+        "actions": {
+          "addBullet": "箇条書きを追加",
+          "toggleBulletStyle": "箇条書き記号を切り替え",
+          "removeBullet": "この行を削除",
+          "addLink": "リンクを追加",
+          "removeLink": "リンクを削除"
+        }
+      },
+      "groups": {
+        "addGroup": "グループを追加",
+        "addFirstGroup": "最初のグループを追加",
+        "noGroups": "// グループなし",
+        "removeGroup": "グループを削除",
+        "instructions": "改行で区切って値を入力してください（各値でEnterキー）。",
+        "fields": {
+          "label": "グループ名",
+          "values": "値"
+        },
+        "placeholders": {
+          "label": "言語",
+          "values": "英語\n日本語"
+        }
+      },
+      "linkKinds": {
+        "github": "GitHub",
+        "website": "ウェブサイト",
+        "linkedin": "LinkedIn",
+        "other": "その他"
+      },
+      "kinds": {
+        "text": {
+          "label": "テキストブロック",
+          "description": "概要のようなひとまとまりの文章"
+        },
+        "entries": {
+          "label": "項目リスト",
+          "description": "職歴のような日付と箇条書きのある行"
+        },
+        "tags": {
+          "label": "タグリスト",
+          "description": "スキルのような短い項目の一覧"
+        },
+        "groups": {
+          "label": "ラベル付きグループ",
+          "description": "言語のような名前付きの値のまとまり"
+        }
+      }
+    },
+    "addSectionDialog": {
+      "title": "セクションを追加",
+      "description": "セクション名を付け、内容の形式を選択してください。",
+      "headingLabel": "セクション見出し",
+      "headingPlaceholder": "例：出版物、ボランティア、資格",
+      "kindLabel": "内容の形式"
     }
   },
   "enrichment": {
@@ -520,8 +526,8 @@
     },
     "questionProgress": "質問 {current} / {total}",
     "itemType": {
-      "experience": "経験",
-      "project": "プロジェクト"
+      "entry": "項目",
+      "values": "リスト"
     },
     "shortcutHint": "Shift+Enterで改行、Cmd/Ctrl+Enterで続行",
     "preview": {
@@ -595,25 +601,10 @@
     "diffModal": {
       "title": "AI調整結果の確認",
       "subtitle": "虚偽の情報が追加されていないか、変更内容を慎重に確認してください",
-      "summary": "変更の概要",
-      "skillsAdded": "追加されたスキル",
-      "skillsRemoved": "削除されたスキル",
-      "descriptionsModified": "変更された説明",
-      "certificationsAdded": "追加された資格",
-      "highRiskChanges": "高リスクの変更",
-      "warningTitle": "高リスクな追加が {count} 件検出されました",
-      "warningMessage": "これらのスキルが元の履歴書に実際に存在する、または説明内に反映されていることを確認してください",
-      "summaryChanges": "概要の変更",
-      "skillChanges": "スキルの変更",
-      "descriptionChanges": "職歴説明の変更",
-      "experienceChanges": "職歴の変更",
-      "educationChanges": "学歴の変更",
-      "projectChanges": "プロジェクトの変更",
-      "certificationChanges": "資格の変更",
-      "languageChanges": "言語の変更",
-      "awardChanges": "賞の変更",
       "rejectButton": "拒否して再生成",
-      "confirmButton": "確認して保存"
+      "confirmButton": "確認して保存",
+      "acceptingCount": "{total} 件中 {count} 件の変更を保存します",
+      "noSelection": "何も選択されていません。保存する変更を 1 つ以上選んでください。"
     },
     "regenerateDialog": {
       "title": "カスタマイズ済み履歴書を再生成しますか？",
@@ -954,12 +945,6 @@
     "sections": {
       "intro": "はじめに",
       "contact": "連絡先情報",
-      "summary": "職務要約",
-      "workExperience": "職務経験",
-      "internships": "インターンシップ",
-      "education": "学歴",
-      "personalProjects": "プロジェクト",
-      "skills": "スキル",
       "review": "確認"
     },
     "actions": {
@@ -979,9 +964,6 @@
       "label": "ライブ下書き",
       "empty": "回答するにつれて、ここに履歴書が表示されます。",
       "unnamed": "名前未設定の履歴書",
-      "experience": "職務経験",
-      "education": "学歴",
-      "projects": "プロジェクト",
       "skills": "スキル"
     },
     "errors": {
@@ -1113,6 +1095,145 @@
       "projectFollowUps": "プロジェクト深掘り質問",
       "skillGaps": "スキルギャップ",
       "talkingPoints": "話すべき要点"
+    }
+  },
+  "workspaces": {
+    "switcherLabel": "ワークスペース",
+    "loading": "読み込み中...",
+    "new": "新しいワークスペース",
+    "newTitle": "新しいワークスペース",
+    "newDescription": "ワークスペースごとに履歴書・求人・トラッカーカードが分かれます。",
+    "nameLabel": "ワークスペース名",
+    "namePlaceholder": "例: Tom、Lior、Tom — ヘブライ語",
+    "nameRequired": "ワークスペース名を入力してください",
+    "create": "作成",
+    "createFailed": "ワークスペースを作成できませんでした",
+    "manageLabel": "{name} を管理",
+    "manageTitle": "ワークスペース設定",
+    "manageDescription": "このワークスペースの名前や内容の言語を変更、または削除します。",
+    "languageLabel": "コンテンツの言語",
+    "makeDefault": "既定にする",
+    "isDefault": "既定のワークスペース",
+    "updateFailed": "ワークスペースを更新できませんでした",
+    "deleteFailed": "ワークスペースを削除できませんでした",
+    "deleteTitle": "ワークスペースを削除",
+    "deleteDescription": "「{name}」と、その中のすべての履歴書・求人・トラッカーカードが完全に削除されます。"
+  },
+  "versions": {
+    "title": "バージョン履歴",
+    "empty": "まだバージョンはありません。編集を保存すると記録されます。",
+    "loadFailed": "バージョン履歴を読み込めませんでした",
+    "loadMore": "過去のものを読み込む",
+    "current": "現在",
+    "pinned": "固定済み",
+    "pin": "固定",
+    "unpin": "固定を解除",
+    "compare": "比較",
+    "restore": "復元",
+    "delete": "削除",
+    "labelPlaceholder": "このバージョンに名前を付ける",
+    "restoreConfirmTitle": "このバージョンを復元しますか？",
+    "restoreConfirmBody": "現在の内容は履歴に残るため、元に戻せます。",
+    "restored": "バージョンを復元しました",
+    "restoreFailed": "バージョンを復元できませんでした",
+    "deleteFailed": "バージョンを削除できませんでした",
+    "origin": {
+      "import": "インポート",
+      "manual": "編集",
+      "ai_tailor": "AI 最適化",
+      "ai_enrich": "AI 拡充",
+      "wizard": "ウィザード",
+      "restore": "復元",
+      "tex_edit": "LaTeX 編集"
+    }
+  },
+  "diff": {
+    "headerSection": "ヘッダー",
+    "untitledSection": "無題のセクション",
+    "noChanges": "差分なし",
+    "rowCount": "行数: {count}",
+    "acceptRow": "{path} の変更を採用",
+    "selectAll": "すべて選択",
+    "clearAll": "選択を解除",
+    "selectedCount": "{total} 件中 {count} 件を採用",
+    "showUnchangedRows": "変更なしの {count} 行",
+    "hideUnchangedRows": "変更なしの {count} 行を隠す",
+    "baseLabel": "変更前",
+    "headLabel": "変更後",
+    "view": {
+      "unified": "統合表示",
+      "split": "分割表示"
+    },
+    "status": {
+      "added": "追加",
+      "removed": "削除",
+      "modified": "変更",
+      "moved": "移動",
+      "unchanged": "変更なし"
+    },
+    "sectionStatus": {
+      "added": "追加",
+      "removed": "削除",
+      "renamed": "名称変更",
+      "modified": "変更",
+      "moved": "移動",
+      "unchanged": "変更なし"
+    },
+    "stats": {
+      "totalChanges": "変更の合計",
+      "sections_added": "追加されたセクション",
+      "sections_removed": "削除されたセクション",
+      "sections_renamed": "名称変更されたセクション",
+      "sections_moved": "移動されたセクション",
+      "entries_added": "追加された項目",
+      "entries_removed": "削除された項目",
+      "entries_modified": "変更された項目",
+      "entries_moved": "移動された項目",
+      "bullets_added": "追加された箇条書き",
+      "bullets_removed": "削除された箇条書き",
+      "bullets_modified": "変更された箇条書き",
+      "tags_added": "追加されたタグ",
+      "tags_removed": "削除されたタグ"
+    }
+  },
+  "compare": {
+    "title": "比較",
+    "subtitle": "2 つの文書を並べて表示",
+    "loading": "比較を読み込み中...",
+    "invalidRefs": "この比較リンクは不完全です。比較する文書を 2 つ選んでください。",
+    "loadFailed": "比較を読み込めませんでした",
+    "resumeRef": "履歴書 {id}",
+    "versionRef": "バージョン {id}",
+    "back": "ダッシュボードに戻る"
+  },
+  "latex": {
+    "title": "LaTeX ソース",
+    "template": "テンプレート",
+    "templates": {
+      "tex-classic": "クラシック",
+      "tex-compact": "コンパクト"
+    },
+    "state": {
+      "generated": "生成済み",
+      "edited": "編集済み"
+    },
+    "overrideNotice": "LaTeX を直接編集しています。リセットするまで、ドキュメントの変更はこのソースに反映されません。",
+    "noEngine": "このサーバーに LaTeX エンジンがありません。.tex をダウンロードしてローカルでコンパイルしてください。",
+    "sourceLabel": "LaTeX ソース",
+    "lineCount": "{count} 行",
+    "downloadTex": ".tex をダウンロード",
+    "downloadPdf": "PDF をダウンロード",
+    "save": "ソースを保存",
+    "saving": "保存中...",
+    "compiling": "コンパイル中...",
+    "reset": "生成済みに戻す",
+    "resetConfirmTitle": "LaTeX の編集を破棄しますか？",
+    "resetConfirmBody": "ソースはドキュメントから生成される状態に戻ります。編集したバージョンは履歴に残ります。",
+    "errors": {
+      "load": "LaTeX ソースの読み込みに失敗しました",
+      "save": "LaTeX ソースの保存に失敗しました",
+      "reset": "LaTeX ソースのリセットに失敗しました",
+      "compile": "LaTeX のコンパイルに失敗しました"
     }
   }
 }

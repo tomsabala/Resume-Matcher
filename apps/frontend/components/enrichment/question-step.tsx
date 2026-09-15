@@ -104,16 +104,15 @@ export function QuestionStep({
       {item && (
         <div className="mb-6">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-paper-tint border border-paper-tint text-sm font-mono">
-            {item.item_type === 'experience' ? (
+            {item.item_type === 'entry' ? (
               <Briefcase className="w-4 h-4 text-ink-soft" />
             ) : (
               <FolderKanban className="w-4 h-4 text-ink-soft" />
             )}
             <span className="text-ink-soft">
-              {item.item_type === 'experience'
-                ? t('enrichment.itemType.experience')
-                : t('enrichment.itemType.project')}
-              :
+              {/* Sections are user-named, so the badge shows the section's
+                  own heading rather than a fixed category. */}
+              {item.section_heading || t('enrichment.itemType.entry')}:
             </span>
             <span className="font-semibold text-ink-soft">{item.title}</span>
             {item.subtitle && <span className="text-steel-grey">@ {item.subtitle}</span>}

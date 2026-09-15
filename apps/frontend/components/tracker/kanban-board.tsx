@@ -39,6 +39,7 @@ import {
   toggleHiddenStatus,
   writeHiddenStatuses,
 } from '@/lib/utils/tracker-column-visibility';
+import { useWorkspace } from '@/lib/context/workspace-context';
 
 function emptyColumns(): ApplicationColumns {
   return APPLICATION_STATUS_ORDER.reduce((acc, status) => {
@@ -49,6 +50,7 @@ function emptyColumns(): ApplicationColumns {
 
 export function KanbanBoard() {
   const { t } = useTranslations();
+  const { revision } = useWorkspace();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -95,10 +97,11 @@ export function KanbanBoard() {
     }
   };
 
+  // Reruns when the header switcher selects another workspace.
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [revision]);
 
   const allCards: Application[] = useMemo(
     () => APPLICATION_STATUS_ORDER.flatMap((status) => columns[status]),

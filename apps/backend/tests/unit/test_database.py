@@ -9,7 +9,6 @@ and stats are verified end-to-end on the storage.
 import pytest
 
 from app.database import Database
-from app.db_engine import init_models_sync, make_sync_engine
 
 
 @pytest.fixture
@@ -69,30 +68,6 @@ class TestResumeCrud:
         )
         fetched = await db.get_resume(created["resume_id"])
         assert fetched["interview_prep"] == '{"role_fit_analysis":["fit"]}'
-
-    def test_interview_prep_migration_is_idempotent(self, tmp_path):
-        engine = make_sync_engine(tmp_path / "old.db")
-        try:
-            with engine.begin() as conn:
-                conn.exec_driver_sql(
-                    """
-                    CREATE TABLE resumes (
-                        resume_id TEXT PRIMARY KEY,
-                        content TEXT NOT NULL,
-                        content_type TEXT DEFAULT 'md'
-                    )
-                    """
-                )
-
-            init_models_sync(engine)
-            init_models_sync(engine)
-
-            with engine.begin() as conn:
-                columns = conn.exec_driver_sql("PRAGMA table_info(resumes)").mappings().all()
-            names = [column["name"] for column in columns]
-            assert names.count("interview_prep") == 1
-        finally:
-            engine.dispose()
 
 
 class TestMasterResume:

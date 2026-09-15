@@ -12,7 +12,7 @@ from app.database import Database
 from app.main import app
 from app.preview import job_fingerprint, resume_fingerprint
 from app.routers import enrichment, resumes
-from app.schemas.models import ResumeData
+from app.schemas.document import ResumeDocument
 from app.services import cover_letter, improver, parser
 
 
@@ -32,12 +32,19 @@ async def _source_resume(
     )
 
 
+# Entry ids come from the ``sample_resume`` fixture; the enrichment item id is
+# "<section_key>:<entry_id>".
+EXPERIENCE_ITEM = "experience:e-acme"
+PROJECT_ITEM = "projects:e-openapi"
+SKILLS_ITEM = "skills:#group:0"
+
+
 def _enhance_request(resume_id: str, *, include_project: bool = False) -> dict[str, Any]:
     answers = [
         {
             "question_id": "q-exp",
             "answer": "Built a reliable service",
-            "item_id": "exp_0",
+            "item_id": EXPERIENCE_ITEM,
             "question_text": "What did you build?",
         }
     ]
@@ -46,7 +53,7 @@ def _enhance_request(resume_id: str, *, include_project: bool = False) -> dict[s
             {
                 "question_id": "q-proj",
                 "answer": "Maintained the project",
-                "item_id": "proj_0",
+                "item_id": PROJECT_ITEM,
                 "question_text": "What was your role?",
             }
         )
@@ -101,8 +108,8 @@ async def test_enhancement_partial_failure_reports_item_error(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert [item["item_id"] for item in body["enhancements"]] == ["exp_0"]
-    assert [item["item_id"] for item in body["errors"]] == ["proj_0"]
+    assert [item["item_id"] for item in body["enhancements"]] == [EXPERIENCE_ITEM]
+    assert [item["item_id"] for item in body["errors"]] == [PROJECT_ITEM]
     stored = await isolated_db.get_resume(source["resume_id"])
     assert stored is not None and stored["processed_data"] == sample_resume
 
@@ -181,8 +188,8 @@ async def test_regeneration_rejects_non_meaningful_replacements(
         "resume_id": source["resume_id"],
         "items": [
             {
-                "item_id": "exp_0",
-                "item_type": "experience",
+                "item_id": EXPERIENCE_ITEM,
+                "item_type": "entry",
                 "title": "Engineer",
                 "current_content": ["Original factual bullet"],
             }
@@ -219,15 +226,15 @@ async def test_regeneration_partial_failure_preserves_original_resume(
         "resume_id": source["resume_id"],
         "items": [
             {
-                "item_id": "exp_0",
-                "item_type": "experience",
+                "item_id": EXPERIENCE_ITEM,
+                "item_type": "entry",
                 "title": "Engineer",
                 "current_content": ["Original factual bullet"],
             },
             {
-                "item_id": "skills",
-                "item_type": "skills",
-                "title": "Skills",
+                "item_id": SKILLS_ITEM,
+                "item_type": "values",
+                "title": "Technical Skills",
                 "current_content": ["Python"],
             },
         ],
@@ -239,9 +246,9 @@ async def test_regeneration_partial_failure_preserves_original_resume(
 
     assert response.status_code == 200
     assert [item["item_id"] for item in response.json()["regenerated_items"]] == [
-        "exp_0"
+        EXPERIENCE_ITEM
     ]
-    assert [item["item_id"] for item in response.json()["errors"]] == ["skills"]
+    assert [item["item_id"] for item in response.json()["errors"]] == [SKILLS_ITEM]
     stored = await isolated_db.get_resume(source["resume_id"])
     assert stored is not None and stored["processed_data"] == sample_resume
 
@@ -300,9 +307,19 @@ async def test_top_level_array_is_rejected_with_bounded_content_calls(
 async def test_parser_schema_error_retries_then_accepts_sparse_resume(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sparse = ResumeData.model_validate(
-        {"personalInfo": {"name": "Sparse Candidate"}, "summary": "Engineer"}
-    ).model_dump()
+    sparse = ResumeDocument.model_validate(
+        {
+            "header": {"name": "Sparse Candidate"},
+            "sections": [
+                {
+                    "key": "summary",
+                    "heading": "Summary",
+                    "kind": "text",
+                    "text": "Engineer",
+                }
+            ],
+        }
+    )
     responses = [
         llm.litellm.ModelResponse(
             choices=[{"message": {"content": "{}"}, "index": 0}]
@@ -311,7 +328,7 @@ async def test_parser_schema_error_retries_then_accepts_sparse_resume(
             choices=[
                 {
                     "message": {
-                        "content": ResumeData.model_validate(sparse).model_dump_json()
+                        "content": sparse.model_dump_json()
                     },
                     "index": 0,
                 }
@@ -328,8 +345,8 @@ async def test_parser_schema_error_retries_then_accepts_sparse_resume(
 
     result = await parser.parse_resume_to_json("Sparse Candidate, Engineer")
 
-    assert result["personalInfo"]["name"] == "Sparse Candidate"
-    assert result["workExperience"] == []
+    assert result["header"]["name"] == "Sparse Candidate"
+    assert [section["key"] for section in result["sections"]] == ["summary"]
     assert router.acompletion.await_count == 2
 
 
@@ -385,6 +402,20 @@ async def test_keyword_service_rejects_malformed_optional_list_fields(
         await improver.extract_job_keywords("General role")
 
 
+_SKILLESS_RESUME: dict[str, Any] = {
+    "schemaVersion": 2,
+    "header": {"name": "Sparse Candidate"},
+    "sections": [
+        {
+            "key": "skills",
+            "heading": "Skills",
+            "kind": "groups",
+            "groups": [{"label": "Technical Skills", "values": []}],
+        }
+    ],
+}
+
+
 @pytest.mark.parametrize(
     "provider_result",
     [{}, {"target_skills": "Python"}, {"target_skills": [{"skill": 3}]}],
@@ -401,7 +432,7 @@ async def test_skill_plan_service_rejects_wrong_task_schema(
 
     with pytest.raises(ValueError, match="skill|target_skills"):
         await improver.generate_skill_target_plan(
-            {"additional": {"technicalSkills": []}},
+            _SKILLESS_RESUME,
             "Python engineer",
             {"required_skills": [], "preferred_skills": [], "keywords": []},
         )
@@ -414,7 +445,7 @@ async def test_skill_plan_service_accepts_explicit_empty_plan(
     monkeypatch.setattr(improver, "complete_json", AsyncMock(return_value=empty))
 
     assert await improver.generate_skill_target_plan(
-        {"additional": {"technicalSkills": []}},
+        _SKILLESS_RESUME,
         "General role",
         {"required_skills": [], "preferred_skills": [], "keywords": []},
     ) == empty
@@ -520,7 +551,7 @@ async def test_auxiliary_blank_and_failed_outputs_become_durable_warnings(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    data = ResumeData.model_validate(sample_resume).model_dump()
+    data = ResumeDocument.model_validate(sample_resume).model_dump(mode="json")
     source = await isolated_db.create_resume(
         content="# Synthetic resume",
         processed_data=data,

@@ -11,7 +11,7 @@ describe('partial enrichment preview', () => {
         enhancements={[
           {
             item_id: 'exp_0',
-            item_type: 'experience',
+            item_type: 'entry',
             title: 'Engineer',
             original_description: ['Built tools'],
             enhanced_description: ['Built Python tools'],
@@ -20,7 +20,7 @@ describe('partial enrichment preview', () => {
         errors={[
           {
             item_id: 'project_0',
-            item_type: 'project',
+            item_type: 'entry',
             title: 'Portfolio',
             message: 'Enhancement unavailable. Please try again.',
           },

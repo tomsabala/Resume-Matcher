@@ -1,16 +1,14 @@
-import type { ResumeData } from '@/components/dashboard/resume-component';
+import { emptyDocument, type ResumeDocument } from '@/lib/types/document';
 import { apiPost } from './client';
 
-export type ResumeWizardSection =
-  | 'intro'
-  | 'contact'
-  | 'summary'
-  | 'workExperience'
-  | 'internships'
-  | 'education'
-  | 'personalProjects'
-  | 'skills'
-  | 'review';
+/**
+ * Where the wizard is in the interview.
+ *
+ * `intro`, `contact` and `review` are the fixed bookends; everything between
+ * them addresses one section of the document under construction by its key, so
+ * the wizard covers user-authored sections without a hardcoded list.
+ */
+export type ResumeWizardSection = 'intro' | 'contact' | 'review' | `section:${string}`;
 
 export type ResumeWizardStep = 'intro' | 'question' | 'review' | 'complete';
 export type ResumeWizardAction = 'start' | 'answer' | 'skip' | 'back' | 'review';
@@ -29,12 +27,12 @@ export interface ResumeWizardHistoryEntry {
   question: string;
   answer: string;
   section: ResumeWizardSection;
-  resume_data_before: ResumeData;
+  resume_data_before: ResumeDocument;
 }
 
 export interface ResumeWizardState {
   step: ResumeWizardStep;
-  resume_data: ResumeData;
+  resume_data: ResumeDocument;
   current_question: ResumeWizardQuestion;
   history: ResumeWizardHistoryEntry[];
   asked_count: number;
@@ -65,32 +63,10 @@ export interface ResumeWizardFinalizeResponse {
 export const INTRO_QUESTION =
   "Hi — I'll help you build your master resume. What's your name, and what kind of role are you going for?";
 
-function emptyResumeData(): ResumeData {
-  return {
-    personalInfo: {
-      name: '',
-      title: '',
-      email: '',
-      phone: '',
-      location: '',
-      website: '',
-      linkedin: '',
-      github: '',
-    },
-    summary: '',
-    workExperience: [],
-    education: [],
-    personalProjects: [],
-    additional: { technicalSkills: [], languages: [], certificationsTraining: [], awards: [] },
-    customSections: {},
-    sectionMeta: [],
-  };
-}
-
 export function createInitialResumeWizardState(): ResumeWizardState {
   return {
     step: 'intro',
-    resume_data: emptyResumeData(),
+    resume_data: emptyDocument(),
     current_question: { text: INTRO_QUESTION, section: 'intro' },
     history: [],
     asked_count: 0,

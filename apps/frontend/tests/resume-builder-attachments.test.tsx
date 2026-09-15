@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ResumeData } from '@/components/dashboard/resume-component';
+import { sampleDocument } from './fixtures/document';
 
 const fetchResume = vi.fn();
 const updateResume = vi.fn();
@@ -86,14 +86,7 @@ vi.mock('@/lib/utils/download', async (importOriginal) => {
   };
 });
 
-const RESUME = {
-  personalInfo: { name: 'Ada', email: 'ada@example.com' },
-  summary: 'Synthetic resume',
-  workExperience: [],
-  education: [],
-  personalProjects: [],
-  additional: {},
-} satisfies ResumeData;
+const RESUME = sampleDocument({ header: { name: 'Ada' }, summary: 'Synthetic resume' });
 
 const response = (
   attachments: {

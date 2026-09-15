@@ -1,38 +1,43 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ResumeData } from '@/components/dashboard/resume-component';
+import type { ResumeDocument, Section } from '@/lib/types/document';
 import {
   buildResumeDraft,
   getResumeDraftStorageKey,
   parseResumeDraft,
   RESUME_DRAFT_MAX_AGE_MS,
   RESUME_DRAFT_MAX_CLOCK_SKEW_MS,
-  isSameResumeData,
+  isResumeDocumentShape,
+  isSameResumeDocument,
   shouldPromptForDraftRestore,
 } from '@/lib/utils/resume-draft-storage';
 
-const baseResume = {
-  personalInfo: {
+function section(overrides: Partial<Section> = {}): Section {
+  return {
+    id: 'sec-1',
+    key: 'summary',
+    heading: 'Summary',
+    headingI18nKey: null,
+    kind: 'text',
+    visible: true,
+    column: 'main',
+    text: '',
+    entries: [],
+    tags: [],
+    groups: [],
+    ...overrides,
+  };
+}
+
+const baseResume: ResumeDocument = {
+  schemaVersion: 2,
+  header: {
     name: 'Ada Lovelace',
-    title: 'Software Engineer',
-    email: 'ada@example.com',
-    phone: '',
-    location: '',
-    website: '',
-    linkedin: '',
-    github: '',
+    headline: 'Software Engineer',
+    contacts: [{ id: 'c-1', kind: 'email', label: 'Email', value: 'ada@example.com', url: '' }],
   },
-  summary: '',
-  workExperience: [],
-  education: [],
-  personalProjects: [],
-  additional: {
-    technicalSkills: [],
-    languages: [],
-    certificationsTraining: [],
-    awards: [],
-  },
-} satisfies ResumeData;
+  sections: [section()],
+};
 
 describe('resume draft storage helpers', () => {
   it('scopes saved drafts by resume id', () => {
@@ -62,6 +67,24 @@ describe('resume draft storage helpers', () => {
     });
   });
 
+  it('rejects a pre-migration draft instead of restoring a dead shape', () => {
+    // A v1 draft in localStorage carries the six-section shape. Restoring it
+    // would replace a migrated server document with fields nothing renders.
+    const legacyDraft = {
+      personalInfo: { name: 'Ada Lovelace' },
+      summary: 'Engineer',
+      workExperience: [],
+    };
+    expect(isResumeDocumentShape(legacyDraft)).toBe(false);
+    expect(parseResumeDraft(JSON.stringify(legacyDraft), 'abc-123')).toBeNull();
+    expect(
+      parseResumeDraft(
+        JSON.stringify({ resumeId: 'abc-123', updatedAt: Date.now(), data: legacyDraft }),
+        'abc-123'
+      )
+    ).toBeNull();
+  });
+
   it('rejects malformed JSON without throwing', () => {
     // T-02: every input in the "valid JSON" case below parses cleanly, so the
     // try/catch in parseResumeDraft was never exercised — it could be deleted
@@ -71,18 +94,10 @@ describe('resume draft storage helpers', () => {
     expect(parseResumeDraft('undefined', 'abc-123')).toBeNull();
   });
 
-  it('rejects valid JSON that does not look like resume data', () => {
+  it('rejects valid JSON that does not look like a resume document', () => {
     expect(parseResumeDraft('"not a resume"', 'abc-123')).toBeNull();
     expect(parseResumeDraft(JSON.stringify({ data: 42, updatedAt: 1 }), 'abc-123')).toBeNull();
-    expect(
-      parseResumeDraft(
-        JSON.stringify({
-          ...baseResume,
-          workExperience: {},
-        }),
-        'abc-123'
-      )
-    ).toBeNull();
+    expect(parseResumeDraft(JSON.stringify({ ...baseResume, sections: {} }), 'abc-123')).toBeNull();
   });
 
   it('rejects an envelope for a different resume id', () => {
@@ -106,14 +121,7 @@ describe('resume draft storage helpers', () => {
 
     const changedDraft = buildResumeDraft('abc-123', {
       ...baseResume,
-      education: [
-        {
-          id: 1,
-          institution: 'MIT',
-          degree: 'BS',
-          years: '2020 - 2024',
-        },
-      ],
+      sections: [...baseResume.sections, section({ id: 'sec-2', key: 'skills', kind: 'tags' })],
     });
 
     expect(shouldPromptForDraftRestore(changedDraft, baseResume)).toBe(true);
@@ -163,36 +171,35 @@ describe('draft expiry determinism', () => {
   });
 });
 
-describe('isSameResumeData structural comparison', () => {
+describe('isSameResumeDocument structural comparison', () => {
   it('treats reordered object keys as equal', () => {
     // A client-authored draft and a Pydantic-serialised server response can
     // carry identical data in a different key order. JSON.stringify equality
     // called that "unsaved work" and popped a recovery dialog whose two
     // options were indistinguishable.
-    const left = { ...baseResume, personalInfo: { name: 'Ada', email: 'a@b.com' } };
-    const right = { ...baseResume, personalInfo: { email: 'a@b.com', name: 'Ada' } };
+    const left = { ...baseResume, header: { ...baseResume.header, name: 'Ada', headline: 'Eng' } };
+    const right = {
+      ...baseResume,
+      header: { headline: 'Eng', name: 'Ada', contacts: baseResume.header.contacts },
+    };
 
-    expect(isSameResumeData(left as ResumeData, right as ResumeData)).toBe(true);
-    expect(
-      shouldPromptForDraftRestore(
-        buildResumeDraft('abc-123', left as ResumeData),
-        right as ResumeData
-      )
-    ).toBe(false);
+    expect(isSameResumeDocument(left, right)).toBe(true);
+    expect(shouldPromptForDraftRestore(buildResumeDraft('abc-123', left), right)).toBe(false);
   });
 
   it('still reports a real difference', () => {
-    const left = { ...baseResume, summary: 'one' };
-    const right = { ...baseResume, summary: 'two' };
+    const left = { ...baseResume, sections: [section({ text: 'one' })] };
+    const right = { ...baseResume, sections: [section({ text: 'two' })] };
 
-    expect(isSameResumeData(left as ResumeData, right as ResumeData)).toBe(false);
+    expect(isSameResumeDocument(left, right)).toBe(false);
   });
 
-  it('keeps array order significant', () => {
-    const left = { ...baseResume, additional: { technicalSkills: ['a', 'b'] } };
-    const right = { ...baseResume, additional: { technicalSkills: ['b', 'a'] } };
+  it('keeps section order significant', () => {
+    const skills = section({ id: 'sec-2', key: 'skills', kind: 'tags', tags: ['a'] });
+    const left = { ...baseResume, sections: [section(), skills] };
+    const right = { ...baseResume, sections: [skills, section()] };
 
-    expect(isSameResumeData(left as ResumeData, right as ResumeData)).toBe(false);
+    expect(isSameResumeDocument(left, right)).toBe(false);
   });
 });
 

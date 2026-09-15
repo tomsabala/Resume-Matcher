@@ -1,6 +1,7 @@
 # Prompt Workflow Design: Deviation Detection & Retry
 
-> **Status**: Superseded by [diff-based improvement design](../../superpowers/specs/2026-03-23-diff-based-improvement-design.md)
+> **Status**: Historical design proposal — **superseded** by [diff-based improvement design](../../superpowers/specs/2026-03-23-diff-based-improvement-design.md), which is what shipped.
+> **Reading it**: every field name and helper name below belongs to the retired v1 `ResumeData` model (`personalInfo`, `workExperience`, `personalProjects`, `additional`, `_preserve_personal_info`, `_protect_custom_sections`). Resume content is now a `ResumeDocument` of typed sections — see [backend-guide.md § The resume document](backend-guide.md#the-resume-document-schema-version-2) for the current contract and [custom-sections.md](../features/custom-sections.md) for section semantics. **Do not use the snippets here as a guide to current code.** The problem analysis (LLMs drop entries, inflate word counts, fabricate skills) is why the shipped pipeline validates locally at all, which is why this record is kept.
 > **Scope**: Backend improvement pipeline — `improver.py`, `refiner.py`, `llm.py`, `enrichment.py`
 
 ---

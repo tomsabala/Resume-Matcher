@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import Dashboard from '@/app/(default)/dashboard/page';
 import type { fetchResume, ResumeListItem } from '@/lib/api/resume';
+import { sampleDocument } from './fixtures/document';
+
+vi.mock('@/lib/context/workspace-context', () => ({
+  useWorkspace: () => ({ revision: 0 }),
+}));
 
 const api = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), retry: vi.fn(), push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: api.push }) }));
@@ -66,7 +71,7 @@ function status(
 ): ResumeResponse {
   return {
     resume_id: 'master',
-    processed_resume: { personalInfo: { name: 'Ada' } },
+    processed_resume: sampleDocument({ header: { name: 'Ada' } }),
     raw_resume: {
       id: 1,
       content: 'Ada',

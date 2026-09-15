@@ -26,6 +26,8 @@
   min-width: 0;
   /* Prevent content overflow into sidebar */
   overflow: hidden;
+  /* Two columns run denser than the single-column layout. */
+  --resume-text-scale: 0.92;
 }
 
 .sidebarColumn {
@@ -38,6 +40,14 @@
   /* Ensure minimum width for dates */
   min-width: 0;
   overflow-wrap: anywhere;
+  --resume-text-scale: 0.88;
+  /* Sidebar tags read as accent skill pills. */
+  --resume-tag-separator: '';
+  --resume-tag-gap: 0.25rem;
+  --resume-tag-border-width: 1px;
+  --resume-tag-bg: var(--resume-accent-bg);
+  --resume-tag-radius: 4px;
+  --resume-tag-padding: 0.125rem 0.375rem;
 }
 
 /* Section titles with accent color underline */

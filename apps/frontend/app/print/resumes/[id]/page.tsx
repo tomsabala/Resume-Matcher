@@ -1,4 +1,4 @@
-import Resume, { ResumeData } from '@/components/dashboard/resume-component';
+import Resume from '@/components/dashboard/resume-component';
 import {
   type TemplateType,
   type PageSize,
@@ -9,10 +9,10 @@ import {
   type AccentColor,
   DEFAULT_TEMPLATE_SETTINGS,
 } from '@/lib/types/template-settings';
+import { emptyDocument, type ResumeDocument } from '@/lib/types/document';
 import { API_BASE } from '@/lib/api/client';
 import { translate } from '@/lib/i18n/server';
 import { resolveLocale } from '@/lib/i18n/locale';
-import { withLocalizedDefaultSections } from '@/lib/utils/section-helpers';
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -76,7 +76,7 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
   return defaultValue;
 }
 
-async function fetchResumeData(id: string): Promise<ResumeData> {
+async function fetchResumeDocument(id: string): Promise<ResumeDocument> {
   const res = await fetch(`${API_BASE}/resumes?resume_id=${encodeURIComponent(id)}`, {
     cache: 'no-store',
   });
@@ -84,14 +84,14 @@ async function fetchResumeData(id: string): Promise<ResumeData> {
     throw new Error(`Failed to load resume (status ${res.status}).`);
   }
   const payload = (await res.json()) as {
-    data: { processed_resume?: ResumeData; raw_resume?: { content?: string } };
+    data: { processed_resume?: ResumeDocument; raw_resume?: { content?: string } };
   };
   if (payload.data.processed_resume) {
     return payload.data.processed_resume;
   }
   if (payload.data.raw_resume?.content) {
     try {
-      return JSON.parse(payload.data.raw_resume.content) as ResumeData;
+      return JSON.parse(payload.data.raw_resume.content) as ResumeDocument;
     } catch (error) {
       // Log error for debugging instead of silently failing
       // Note: Avoid logging content preview to prevent PII exposure
@@ -103,7 +103,7 @@ async function fetchResumeData(id: string): Promise<ResumeData> {
       throw new Error('Failed to parse resume data. The resume content may be corrupted.');
     }
   }
-  return {} as ResumeData;
+  return emptyDocument();
 }
 
 /**
@@ -158,31 +158,10 @@ function parsePageSize(value: string | undefined): PageSize {
 export default async function PrintResumePage({ params, searchParams }: PageProps) {
   const resolvedParams = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const resumeData = await fetchResumeData(resolvedParams.id);
+  const doc = await fetchResumeDocument(resolvedParams.id);
   const locale = resolveLocale(resolvedSearchParams?.lang);
   const t = (key: string, params?: Record<string, string | number>) =>
     translate(locale, key, params);
-  const localizedResumeData = withLocalizedDefaultSections(resumeData, t);
-  const additionalSectionLabels = {
-    technicalSkills: t('resume.additionalLabels.technicalSkills'),
-    languages: t('resume.additionalLabels.languages'),
-    certifications: t('resume.additionalLabels.certifications'),
-    awards: t('resume.additionalLabels.awards'),
-  };
-  const sectionHeadings = {
-    summary: t('resume.sections.summary'),
-    experience: t('resume.sections.experience'),
-    education: t('resume.sections.education'),
-    projects: t('resume.sections.projects'),
-    certifications: t('resume.sections.certifications'),
-    skills: t('resume.sections.skillsOnly'),
-    languages: t('resume.sections.languages'),
-    awards: t('resume.sections.awards'),
-    links: t('resume.sections.links'),
-  };
-  const fallbackLabels = {
-    name: t('resume.defaults.name'),
-  };
 
   // Parse template settings from query params
   const settings: TemplateSettings = {
@@ -251,13 +230,12 @@ export default async function PrintResumePage({ params, searchParams }: PageProp
     // matters for the CJK faces (L-08).
     <div className="resume-print bg-white" lang={locale}>
       <Resume
-        resumeData={localizedResumeData}
+        doc={doc}
         template={settings.template}
         settings={printSettings}
         locale={locale}
-        additionalSectionLabels={additionalSectionLabels}
-        sectionHeadings={sectionHeadings}
-        fallbackLabels={fallbackLabels}
+        translate={t}
+        fallbackName={t('resume.defaults.name')}
       />
     </div>
   );

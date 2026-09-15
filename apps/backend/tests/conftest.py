@@ -103,6 +103,9 @@ async def isolated_backend_state(
         if isinstance(getattr(module, "db", None), Database):
             monkeypatch.setattr(module, "db", test_db)
 
+    # Mirror the app lifespan: schema + default workspace exist before the
+    # first request, so deadline-sensitive tests measure handler work only.
+    await test_db.ensure_ready()
     invalidate_config_cache()
     crypto.reset_cache()
     try:
@@ -114,78 +117,202 @@ async def isolated_backend_state(
 
 
 # ---------------------------------------------------------------------------
-# Sample resume data — full ResumeData-compatible dict
+# Sample resume data — a full v2 ResumeDocument
 # ---------------------------------------------------------------------------
+
+
+def _entry(entry_id: str, **fields: Any) -> dict:
+    """One ENTRIES row with every field present, so tests compare like-for-like."""
+    return {
+        "id": entry_id,
+        "title": "",
+        "subtitle": "",
+        "meta": "",
+        "period": "",
+        "links": [],
+        "summary": "",
+        "bullets": [],
+        **fields,
+    }
+
+
+def _bullets(*texts: str) -> list[dict]:
+    return [{"text": text, "style": "bullet"} for text in texts]
+
 
 @pytest.fixture
 def sample_resume() -> dict:
-    """A realistic resume dict matching the ResumeData schema."""
+    """A realistic document matching the ``ResumeDocument`` schema."""
     return {
-        "personalInfo": {
+        "schemaVersion": 2,
+        "header": {
             "name": "Jane Doe",
-            "title": "Senior Backend Engineer",
-            "email": "jane@example.com",
-            "phone": "+1-555-0100",
-            "location": "San Francisco, CA",
-            "website": "https://janedoe.dev",
-            "linkedin": "linkedin.com/in/janedoe",
-            "github": "github.com/janedoe",
+            "headline": "Senior Backend Engineer",
+            "contacts": [
+                {
+                    "id": "c-email",
+                    "kind": "email",
+                    "label": "jane@example.com",
+                    "value": "jane@example.com",
+                    "url": "",
+                },
+                {
+                    "id": "c-phone",
+                    "kind": "phone",
+                    "label": "+1-555-0100",
+                    "value": "+1-555-0100",
+                    "url": "",
+                },
+                {
+                    "id": "c-location",
+                    "kind": "location",
+                    "label": "San Francisco, CA",
+                    "value": "San Francisco, CA",
+                    "url": "",
+                },
+                {
+                    "id": "c-github",
+                    "kind": "github",
+                    "label": "",
+                    "value": "github.com/janedoe",
+                    "url": "",
+                },
+            ],
         },
-        "summary": "Backend engineer with 6 years of experience building scalable Python APIs and microservices.",
-        "workExperience": [
+        "sections": [
             {
-                "id": 1,
-                "title": "Senior Backend Engineer",
-                "company": "Acme Corp",
-                "location": "San Francisco, CA",
-                "years": "Jan 2021 - Present",
-                "description": [
-                    "Built REST APIs serving 50K requests/day using Python and FastAPI",
-                    "Led migration from monolith to microservices architecture",
-                    "Mentored 3 junior developers on backend best practices",
-                ],
+                "id": "s-summary",
+                "key": "summary",
+                "heading": "Summary",
+                "headingI18nKey": "resume.sections.summary",
+                "kind": "text",
+                "visible": True,
+                "column": "main",
+                "text": (
+                    "Backend engineer with 6 years of experience building scalable "
+                    "Python APIs and microservices."
+                ),
+                "entries": [],
+                "tags": [],
+                "groups": [],
             },
             {
-                "id": 2,
-                "title": "Software Engineer",
-                "company": "StartupCo",
-                "location": "New York, NY",
-                "years": "Jun 2018 - Dec 2020",
-                "description": [
-                    "Developed payment processing system handling $2M monthly",
-                    "Wrote unit and integration tests improving coverage from 40% to 85%",
+                "id": "s-experience",
+                "key": "experience",
+                "heading": "Experience",
+                "headingI18nKey": "resume.sections.experience",
+                "kind": "entries",
+                "visible": True,
+                "column": "main",
+                "text": "",
+                "entries": [
+                    _entry(
+                        "e-acme",
+                        title="Senior Backend Engineer",
+                        subtitle="Acme Corp",
+                        meta="San Francisco, CA",
+                        period="Jan 2021 - Present",
+                        bullets=_bullets(
+                            "Built REST APIs serving 50K requests/day using Python and FastAPI",
+                            "Led migration from monolith to microservices architecture",
+                            "Mentored 3 junior developers on backend best practices",
+                        ),
+                    ),
+                    _entry(
+                        "e-startupco",
+                        title="Software Engineer",
+                        subtitle="StartupCo",
+                        meta="New York, NY",
+                        period="Jun 2018 - Dec 2020",
+                        bullets=_bullets(
+                            "Developed payment processing system handling $2M monthly",
+                            "Wrote unit and integration tests improving coverage from 40% to 85%",
+                        ),
+                    ),
+                ],
+                "tags": [],
+                "groups": [],
+            },
+            {
+                "id": "s-education",
+                "key": "education",
+                "heading": "Education",
+                "headingI18nKey": "resume.sections.education",
+                "kind": "entries",
+                "visible": True,
+                "column": "main",
+                "text": "",
+                "entries": [
+                    _entry(
+                        "e-mit",
+                        title="MIT",
+                        subtitle="B.S. Computer Science",
+                        period="2014 - 2018",
+                        summary="Graduated with honors, Dean's List",
+                    )
+                ],
+                "tags": [],
+                "groups": [],
+            },
+            {
+                "id": "s-projects",
+                "key": "projects",
+                "heading": "Projects",
+                "headingI18nKey": "resume.sections.projects",
+                "kind": "entries",
+                "visible": True,
+                "column": "main",
+                "text": "",
+                "entries": [
+                    _entry(
+                        "e-openapi",
+                        title="OpenAPI Generator",
+                        subtitle="Creator & Maintainer",
+                        period="Mar 2021 - Present",
+                        bullets=_bullets(
+                            "CLI tool generating API clients from OpenAPI specs",
+                            "500+ GitHub stars, used by 30+ companies",
+                        ),
+                    )
+                ],
+                "tags": [],
+                "groups": [],
+            },
+            {
+                "id": "s-skills",
+                "key": "skills",
+                "heading": "Skills & Awards",
+                "headingI18nKey": "resume.sections.skills",
+                "kind": "groups",
+                "visible": True,
+                "column": "main",
+                "text": "",
+                "entries": [],
+                "tags": [],
+                "groups": [
+                    {
+                        "label": "Technical Skills",
+                        "values": [
+                            "Python",
+                            "FastAPI",
+                            "Docker",
+                            "AWS",
+                            "PostgreSQL",
+                            "Redis",
+                        ],
+                    },
+                    {
+                        "label": "Languages",
+                        "values": ["English (Native)", "Spanish (Conversational)"],
+                    },
+                    {
+                        "label": "Certifications & Training",
+                        "values": ["AWS Solutions Architect Associate"],
+                    },
+                    {"label": "Awards", "values": ["Employee of the Year 2022"]},
                 ],
             },
         ],
-        "education": [
-            {
-                "id": 1,
-                "institution": "MIT",
-                "degree": "B.S. Computer Science",
-                "years": "2014 - 2018",
-                "description": "Graduated with honors, Dean's List",
-            }
-        ],
-        "personalProjects": [
-            {
-                "id": 1,
-                "name": "OpenAPI Generator",
-                "role": "Creator & Maintainer",
-                "years": "Mar 2021 - Present",
-                "description": [
-                    "CLI tool generating API clients from OpenAPI specs",
-                    "500+ GitHub stars, used by 30+ companies",
-                ],
-            }
-        ],
-        "additional": {
-            "technicalSkills": ["Python", "FastAPI", "Docker", "AWS", "PostgreSQL", "Redis"],
-            "languages": ["English (Native)", "Spanish (Conversational)"],
-            "certificationsTraining": ["AWS Solutions Architect Associate"],
-            "awards": ["Employee of the Year 2022"],
-        },
-        "customSections": {},
-        "sectionMeta": [],
     }
 
 
@@ -256,28 +383,28 @@ def sample_changes():
 
     return [
         ResumeChange(
-            path="summary",
+            path="sections.summary.text",
             action="replace",
             original="Backend engineer with 6 years of experience building scalable Python APIs and microservices.",
             value="Senior backend engineer with 6 years building scalable Python APIs, microservices, and cloud infrastructure on AWS.",
             reason="Added cloud/AWS keywords from JD",
         ),
         ResumeChange(
-            path="workExperience[0].description[0]",
+            path="sections.experience.entries[0].bullets[0].text",
             action="replace",
             original="Built REST APIs serving 50K requests/day using Python and FastAPI",
             value="Designed and built REST APIs serving 50K requests/day using Python, FastAPI, and Docker",
             reason="Added Docker keyword from JD",
         ),
         ResumeChange(
-            path="workExperience[0].description",
+            path="sections.experience.entries[0].bullets",
             action="append",
             original=None,
             value="Implemented CI/CD pipelines with GitHub Actions reducing deploy time by 40%",
             reason="Added CI/CD keyword from JD",
         ),
         ResumeChange(
-            path="additional.technicalSkills",
+            path="sections.skills.groups[0].values",
             action="reorder",
             original=None,
             value=["Python", "FastAPI", "Docker", "AWS", "PostgreSQL", "Redis"],

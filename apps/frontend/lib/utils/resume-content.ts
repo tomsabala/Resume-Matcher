@@ -1,85 +1,78 @@
 /**
- * Mirror of `apps/backend/app/services/parser.py::has_meaningful_resume_content`
- * (and its `_has_meaningful_resume_value` helper), which is the authoritative
- * implementation. The backend rejects an LLM parse whose result carries no
- * user-visible content; the dashboard uses the same predicate to surface a
- * legacy `ready` resume that stored `{}` as `failed` instead of a blank PDF.
+ * Mirror of `apps/backend/app/services/parser.py::has_meaningful_resume_content`,
+ * which is the authoritative implementation. The backend rejects an LLM parse
+ * whose result carries no user-visible content; the dashboard uses the same
+ * predicate to surface a legacy `ready` resume that stored an empty document as
+ * `failed` instead of rendering a blank PDF.
  *
- * THE TWO COPIES MUST BE CHANGED TOGETHER. The constant names, values and the
- * seven section names below are kept aligned with the Python so the two files
- * can be diffed by eye:
+ * THE TWO COPIES MUST BE CHANGED TOGETHER.
  *
- *   nonContentResumeKeys      <-> _NON_CONTENT_RESUME_KEYS
- *   maxResumeContentRecursion <-> _MAX_RESUME_CONTENT_RECURSION
- *   hasMeaningfulResumeValue  <-> _has_meaningful_resume_value
- *   hasMeaningfulResumeContent<-> has_meaningful_resume_content
+ * The rule: a `ResumeDocument` is meaningful when the header carries a name, or
+ * when any *visible* section carries non-empty content **for its own kind**. A
+ * hidden section never reaches the PDF, and a section only ever renders the
+ * field group its `kind` selects — so a stray `text` on an `entries` section is
+ * not content.
  */
 
-/** @internal Exported for tests/resume-content-parity.test.ts. */
-export const nonContentResumeKeys = new Set([
-  'id',
-  'sectionType',
-  'descriptionStyles',
-  'isDefault',
-  'isVisible',
-  'order',
-  'key',
-  'displayName',
-]);
+import type { SectionKind } from '@/lib/types/document';
 
-/** @internal Exported for tests/resume-content-parity.test.ts. */
-export const maxResumeContentRecursion = 10;
+const isMeaningfulText = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
 
-/**
- * Content-bearing sections, mirroring ``content_sections`` in the Python.
- * @internal Exported for tests/resume-content-parity.test.ts.
- */
-export const resumeContentSections = [
-  'personalInfo',
-  'summary',
-  'workExperience',
-  'education',
-  'personalProjects',
-  'additional',
-  'customSections',
-] as const;
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/**
- * Return whether a value contains non-structural, user-visible text.
- *
- * Custom-section identifiers are dictionary keys rather than schema fields, so
- * their values are checked without filtering the identifier itself. Once inside
- * a section, normal structural-key filtering resumes.
- */
-const hasMeaningfulResumeValue = (
-  value: unknown,
-  depth = 0,
-  filterStructuralKeys = true
-): boolean => {
-  if (depth >= maxResumeContentRecursion) return false;
-  if (typeof value === 'string') return Boolean(value.trim());
-  if (Array.isArray(value)) {
-    return value.some((item) => hasMeaningfulResumeValue(item, depth + 1));
-  }
-  if (!value || typeof value !== 'object') return false;
-  return Object.entries(value as Record<string, unknown>).some(
-    ([key, item]) =>
-      (!filterStructuralKeys || !nonContentResumeKeys.has(key)) &&
-      hasMeaningfulResumeValue(item, depth + 1)
+const asArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+const hasEntryContent = (value: unknown): boolean => {
+  if (!isObjectRecord(value)) return false;
+  return (
+    isMeaningfulText(value.title) ||
+    isMeaningfulText(value.subtitle) ||
+    isMeaningfulText(value.meta) ||
+    isMeaningfulText(value.period) ||
+    isMeaningfulText(value.summary) ||
+    asArray(value.bullets).some((row) => isObjectRecord(row) && isMeaningfulText(row.text)) ||
+    asArray(value.links).some((link) => isObjectRecord(link) && isMeaningfulText(link.url))
   );
 };
 
+const hasGroupContent = (value: unknown): boolean => {
+  if (!isObjectRecord(value)) return false;
+  return isMeaningfulText(value.label) || asArray(value.values).some(isMeaningfulText);
+};
+
+/** Content test for the one field group a section's `kind` actually renders. */
+const hasSectionContent = (section: Record<string, unknown>): boolean => {
+  switch (section.kind as SectionKind) {
+    case 'text':
+      return isMeaningfulText(section.text);
+    case 'entries':
+      return asArray(section.entries).some(hasEntryContent);
+    case 'tags':
+      return asArray(section.tags).some(isMeaningfulText);
+    case 'groups':
+      return asArray(section.groups).some(hasGroupContent);
+    default:
+      return false;
+  }
+};
+
 /**
- * Return whether parsed resume data contains any user-facing content.
+ * Return whether a parsed resume document contains any user-facing content.
  *
- * `ResumeData` intentionally defaults most fields to empty strings/lists. That
- * is useful for the builder, but it also means an LLM response such as `{}`
- * validates successfully — which would render a blank resume.
+ * `ResumeDocument` intentionally defaults every field to an empty string/list.
+ * That is useful for the builder, but it also means an LLM response such as
+ * `{"schemaVersion": 2, "header": {}, "sections": []}` validates successfully —
+ * which would render a blank resume.
  */
 export const hasMeaningfulResumeContent = (value: unknown): boolean => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const resume = value as Record<string, unknown>;
-  return resumeContentSections.some((section) =>
-    hasMeaningfulResumeValue(resume[section], 0, section !== 'customSections')
+  if (!isObjectRecord(value)) return false;
+
+  const header = value.header;
+  if (isObjectRecord(header) && isMeaningfulText(header.name)) return true;
+
+  return asArray(value.sections).some(
+    (section) => isObjectRecord(section) && section.visible !== false && hasSectionContent(section)
   );
 };

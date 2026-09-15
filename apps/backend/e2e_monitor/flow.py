@@ -15,10 +15,10 @@ import httpx
 
 from e2e_monitor import API_BASE
 from tests.evals.scorers import (
+    header_unchanged,
     is_valid_resume,
     jd_keywords_present,
-    no_fabricated_employers,
-    personal_info_unchanged,
+    no_fabricated_entries,
     sections_preserved,
 )
 
@@ -29,8 +29,8 @@ def score_tailoring(
     """Run every structural scorer over an (original, tailored) pair."""
     return {
         "sections_preserved": sections_preserved(original, tailored),
-        "fabricated_employers": no_fabricated_employers(original, tailored),
-        "personal_info_unchanged": personal_info_unchanged(original, tailored),
+        "fabricated_entries": no_fabricated_entries(original, tailored),
+        "header_unchanged": header_unchanged(original, tailored),
         "is_valid_resume": is_valid_resume(tailored),
         "jd_keyword_coverage": jd_keywords_present(tailored, keywords),
     }

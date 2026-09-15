@@ -1,0 +1,111 @@
+<# Shared body for the LaTeX resume templates.
+
+     A template supplies the preamble and spacing, then includes this. Every
+     interpolated user string goes through the `tex` filter; macros never do.
+     Publications are an ordinary `entries` section, so no biblatex is needed
+     — Tectonic's bundled biblatex must version-match an external biber, and
+     mismatches are a hard failure. #>
+<# Entry links render as icons on the title row, the way the reference CV
+     places a repo link beside a project name. #>
+<% macro link_icons(links) %><% for link in links %> \href{<< link.url | tex >>}{\textcolor{black}{<% if link.kind == 'github' %>\faGithub<% elif link.kind == 'linkedin' %>\faLinkedin<% else %>\faGlobe<% endif %>}}<% endfor %><% endmacro %>
+\begin{document}
+\pagestyle{empty}
+
+<# Header: name, headline, and contacts on one `$|$`-separated line. #>
+\begin{tabularx}{\linewidth}{@{} C @{}}
+<% if header.name %>
+\LARGE{<< header.name | tex >>} \\[3pt]
+<% endif %>
+<% if header.headline %>
+\large{<< header.headline | tex >>} \\[3pt]
+<% endif %>
+<% set links = header.contacts | selectattr('value') | list %>
+<% for contact in links %>
+<% set href = contact | contact_url %>
+<% set icon = contact | contact_icon %>
+<% if href %>
+\href{<< href | tex >>}{<% if icon %>\raisebox{-0.05\height}<< icon >><% endif %><% if contact.label %> \ << contact.label | tex >><% elif not icon %><< contact.value | tex >><% endif %>}<% if not loop.last %> \ $|$ \<% endif %>
+
+<% else %>
+<% if icon %>\raisebox{-0.05\height}<< icon >> \ <% endif %><< (contact.label or contact.value) | tex >><% if not loop.last %> \ $|$ \<% endif %>
+
+<% endif %>
+<% endfor %>
+<% if links %>
+\\
+<% endif %>
+\end{tabularx}
+
+<% for section in sections %>
+\section{<< section.heading | tex >>}
+<% if section.kind == SectionKind.TEXT %>
+<< section.text | tex >>
+\vspace{-2pt}
+
+<% elif section.kind == SectionKind.ENTRIES %>
+<% for entry in section.entries %>
+<# `joblong` when the entry has bullets, `jobshort` otherwise — and a
+     `summary` prints as a paragraph between the two, which is exactly the
+     jobshort + itemize pattern the reference CV uses by hand. #>
+<% set title = entry.title or entry.subtitle %>
+<% set right = entry.period %>
+<% if entry.summary and entry.bullets %>
+\begin{jobshort}{<< title | tex >><< link_icons(entry.links) >>}{<< right | tex >>}
+<% if entry.subtitle and entry.title %>
+\textit{<< entry.subtitle | tex >>}<% if entry.meta %> \hfill << entry.meta | tex >><% endif %>\par
+
+<% endif %>
+<< entry.summary | tex >>
+\end{jobshort}
+\begin{itemize}[nosep,after=\strut, leftmargin=1em, itemsep=2pt,label=\textbullet]
+<% for bullet in entry.bullets %>
+<% if bullet.style == 'plain' %>
+\item[] << bullet.text | tex >>
+<% else %>
+\item << bullet.text | tex >>
+<% endif %>
+<% endfor %>
+\end{itemize}
+<% elif entry.bullets %>
+\begin{joblong}{<< title | tex >><< link_icons(entry.links) >>}{<< right | tex >>}
+<% for bullet in entry.bullets %>
+<% if bullet.style == 'plain' %>
+\item[] << bullet.text | tex >>
+<% else %>
+\item << bullet.text | tex >>
+<% endif %>
+<% endfor %>
+\end{joblong}
+<% else %>
+\begin{jobshort}{<< title | tex >><< link_icons(entry.links) >>}{<< right | tex >>}
+<% if entry.subtitle and entry.title %>
+\textit{<< entry.subtitle | tex >>}<% if entry.meta %> \hfill << entry.meta | tex >><% endif %>\par
+
+<% endif %>
+<% if entry.summary %>
+<< entry.summary | tex >>
+<% endif %>
+\end{jobshort}
+<% endif %>
+\vspace{1pt}
+<% endfor %>
+\vspace{-6pt}
+
+<% elif section.kind == SectionKind.TAGS %>
+<% for value in section.tags | select | list %><< value | tex >><% if not loop.last %> $|$ <% endif %><% endfor %>
+
+\vspace{-2pt}
+
+<% else %>
+\begin{tabularx}{\linewidth}{ @{}l X@{} }
+<% for group in section.groups %>
+<% if group.values | select | list %>
+\textbf{<< group.label | tex >>:} & <% for value in group.values | select | list %><< value | tex >><% if not loop.last %> $|$ <% endif %><% endfor %> \\[3pt]
+<% endif %>
+<% endfor %>
+\end{tabularx}
+\vspace{-2pt}
+
+<% endif %>
+<% endfor %>
+\end{document}

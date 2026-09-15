@@ -1,6 +1,7 @@
 # Diff-Based Resume Improvement — Design Spec
 
-> **Status**: Design
+> **Status**: Shipped — read for the pipeline design, **not** for the response contract.
+> **Response contract**: the tailoring response described below has since changed. One structured comparison — `diff: DocumentDiff`, from `services/document_diff.py` — replaced the old per-field summary payload and `calculate_resume_diff()`. See [document-diff.md](../../agent/features/document-diff.md).
 > **Date**: 2026-03-23
 > **Scope**: Backend improvement pipeline — `improver.py`, `refiner.py`, `resumes.py`, `templates.py`
 
@@ -65,7 +66,7 @@ extract_keywords ──→ generate_diffs ──→ apply_diffs ──→ verify
 - **`apply_diffs()`** — local function that applies verified changes to the original resume
 - **`verify_diff_result()`** — local quality checks on the result
 - **Refiner** — unchanged, receives the full dict produced by `apply_diffs()`
-- **Frontend response** — unchanged (`resume_preview`, `diff_summary`, `detailed_changes`)
+- **Frontend response** — unchanged (`resume_preview` plus the tailoring comparison payload)
 
 ### 2.2 What each hallucination vector looks like after this change
 
@@ -320,10 +321,9 @@ This replaces the 3 separate prompt templates (`IMPROVE_RESUME_PROMPT_NUDGE`, `_
 | `inject_keywords()` | `refiner.py` | No change |
 | `remove_ai_phrases()` | `refiner.py` | No change |
 | `validate_master_alignment()` | `refiner.py` | No change |
-| `calculate_resume_diff()` | `improver.py` | No change — compares original vs final |
 | `generate_improvements()` | `improver.py` | No change |
 | Auxiliary content generation | `cover_letter.py` | No change |
-| Frontend response format | `schemas/models.py` | No change — `resume_preview`, `diff_summary`, `detailed_changes` populated as before |
+| Frontend response format | `schemas/models.py` | No change |
 | Preview → confirm hash validation | `resumes.py` | No change |
 | `complete_json()` | `llm.py` | No change — diff output is valid JSON |
 
@@ -394,7 +394,7 @@ if rejected:
     )
 ```
 
-Everything downstream (`_preserve_personal_info`, `_restore_original_dates`, `refine_resume`, `calculate_resume_diff`, etc.) remains unchanged — it receives `improved_data` as a full dict, same as today.
+Everything downstream (`_preserve_personal_info`, `_restore_original_dates`, `refine_resume`, the comparison step, etc.) remains unchanged — it receives `improved_data` as a full dict, same as today.
 
 ---
 
@@ -476,7 +476,7 @@ Ollama's generation speed is the bottleneck (token/s on local hardware). Reducin
 | 8 | `app/services/refiner.py` | No change | Receives full dict from `apply_diffs()` |
 | 9 | `app/services/cover_letter.py` | No change | Receives full dict |
 | 10 | `app/routers/enrichment.py` | No change | Separate feature |
-| 11 | Frontend | No change | `resume_preview`, `diff_summary`, `detailed_changes` populated as before |
+| 11 | Frontend | No change | Response envelope populated as before |
 
 ### 10.1 What we're NOT changing
 

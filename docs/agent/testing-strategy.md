@@ -130,7 +130,7 @@ Legend: ✅ done · 🚧 in progress · ⬜ planned
 - ✅ Real routers + real temp DB (`isolated_db`), every LLM boundary mocked: upload → jobs → fetch **and** the preview→confirm tailoring handshake. Asserts real persisted state (master invariant, `parent_id` linkage, `improvements` record). **`resumes.py` 18% → 53%.**
 
 **Phase 5 — Eval harness (structural + LLM-as-judge) ✅ COMPLETE** (`tests/evals/`, 31 scorer tests + 1 gated judge)
-- ✅ Pure structural scorers (`sections_preserved`, `no_fabricated_employers`, `jd_keywords_present`, `is_valid_resume`, `personal_info_unchanged`) + golden fixtures, each proven on good AND bad inputs.
+- ✅ Pure structural scorers (`sections_preserved`, `no_fabricated_entries`, `jd_keywords_present`, `is_valid_resume`, `header_unchanged`) + golden fixtures, each proven on good AND bad inputs.
 - ✅ At this phase, the LLM-as-judge used the developer's configured key and was **excluded from the default run** (`addopts -m "not eval"`). The current isolated harness additionally requires explicit paid-eval opt-in and provider environment settings; see §6.
 
 **Phase 6 — Local pre-push gate (replaces PR CI) ✅ COMPLETE** (`.githooks/pre-push`)

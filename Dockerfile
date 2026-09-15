@@ -65,6 +65,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
+# ============================================
+# LaTeX Engine (optional)
+# ============================================
+# Tectonic, not TeX Live: one ~30MB static binary that fetches the packages a
+# document actually needs, versus a multi-GB distribution. Build with
+# `--build-arg INSTALL_LATEX=false` to drop LaTeX export entirely - the app
+# detects the missing engine and offers a .tex download instead.
+ARG INSTALL_LATEX=true
+ARG TECTONIC_VERSION=0.17.0
+RUN if [ "$INSTALL_LATEX" = "true" ]; then \
+      set -eux; \
+      case "$(dpkg --print-architecture)" in \
+        amd64) TECTONIC_ARCH=x86_64 ;; \
+        arm64) TECTONIC_ARCH=aarch64 ;; \
+        *) echo "No tectonic build for $(dpkg --print-architecture)" >&2; exit 0 ;; \
+      esac; \
+      curl -fsSL -o /tmp/tectonic.tar.gz \
+        "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-${TECTONIC_ARCH}-unknown-linux-musl.tar.gz"; \
+      tar -xzf /tmp/tectonic.tar.gz -C /usr/local/bin tectonic; \
+      rm /tmp/tectonic.tar.gz; \
+      tectonic --version; \
+    fi
+
 WORKDIR /app
 
 # Copy Node.js runtime from frontend builder for reproducible runtime behavior.
@@ -74,6 +97,8 @@ COPY --from=frontend-builder /usr/local/bin/node /usr/local/bin/node
 # Backend Setup
 # ============================================
 COPY apps/backend/pyproject.toml /app/backend/
+COPY apps/backend/alembic.ini /app/backend/
+COPY apps/backend/migrations /app/backend/migrations
 COPY apps/backend/app /app/backend/app
 
 WORKDIR /app/backend
@@ -111,6 +136,17 @@ USER appuser
 
 # Install Playwright Chromium as appuser (so browsers are in correct location)
 RUN python -m playwright install chromium
+
+# Warm Tectonic's TeX bundle into the image as appuser. Without this the
+# first user export pays a ~300MB download, and an offline deployment never
+# compiles at all.
+RUN if command -v tectonic >/dev/null 2>&1; then \
+      set -eux; \
+      mkdir -p /tmp/texwarm && cd /tmp/texwarm; \
+      printf '%s' '\documentclass[a4paper,10pt]{article}\usepackage{url}\usepackage{parskip}\RequirePackage{color}\RequirePackage{graphicx}\usepackage[usenames,dvipsnames]{xcolor}\usepackage[scale=0.9]{geometry}\usepackage{tabularx}\usepackage{enumitem}\usepackage{supertabular}\usepackage{titlesec}\usepackage{multicol}\usepackage{multirow}\usepackage{fontawesome5}\usepackage[unicode,draft=false]{hyperref}\begin{document}warm\end{document}' > warm.tex; \
+      tectonic --keep-logs --outdir . warm.tex; \
+      cd / && rm -rf /tmp/texwarm; \
+    fi
 
 # Expose the public port (backend remains internal on 8000)
 EXPOSE 3000

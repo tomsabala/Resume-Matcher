@@ -24,11 +24,15 @@ from app.pdf import close_pdf_renderer, init_pdf_renderer
 from app.routers import (
     applications_router,
     config_router,
+    diff_router,
     enrichment_router,
     health_router,
     jobs_router,
     resume_wizard_router,
     resumes_router,
+    tex_router,
+    versions_router,
+    workspaces_router,
 )
 from app.routers.resumes import drain_processing_cleanup_tasks
 
@@ -45,8 +49,10 @@ _configure_application_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager."""
-    # Startup
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    # Migrate the schema and warm the workspace lookup before serving, so no
+    # request pays cold start inside its own AI deadline.
+    await db.ensure_ready()
     # Import a legacy TinyDB database into SQLite if present (idempotent).
     # Fail-fast on error: starting with an empty DB would look like data loss.
     from app.scripts.migrate_tinydb_to_sqlite import migrate as migrate_tinydb
@@ -109,10 +115,14 @@ app.add_middleware(
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api/v1")
 app.include_router(resumes_router, prefix="/api/v1")
+app.include_router(tex_router, prefix="/api/v1")
 app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(enrichment_router, prefix="/api/v1")
 app.include_router(applications_router, prefix="/api/v1")
 app.include_router(resume_wizard_router, prefix="/api/v1")
+app.include_router(diff_router, prefix="/api/v1")
+app.include_router(versions_router, prefix="/api/v1")
+app.include_router(workspaces_router, prefix="/api/v1")
 
 
 @app.get("/")

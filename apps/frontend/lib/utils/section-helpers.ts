@@ -1,182 +1,75 @@
 /**
- * Section helpers for dynamic resume section management.
+ * Section helpers for the data-driven resume document (schema version 2).
  *
- * These utilities handle section metadata operations including
- * getting default sections, sorting, and managing custom sections.
+ * Sections are pure data: order is list order, the heading is free text and
+ * the shape is `Section.kind`. Nothing here enumerates resume sections.
  */
 
-import type { ResumeData, SectionMeta, SectionType } from '@/components/dashboard/resume-component';
+import type { ResumeDocument, Section, SectionKind } from '@/lib/types/document';
+import en from '@/messages/en.json';
+import { getNestedValue } from '@/lib/i18n/utils';
 
-export type TranslationFunction = (key: string, params?: Record<string, string | number>) => string;
+/** Visible sections, in document order. */
+export function visibleSections(doc: ResumeDocument): Section[] {
+  return doc.sections.filter((section) => section.visible);
+}
 
-/**
- * Default section metadata for backward compatibility.
- * Used when a resume doesn't have sectionMeta defined.
- */
-export const DEFAULT_SECTION_META: SectionMeta[] = [
-  {
-    id: 'personalInfo',
-    key: 'personalInfo',
-    displayName: 'Personal Info',
-    sectionType: 'personalInfo',
-    isDefault: true,
-    isVisible: true,
-    order: 0,
-  },
-  {
-    id: 'summary',
-    key: 'summary',
-    displayName: 'Summary',
-    sectionType: 'text',
-    isDefault: true,
-    isVisible: true,
-    order: 1,
-  },
-  {
-    id: 'workExperience',
-    key: 'workExperience',
-    displayName: 'Experience',
-    sectionType: 'itemList',
-    isDefault: true,
-    isVisible: true,
-    order: 2,
-  },
-  {
-    id: 'education',
-    key: 'education',
-    displayName: 'Education',
-    sectionType: 'itemList',
-    isDefault: true,
-    isVisible: true,
-    order: 3,
-  },
-  {
-    id: 'personalProjects',
-    key: 'personalProjects',
-    displayName: 'Projects',
-    sectionType: 'itemList',
-    isDefault: true,
-    isVisible: true,
-    order: 4,
-  },
-  {
-    id: 'additional',
-    key: 'additional',
-    displayName: 'Skills & Awards',
-    sectionType: 'stringList',
-    isDefault: true,
-    isVisible: true,
-    order: 5,
-  },
-];
-
-const DEFAULT_SECTION_DISPLAY_NAME_BY_ID: Readonly<Record<string, string>> = Object.freeze(
-  Object.fromEntries(DEFAULT_SECTION_META.map((section) => [section.id, section.displayName]))
-);
-
-const DEFAULT_SECTION_I18N_KEY_BY_ID: Readonly<Record<string, string>> = Object.freeze({
-  personalInfo: 'resume.sections.personalInfo',
-  summary: 'resume.sections.summary',
-  workExperience: 'resume.sections.experience',
-  education: 'resume.sections.education',
-  personalProjects: 'resume.sections.projects',
-  additional: 'resume.sections.skills',
-});
-
-/**
- * Localize default section display names without overwriting user customizations.
- *
- * Rules:
- * - Only affects built-in sections (isDefault === true)
- * - Only overwrites when the displayName still equals the original English default
- */
-export function localizeDefaultSectionMeta(
-  sections: SectionMeta[],
-  t: TranslationFunction
-): SectionMeta[] {
-  return sections.map((section) => {
-    if (!section.isDefault) return section;
-
-    const i18nKey = DEFAULT_SECTION_I18N_KEY_BY_ID[section.id];
-    if (!i18nKey) return section;
-
-    const defaultDisplayName = DEFAULT_SECTION_DISPLAY_NAME_BY_ID[section.id];
-    if (!defaultDisplayName) return section;
-
-    if (section.displayName !== defaultDisplayName) return section;
-
-    return { ...section, displayName: t(i18nKey) };
-  });
+/** Every section including hidden ones, in document order (management UI). */
+export function allSections(doc: ResumeDocument): Section[] {
+  return doc.sections;
 }
 
 /**
- * Return a ResumeData object with localized default sectionMeta.
- *
- * - If resumeData.sectionMeta is missing, it generates it from DEFAULT_SECTION_META.
- * - If sectionMeta exists, it only localizes untouched default English section names.
+ * A section key is referenced by AI change paths and diff paths, so it must be
+ * unique within the document. Collisions get a numeric suffix (`_2`, `_3`, …).
  */
-export function withLocalizedDefaultSections(
-  resumeData: ResumeData,
-  t: TranslationFunction
-): ResumeData {
-  const baseMeta = resumeData.sectionMeta?.length ? resumeData.sectionMeta : DEFAULT_SECTION_META;
-  const localizedMeta = localizeDefaultSectionMeta(baseMeta, t);
-  return { ...resumeData, sectionMeta: localizedMeta };
+function uniqueKey(doc: ResumeDocument, heading: string): string {
+  const base =
+    heading
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'section';
+  const taken = new Set(doc.sections.map((section) => section.key));
+  if (!taken.has(base)) return base;
+
+  let suffix = 2;
+  while (taken.has(`${base}_${suffix}`)) suffix += 1;
+  return `${base}_${suffix}`;
 }
 
-/**
- * Get section metadata from resume data, falling back to defaults.
- */
-export function getSectionMeta(resumeData: ResumeData): SectionMeta[] {
-  return resumeData.sectionMeta?.length ? resumeData.sectionMeta : DEFAULT_SECTION_META;
-}
-
-/**
- * Get sorted sections (visible only) for rendering.
- */
-export function getSortedSections(resumeData: ResumeData): SectionMeta[] {
-  return [...getSectionMeta(resumeData)]
-    .filter((s) => s.isVisible)
-    .sort((a, b) => a.order - b.order);
-}
-
-/**
- * Get all sections (including hidden) for management UI.
- */
-export function getAllSections(resumeData: ResumeData): SectionMeta[] {
-  return [...getSectionMeta(resumeData)].sort((a, b) => a.order - b.order);
-}
-
-/**
- * Generate a unique ID for a new custom section.
- */
-export function generateCustomSectionId(existingSections: SectionMeta[]): string {
-  const customSections = existingSections.filter((s) => s.id.startsWith('custom_'));
-  const maxId = customSections.reduce((max, s) => {
-    const num = parseInt(s.id.replace('custom_', ''), 10);
-    return isNaN(num) ? max : Math.max(max, num);
-  }, 0);
-  return `custom_${maxId + 1}`;
-}
-
-/**
- * Create a new custom section with metadata.
- */
-export function createCustomSection(
-  existingSections: SectionMeta[],
-  displayName: string,
-  sectionType: SectionType
-): SectionMeta {
-  const id = generateCustomSectionId(existingSections);
-  const maxOrder = Math.max(...existingSections.map((s) => s.order), 0);
-
+/** Build an empty section of `kind` whose key is unique within `doc`. */
+export function createSection(doc: ResumeDocument, heading: string, kind: SectionKind): Section {
   return {
-    id,
-    key: id,
-    displayName,
-    sectionType,
-    isDefault: false,
-    isVisible: true,
-    order: maxOrder + 1,
+    id: crypto.randomUUID(),
+    key: uniqueKey(doc, heading),
+    heading,
+    headingI18nKey: null,
+    kind,
+    visible: true,
+    column: 'main',
+    text: '',
+    entries: [],
+    tags: [],
+    groups: [],
   };
+}
+
+/**
+ * The heading to display.
+ *
+ * A section projected from a v1 built-in carries `headingI18nKey`. Its heading
+ * is only a translatable label while it still equals that key's **English**
+ * default — the moment the user edits it, the literal text wins. A user
+ * heading must never be fed to `t()`: `Messages = typeof en` makes an unknown
+ * key a build failure, and `getNestedValue` would echo the path back.
+ */
+export function sectionHeading(section: Section, t: (key: string) => string): string {
+  const key = section.headingI18nKey;
+  if (!key) return section.heading;
+
+  const englishDefault = getNestedValue(en as unknown as Record<string, unknown>, key);
+  if (englishDefault !== section.heading) return section.heading;
+
+  return t(key);
 }

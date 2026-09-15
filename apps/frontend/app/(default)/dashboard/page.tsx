@@ -7,6 +7,15 @@ import { useState, useEffect, useCallback, useRef, type KeyboardEvent } from 're
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Card, CardTitle, CardDescription } from '@/components/ui/card';
 import Link from 'next/link';
 import { useTranslations } from '@/lib/i18n';
@@ -18,22 +27,34 @@ import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw';
 import Plus from 'lucide-react/dist/esm/icons/plus';
 import Settings from 'lucide-react/dist/esm/icons/settings';
 import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
+import Pencil from 'lucide-react/dist/esm/icons/pencil';
+import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
 
 import {
   fetchResume,
   fetchResumeList,
   deleteResume,
+  renameResume,
   retryProcessing,
   fetchJobDescription,
   type ResumeListItem,
 } from '@/lib/api/resume';
 import { useStatusCache } from '@/lib/context/status-cache';
+import { useWorkspace } from '@/lib/context/workspace-context';
 import { hasMeaningfulResumeContent } from '@/lib/utils/resume-content';
 
 type ProcessingStatus = 'pending' | 'processing' | 'ready' | 'failed' | 'loading';
 
+/** The identity a rename/delete acts on, for either kind of card. */
+interface ManagedResume {
+  resumeId: string;
+  title: string;
+  isMaster: boolean;
+}
+
 export default function DashboardPage() {
   const { t, locale } = useTranslations();
+  const { revision } = useWorkspace();
   const [masterResumeId, setMasterResumeId] = useState<string | null>(null);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>('loading');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -43,6 +64,15 @@ export default function DashboardPage() {
   const [isRetrying, setIsRetrying] = useState(false);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [isMasterChoiceDialogOpen, setIsMasterChoiceDialogOpen] = useState(false);
+  // Resume multi-select, for the Compare screen. Exactly two selected is the
+  // only state a comparison exists for.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [renameTarget, setRenameTarget] = useState<ManagedResume | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<ManagedResume | null>(null);
+  const [manageError, setManageError] = useState<string | null>(null);
+  const [isManaging, setIsManaging] = useState(false);
+  const [masterTitle, setMasterTitle] = useState<string | null>(null);
   const router = useRouter();
 
   // Status cache for optimistic counter updates and LLM status check
@@ -186,6 +216,9 @@ export default function DashboardPage() {
       const masterFromList = data.find((r) => r.is_master);
       const storedId = localStorage.getItem('master_resume_id');
       const resolvedMasterId = masterFromList?.resume_id || storedId;
+      // A renamed master shows its own name; an unnamed one keeps the generic
+      // "Master Resume" label.
+      setMasterTitle(data.find((r) => r.resume_id === resolvedMasterId)?.title?.trim() || null);
 
       if (resolvedMasterId) {
         localStorage.setItem('master_resume_id', resolvedMasterId);
@@ -240,9 +273,12 @@ export default function DashboardPage() {
     }
   }, [adoptMasterResume, checkResumeStatus]);
 
+  // `revision` changes when the header switcher selects another workspace; the
+  // provider has already dropped the workspace-bound localStorage ids, so the
+  // reload starts from a clean slate.
   useEffect(() => {
     loadTailoredResumes();
-  }, [loadTailoredResumes]);
+  }, [loadTailoredResumes, revision]);
 
   // Refresh list when window gains focus (e.g., returning from viewer after delete)
   useEffect(() => {
@@ -252,6 +288,23 @@ export default function DashboardPage() {
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, [loadTailoredResumes, checkResumeStatus]);
+
+  // A deleted resume — or a workspace switch — must not leave a selection
+  // pointing at something the list no longer shows.
+  useEffect(() => {
+    const available = new Set(tailoredResumes.map((resume) => resume.resume_id));
+    if (masterResumeId) available.add(masterResumeId);
+    setSelectedIds((current) => {
+      const kept = current.filter((id) => available.has(id));
+      return kept.length === current.length ? current : kept;
+    });
+  }, [masterResumeId, tailoredResumes]);
+
+  const toggleSelected = (resumeId: string) => {
+    setSelectedIds((current) =>
+      current.includes(resumeId) ? current.filter((id) => id !== resumeId) : [...current, resumeId]
+    );
+  };
 
   const handleUploadComplete = (resumeId: string) => {
     loadRequestIdRef.current += 1;
@@ -353,6 +406,93 @@ export default function DashboardPage() {
       setDeleteError(true);
     }
   };
+
+  // -- Per-resume management -------------------------------------------------
+  // Renaming writes `title`, the same field the viewer edits; deleting is the
+  // ordinary delete, including for the master (the dashboard then falls back
+  // to its upload card).
+  const openRename = (event: React.MouseEvent, resume: ManagedResume) => {
+    event.stopPropagation();
+    setRenameTarget(resume);
+    setRenameValue(resume.title);
+    setManageError(null);
+  };
+
+  const openDelete = (event: React.MouseEvent, resume: ManagedResume) => {
+    event.stopPropagation();
+    setDeleteTarget(resume);
+    setManageError(null);
+  };
+
+  const submitRename = async () => {
+    if (!renameTarget) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      setManageError(t('dashboard.manage.nameRequired'));
+      return;
+    }
+    setIsManaging(true);
+    try {
+      await renameResume(renameTarget.resumeId, trimmed);
+      setRenameTarget(null);
+      await loadTailoredResumes();
+    } catch (err) {
+      console.error('Failed to rename resume:', err);
+      setManageError(t('dashboard.manage.renameFailed'));
+    } finally {
+      setIsManaging(false);
+    }
+  };
+
+  const submitDelete = async () => {
+    if (!deleteTarget) return;
+    const { resumeId, isMaster } = deleteTarget;
+    setIsManaging(true);
+    try {
+      await deleteResume(resumeId);
+      setDeleteTarget(null);
+      decrementResumes();
+      setSelectedIds((current) => current.filter((id) => id !== resumeId));
+      if (isMaster) {
+        setHasMasterResume(false);
+        localStorage.removeItem('master_resume_id');
+        adoptMasterResume(null);
+        setProcessingStatus('loading');
+      }
+      await loadTailoredResumes();
+    } catch (err) {
+      console.error('Failed to delete resume:', err);
+      setManageError(t('dashboard.manage.deleteFailed'));
+    } finally {
+      setIsManaging(false);
+    }
+  };
+
+  /** Rename + delete buttons shared by the master and tailored cards. */
+  const cardActions = (resume: ManagedResume) => (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="relative z-10 h-7 w-7 rounded-none hover:bg-blue-100 hover:text-blue-700"
+        onClick={(event) => openRename(event, resume)}
+        aria-label={t('dashboard.manage.renameResume', { title: resume.title })}
+        title={t('dashboard.manage.rename')}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="relative z-10 h-7 w-7 rounded-none hover:bg-red-100 hover:text-red-600"
+        onClick={(event) => openDelete(event, resume)}
+        aria-label={t('dashboard.manage.deleteResume', { title: resume.title })}
+        title={t('common.delete')}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+    </>
+  );
 
   const getStatusDisplay = () => {
     switch (processingStatus) {
@@ -464,6 +604,35 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-4 border-2 border-black bg-white px-4 py-3 shadow-sw-default">
+          <div className="flex items-center gap-4">
+            <span className="font-mono text-xs font-bold uppercase tracking-wider">
+              {t('dashboard.selection.count', { count: selectedIds.length })}
+            </span>
+            {selectedIds.length !== 2 && (
+              <span className="font-mono text-xs uppercase tracking-wider text-steel-grey">
+                {t('dashboard.selection.hint')}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={() => setSelectedIds([])}>
+              {t('dashboard.selection.clear')}
+            </Button>
+            <Button
+              size="sm"
+              disabled={selectedIds.length !== 2}
+              onClick={() =>
+                router.push(`/compare?base=resume:${selectedIds[0]}&head=resume:${selectedIds[1]}`)
+              }
+            >
+              {t('dashboard.selection.compare')}
+            </Button>
+          </div>
+        </div>
+      )}
+
       <SwissGrid>
         {/* 1. Master Resume Logic */}
         {!masterResumeId ? (
@@ -549,7 +718,17 @@ export default function DashboardPage() {
                 <div className="w-16 h-16 border-2 border-black bg-blue-700 text-white flex items-center justify-center">
                   <span className="font-mono font-bold text-lg">M</span>
                 </div>
-                <div className="flex gap-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(masterResumeId)}
+                    aria-label={t('dashboard.selection.selectResume', {
+                      title: t('dashboard.masterResume'),
+                    })}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={() => toggleSelected(masterResumeId)}
+                    className="relative z-10 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white checked:bg-black"
+                  />
                   {(processingStatus === 'failed' || processingStatus === 'processing') && (
                     <>
                       <Button
@@ -569,11 +748,16 @@ export default function DashboardPage() {
                       </Button>
                     </>
                   )}
+                  {cardActions({
+                    resumeId: masterResumeId,
+                    title: masterTitle ?? t('dashboard.masterResume'),
+                    isMaster: true,
+                  })}
                 </div>
               </div>
 
               <CardTitle className="text-lg group-hover:text-primary">
-                {t('dashboard.masterResume')}
+                {masterTitle ?? t('dashboard.masterResume')}
               </CardTitle>
 
               <div
@@ -631,9 +815,24 @@ export default function DashboardPage() {
                   >
                     <span className="font-mono font-bold">{getMonogram(title)}</span>
                   </div>
-                  <span className="font-mono text-xs text-steel-grey uppercase">
-                    {resume.processing_status}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs text-steel-grey uppercase">
+                      {resume.processing_status}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(resume.resume_id)}
+                      aria-label={t('dashboard.selection.selectResume', { title })}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleSelected(resume.resume_id)}
+                      className="relative z-10 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white checked:bg-black"
+                    />
+                    {cardActions({
+                      resumeId: resume.resume_id,
+                      title: resume.title?.trim() || title,
+                      isMaster: false,
+                    })}
+                  </div>
                 </div>
                 <CardTitle className="text-lg">
                   <span className="block font-serif text-base font-bold leading-tight mb-1 w-full line-clamp-2">
@@ -705,6 +904,62 @@ export default function DashboardPage() {
           cancelLabel={t('common.cancel')}
           onConfirm={confirmDeleteAndReupload}
           onCancel={() => setDeleteError(false)}
+          variant="danger"
+        />
+
+        <Dialog
+          open={renameTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setRenameTarget(null);
+          }}
+        >
+          <DialogContent className="max-w-md border-2 border-black shadow-[4px_4px_0px_0px_#000000]">
+            <DialogHeader>
+              <DialogTitle>{t('dashboard.manage.renameTitle')}</DialogTitle>
+              <DialogDescription>{t('dashboard.manage.renameDescription')}</DialogDescription>
+            </DialogHeader>
+            <Input
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+              aria-label={t('dashboard.manage.nameLabel')}
+              placeholder={t('dashboard.manage.namePlaceholder')}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void submitRename();
+              }}
+            />
+            {manageError && (
+              <p role="alert" className="font-mono text-xs uppercase tracking-wider text-red-600">
+                {manageError}
+              </p>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRenameTarget(null)}>
+                {t('common.cancel')}
+              </Button>
+              <Button onClick={() => void submitRename()} disabled={isManaging}>
+                {t('common.save')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <ConfirmDialog
+          open={deleteTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+          title={t('dashboard.manage.deleteTitle')}
+          description={
+            deleteTarget?.isMaster
+              ? t('dashboard.manage.deleteMasterDescription', { title: deleteTarget.title })
+              : t('dashboard.manage.deleteDescription', { title: deleteTarget?.title ?? '' })
+          }
+          errorMessage={manageError ?? undefined}
+          confirmLabel={t('common.delete')}
+          cancelLabel={t('common.cancel')}
+          confirmDisabled={isManaging}
+          closeOnConfirm={false}
+          onConfirm={() => void submitDelete()}
           variant="danger"
         />
       </SwissGrid>

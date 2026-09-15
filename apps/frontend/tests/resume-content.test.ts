@@ -9,110 +9,111 @@ import { hasMeaningfulResumeContent } from '@/lib/utils/resume-content';
  * retry prompt.
  */
 
-/** Wrap `leaf` in `depth` nested objects: nest(2, 'x') -> { a: { a: 'x' } }. */
-function nest(depth: number, leaf: unknown): unknown {
-  let value = leaf;
-  for (let i = 0; i < depth; i += 1) {
-    value = { a: value };
-  }
-  return value;
-}
-
 describe('hasMeaningfulResumeContent', () => {
   it('rejects non-object input', () => {
     expect(hasMeaningfulResumeContent(null)).toBe(false);
     expect(hasMeaningfulResumeContent(undefined)).toBe(false);
     expect(hasMeaningfulResumeContent('resume')).toBe(false);
     expect(hasMeaningfulResumeContent(42)).toBe(false);
-    // A top-level array is not a ResumeData object even when it holds text.
-    expect(hasMeaningfulResumeContent([{ summary: 'Senior engineer' }])).toBe(false);
+    // A top-level array is not a ResumeDocument even when it holds text.
+    expect(hasMeaningfulResumeContent([{ header: { name: 'Ada' } }])).toBe(false);
   });
 
-  it('rejects the empty object an LLM can return and still validate', () => {
+  it('rejects the empty document an LLM can return and still validate', () => {
     expect(hasMeaningfulResumeContent({})).toBe(false);
-  });
-
-  it('rejects schema defaults: empty strings, empty lists, whitespace', () => {
     expect(
       hasMeaningfulResumeContent({
-        personalInfo: { name: '', email: '', phone: '   ' },
-        summary: '',
-        workExperience: [],
-        education: [],
-        personalProjects: [],
-        additional: {},
-        customSections: {},
+        schemaVersion: 2,
+        header: { name: '', headline: '', contacts: [] },
+        sections: [],
       })
     ).toBe(false);
   });
 
-  it('rejects entries whose only populated keys are structural', () => {
+  it('accepts a header that carries a name', () => {
+    expect(hasMeaningfulResumeContent({ header: { name: 'Ada Lovelace' }, sections: [] })).toBe(
+      true
+    );
+    expect(hasMeaningfulResumeContent({ header: { name: '   ' }, sections: [] })).toBe(false);
+  });
+
+  it('reads only the field group the section kind renders', () => {
+    const base = { id: 's1', key: 'extra', heading: 'Extra', visible: true };
+    // Content parked in the wrong field group never renders, so it is not content.
     expect(
       hasMeaningfulResumeContent({
-        workExperience: [
-          { id: 'exp-1', order: 0, isVisible: true, company: '', title: '', description: '' },
+        sections: [{ ...base, kind: 'entries', text: 'orphaned prose', entries: [] }],
+      })
+    ).toBe(false);
+    expect(
+      hasMeaningfulResumeContent({ sections: [{ ...base, kind: 'text', text: 'Real prose' }] })
+    ).toBe(true);
+    expect(
+      hasMeaningfulResumeContent({ sections: [{ ...base, kind: 'tags', tags: ['', '  '] }] })
+    ).toBe(false);
+    expect(
+      hasMeaningfulResumeContent({ sections: [{ ...base, kind: 'tags', tags: ['TypeScript'] }] })
+    ).toBe(true);
+    expect(
+      hasMeaningfulResumeContent({
+        sections: [{ ...base, kind: 'groups', groups: [{ label: '', values: [] }] }],
+      })
+    ).toBe(false);
+    expect(
+      hasMeaningfulResumeContent({
+        sections: [{ ...base, kind: 'groups', groups: [{ label: '', values: ['Spanish'] }] }],
+      })
+    ).toBe(true);
+  });
+
+  it('accepts an entry whose only content is a bullet', () => {
+    const section = {
+      id: 's1',
+      key: 'work',
+      heading: 'Experience',
+      visible: true,
+      kind: 'entries',
+    };
+    expect(
+      hasMeaningfulResumeContent({
+        sections: [
+          {
+            ...section,
+            entries: [
+              {
+                id: 'e1',
+                title: '',
+                subtitle: '',
+                bullets: [{ text: 'Shipped it', style: 'bullet' }],
+              },
+            ],
+          },
+        ],
+      })
+    ).toBe(true);
+    expect(
+      hasMeaningfulResumeContent({
+        sections: [{ ...section, entries: [{ id: 'e1', title: '', bullets: [{ text: '  ' }] }] }],
+      })
+    ).toBe(false);
+  });
+
+  it('ignores hidden sections: they never reach the PDF', () => {
+    expect(
+      hasMeaningfulResumeContent({
+        header: { name: '' },
+        sections: [
+          { id: 's1', key: 'summary', kind: 'text', visible: false, text: 'Hidden prose' },
         ],
       })
     ).toBe(false);
+  });
+
+  it('rejects an unknown section kind instead of guessing a field group', () => {
     expect(
       hasMeaningfulResumeContent({
-        education: [{ id: 'edu-1', key: 'education', displayName: 'Education', isDefault: true }],
+        sections: [{ id: 's1', key: 'x', kind: 'timeline', text: 'Prose', tags: ['a'] }],
       })
     ).toBe(false);
-  });
-
-  it('accepts a populated personalInfo', () => {
-    expect(
-      hasMeaningfulResumeContent({
-        personalInfo: { id: 'p-1', name: 'Ada Lovelace', email: '', phone: '' },
-        summary: '',
-        workExperience: [],
-      })
-    ).toBe(true);
-  });
-
-  it('accepts content nested inside additional', () => {
-    expect(
-      hasMeaningfulResumeContent({
-        personalInfo: {},
-        additional: { skills: [{ id: 's-1', name: 'TypeScript' }] },
-      })
-    ).toBe(true);
-  });
-
-  it('accepts a customSections entry keyed by a structural-looking identifier', () => {
-    // customSections identifiers are dict keys, not schema fields, so
-    // structural-key filtering is deliberately disabled one level down.
-    expect(
-      hasMeaningfulResumeContent({ customSections: { id: { heading: 'Certifications' } } })
-    ).toBe(true);
-    // The same shape under a normal section stays filtered -- this pair is the
-    // whole point of the `section !== 'customSections'` argument.
-    expect(hasMeaningfulResumeContent({ additional: { id: { heading: 'Certifications' } } })).toBe(
-      false
-    );
-  });
-
-  it('resumes structural filtering inside a custom section', () => {
-    expect(hasMeaningfulResumeContent({ customSections: { certs: { id: 'cs-1' } } })).toBe(false);
-    expect(hasMeaningfulResumeContent({ customSections: { certs: { heading: 'AWS' } } })).toBe(
-      true
-    );
-  });
-
-  it('only inspects the seven content sections', () => {
-    expect(
-      hasMeaningfulResumeContent({
-        sectionMeta: [{ displayName: 'Skills', heading: 'Skills' }],
-        templateSettings: { fontFamily: 'Geist' },
-      })
-    ).toBe(false);
-  });
-
-  it('stops recursing past 10 levels', () => {
-    // Depth 9 is still reachable; depth 10 hits the recursion guard.
-    expect(hasMeaningfulResumeContent({ additional: nest(9, 'Reachable') })).toBe(true);
-    expect(hasMeaningfulResumeContent({ additional: nest(10, 'Too deep') })).toBe(false);
-    expect(hasMeaningfulResumeContent({ additional: nest(25, 'Way too deep') })).toBe(false);
   });
 });

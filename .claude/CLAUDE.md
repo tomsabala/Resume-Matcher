@@ -12,7 +12,9 @@ Resume Matcher is an AI-powered application for tailoring resumes to job descrip
 |-------|-------|
 | **Backend** | FastAPI + Python 3.13+, LiteLLM (multi-provider AI) |
 | **Frontend** | Next.js 16 + React 19, Tailwind CSS v4 |
-| **Database** | SQLite (SQLAlchemy 2.0 async / aiosqlite) |
+| **Database** | SQLite (SQLAlchemy 2.0 async / aiosqlite), schema owned by Alembic |
+| **Resume data** | `ResumeDocument` v2 — a header plus a list of typed sections ([contract](../apps/backend/app/schemas/document.py)) |
+| **Scoping** | Workspaces (named owner profiles); requests carry `X-Workspace-Id` |
 | **PDF** | Headless Chromium via Playwright |
 
 ---
@@ -30,7 +32,8 @@ Before exploring code, read [docs/agent/README.md](../docs/agent/README.md) for 
 3. **Run `npm run lint`** before committing frontend changes
 4. **Run `npm run format`** (Prettier) before committing
 5. **Log detailed errors server-side**, return generic messages to clients
-6. **Do NOT modify** `.github/workflows/` files without explicit request
+6. **Never enumerate resume sections.** Resume content is a `ResumeDocument` of typed sections; render, edit, validate and tailor by dispatching on `SectionKind` — see [resume sections](../docs/agent/features/custom-sections.md)
+7. **Do NOT modify** `.github/workflows/` files without explicit request
 
 ---
 
@@ -41,13 +44,14 @@ Before exploring code, read [docs/agent/README.md](../docs/agent/README.md) for 
 cd apps/backend
 uv sync --extra dev                                  # Install Python deps (incl. test deps)
 uv run uvicorn app.main:app --reload --port 8000     # FastAPI on :8000
-uv run pytest                                        # Run backend tests (~444; LLM evals excluded)
+uv run pytest                                        # Run backend tests (~1187; LLM evals excluded)
+uv run alembic upgrade head && uv run alembic check  # Schema is Alembic-owned; keep models/revisions in step
 
 # Frontend (from repo root, in a separate terminal)
 cd apps/frontend
 npm install                                          # Install Node.js dependencies
 npm run dev                                          # Next.js on :3030
-npm run test                                         # Run frontend tests (vitest)
+npm run test                                         # Run frontend tests (~476; vitest)
 
 # Quality checks (from apps/frontend)
 npm run lint          # Lint frontend
@@ -64,27 +68,34 @@ npm run build
 ```
 apps/
 ├── backend/                 # FastAPI + Python
+│   ├── alembic.ini          # Alembic config (Alembic owns the schema)
+│   ├── migrations/          # Alembic env.py + versions/
 │   ├── app/
 │   │   ├── main.py          # Entry point
 │   │   ├── config.py        # Environment settings
 │   │   ├── database.py      # Async SQLAlchemy/SQLite facade
-│   │   ├── models.py        # SQLAlchemy ORM models (Resume/Job/Improvement/Application/ApiKey)
+│   │   ├── models.py        # ORM models (Workspace/Resume/ResumeVersion/Job/
+│   │   │                    #   Improvement/TailoringPreview/Application/ApiKey)
 │   │   ├── db_engine.py     # Async + sync SQLite engines (WAL/FK pragmas)
 │   │   ├── crypto.py        # Fernet encrypt/decrypt for API keys at rest
+│   │   ├── deps.py          # resolve_workspace_id (X-Workspace-Id header)
 │   │   ├── llm.py           # LiteLLM wrapper
+│   │   ├── latex/           # LaTeX export (escape/render/compile + *.tex.j2)
 │   │   ├── routers/         # API endpoints (incl. applications.py = tracker)
-│   │   ├── services/        # Business logic
-│   │   ├── schemas/         # Pydantic models (incl. applications.py)
+│   │   ├── services/        # Business logic (incl. document_walk.py traversal)
+│   │   ├── schemas/         # Pydantic models — document.py = THE resume contract
 │   │   ├── prompts/         # LLM prompt templates
 │   │   └── scripts/         # One-time TinyDB→SQLite migration (runs on startup)
 │   └── data/                # resume_matcher.db (SQLite) + encrypted API keys + .secret_key
 │
 └── frontend/                # Next.js + React
-    ├── app/                 # Pages (dashboard, builder, tailor, tracker, print)
-    ├── components/          # UI components (incl. tracker/)
-    ├── lib/                 # Utilities, API client (incl. api/tracker.ts)
+    ├── app/                 # Pages (dashboard, builder, wizard, tailor, tracker,
+    │                        #   resumes/[id], settings, print)
+    ├── components/          # UI (resume/section-kinds/ + builder/forms/ registries,
+    │                        #   tracker/, enrichment/, resume-wizard/)
+    ├── lib/                 # API client, types/document.ts, utils/section-helpers.ts
     ├── hooks/               # Custom React hooks
-    └── messages/            # i18n translations (en, es, zh, ja, pt)
+    └── messages/            # i18n translations (en, es, zh, ja, pt, fr, ko)
 ```
 
 ---
@@ -92,30 +103,36 @@ apps/
 ## Documentation by Task
 
 ### For Backend Changes
-1. [Backend guide](../docs/agent/architecture/backend-guide.md) - Architecture, modules, services
-2. [API contracts](../docs/agent/apis/front-end-apis.md) - API specifications
+1. [Backend guide](../docs/agent/architecture/backend-guide.md) - Architecture, modules, services, **the resume document contract**
+2. [API contracts](../docs/agent/apis/front-end-apis.md) - API specifications, AI change paths
 3. [LLM integration](../docs/agent/llm-integration.md) - Multi-provider AI support
 
 ### For Frontend Changes
-1. [Frontend workflow](../docs/agent/architecture/frontend-workflow.md) - User flow, components
-2. [Swiss design system pack](../docs/portable/swiss-design-system/README.md) - **REQUIRED** Swiss International Style (portable pack)
-3. [Next.js performance pack](../docs/portable/nextjs-performance/README.md) - **REQUIRED** Next.js 15 perf patterns (portable pack)
-4. [Coding standards](../docs/agent/coding-standards.md) - Frontend conventions
+1. [Frontend workflow](../docs/agent/architecture/frontend-workflow.md) - User flow, registry-driven component flow
+2. [Resume sections](../docs/agent/features/custom-sections.md) - The document model every resume UI consumes
+3. [Swiss design system pack](../docs/portable/swiss-design-system/README.md) - **REQUIRED** Swiss International Style (portable pack)
+4. [Next.js performance pack](../docs/portable/nextjs-performance/README.md) - **REQUIRED** Next.js 15 perf patterns (portable pack)
+5. [Coding standards](../docs/agent/coding-standards.md) - Frontend conventions
 
 ### For Testing
 1. [Testing strategy](../docs/agent/testing-strategy.md) - Current-state assessment, framework, phased plan, how to run + how we verify (anti-theater)
 
 ### For Template/PDF Changes
-1. [PDF template guide](../docs/agent/design/pdf-template-guide.md) - PDF rendering
+
+There are two render targets: Chromium HTML (1-3) and LaTeX (4).
+
+1. [PDF template guide](../docs/agent/design/pdf-template-guide.md) - Chromium PDF rendering
 2. [Template system](../docs/agent/design/template-system.md) - Resume templates
 3. [Resume templates](../docs/agent/features/resume-templates.md) - Template types & controls
+4. [LaTeX export](../docs/agent/features/latex-export.md) - `.tex` generation, override, compile
 
 ### For Features
 | Feature | Documentation |
 |---------|---------------|
 | Application tracker | [application-tracker.md](../docs/agent/features/application-tracker.md) |
-| Custom sections | [custom-sections.md](../docs/agent/features/custom-sections.md) |
+| Resume sections (kinds, keys, headings, visibility, column) | [custom-sections.md](../docs/agent/features/custom-sections.md) |
 | Resume templates | [resume-templates.md](../docs/agent/features/resume-templates.md) |
+| LaTeX export | [latex-export.md](../docs/agent/features/latex-export.md) |
 | i18n | [i18n.md](../docs/agent/features/i18n.md) |
 | AI enrichment | [enrichment.md](../docs/agent/features/enrichment.md) |
 | JD matching | [jd-match.md](../docs/agent/features/jd-match.md) |

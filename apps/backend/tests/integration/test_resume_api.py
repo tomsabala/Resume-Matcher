@@ -73,7 +73,9 @@ class TestGetResume:
     """GET /api/v1/resumes?resume_id=..."""
 
     @patch("app.routers.resumes.db", new_callable=AsyncMock)
-    async def test_fetch_existing_resume(self, mock_db, client, mock_resume_record):
+    async def test_fetch_existing_resume(
+        self, mock_db, client, mock_resume_record, sample_resume
+    ):
         mock_db.get_resume.return_value = mock_resume_record
         async with client:
             resp = await client.get("/api/v1/resumes", params={"resume_id": "res-123"})
@@ -81,7 +83,8 @@ class TestGetResume:
         data = resp.json()["data"]
         assert data["resume_id"] == "res-123"
         assert data["processed_resume"] is not None
-        assert data["processed_resume"]["summary"] != ""
+        assert data["processed_resume"]["sections"] == sample_resume["sections"]
+        assert data["processed_resume"]["header"] == sample_resume["header"]
         assert data["interview_prep"] is None
 
     @patch("app.routers.resumes.db", new_callable=AsyncMock)

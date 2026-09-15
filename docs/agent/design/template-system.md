@@ -2,6 +2,24 @@
 
 > Resume template architecture and customization.
 
+## Render Targets
+
+The same `ResumeDocument` feeds two independent renderers:
+
+| Target | Endpoint | How | Template ids |
+| ------ | -------- | --- | ------------ |
+| **Chromium HTML** | `GET /api/v1/resumes/{id}/pdf` | React templates in `components/resume/`, printed by headless Chromium via Playwright | `swiss-single`, `swiss-two-column`, `modern`, `modern-two-column`, `latex`, `clean`, `vivid` |
+| **LaTeX** | `GET /api/v1/resumes/{id}/tex/pdf` | Jinja `.tex.j2` templates in `apps/backend/app/latex/templates/`, compiled by a TeX engine | `tex-classic`, `tex-compact` |
+
+Everything below this section describes the **Chromium HTML** target: its
+templates, its `TemplateSettings` and its CSS. The LaTeX target has its own
+templates, its own (much smaller) settings surface and no CSS at all — see
+[latex-export.md](../features/latex-export.md).
+
+> **Do not confuse `latex` with the LaTeX export.** `latex` is an HTML
+> template that *looks* like LaTeX output and is rendered by Chromium. The
+> LaTeX export's ids are the `tex-` prefixed ones.
+
 ## Templates
 
 | Template          | Layout                              | Best For                                 |
@@ -10,7 +28,7 @@
 | swiss-two-column  | 65% main + 35% sidebar              | Dense content                            |
 | modern            | Single column, accent headers       | Colorful single-column                   |
 | modern-two-column | 65% main + 35% sidebar, accent      | Colorful dense content                   |
-| latex             | Single column, serif, ruled headers | Classic/academic résumés                 |
+| latex             | Single column, serif, ruled headers | Classic/academic résumés (HTML, not the LaTeX export) |
 | clean             | Single column, minimal sans         | Understated modern résumés               |
 | vivid             | 63% main + 37% sidebar, accent      | Colorful Awesome-CV style (accent color) |
 
@@ -19,6 +37,7 @@
 ```
 components/resume/
 ├── index.ts                      # Re-exports all templates
+├── template-props.ts             # ResumeTemplateProps — identical for every template
 ├── resume-single-column.tsx      # swiss-single
 ├── resume-two-column.tsx         # swiss-two-column
 ├── resume-modern.tsx             # modern
@@ -26,7 +45,9 @@ components/resume/
 ├── resume-latex.tsx              # latex
 ├── resume-clean.tsx              # clean
 ├── resume-vivid.tsx              # vivid
-├── dynamic-resume-section.tsx    # shared custom-section renderer
+├── section-kinds/                # SECTION_KIND_RENDERERS + SectionBlock:
+│                                 #   one renderer per SectionKind, shared by all templates
+├── contact.tsx                   # header contact / entry-link rendering
 ├── safe-html.tsx                 # sanitized rich-text renderer
 └── styles/                       # *.module.css per template + _base/_tokens
 ```
@@ -65,39 +86,59 @@ interface TemplateSettings {
 }
 ```
 
-## Section Order
+## Section Order and Placement
 
-1. Personal Info (header)
-2. Summary
-3. Work Experience
-4. Projects
-5. Education
-6. Additional (skills, languages, certs, awards)
+There is no fixed section order. `doc.sections` **is** the order, and the
+header is rendered outside the section loop by each template. Two-column
+templates partition on `section.column` (`'main'` | `'side'`); single-column
+templates ignore it. A freshly parsed resume happens to arrive as summary →
+experience → education → projects → skills, but that is data the user can
+reorder, rename, hide or delete.
 
-## ResumeData Schema
+## The Resume Document
+
+Authoritative definition: `apps/frontend/lib/types/document.ts`, mirroring
+`apps/backend/app/schemas/document.py`.
 
 ```typescript
-interface ResumeData {
-  personalInfo: PersonalInfo;
-  summary: string;
-  workExperience: Experience[];
-  education: Education[];
-  personalProjects: Project[];
-  additional: AdditionalInfo;
-  sectionMeta: SectionMeta[]; // Order, visibility
-  customSections: CustomSection[]; // User-added sections
+interface ResumeDocument {
+  schemaVersion: 2;
+  header: Header;      // name, headline, contacts — not a section
+  sections: Section[]; // list order is display order
+}
+
+interface Section {
+  id: string;
+  key: string;                    // slug; used in AI change paths, never displayed
+  heading: string;                // user-authored, free text
+  headingI18nKey?: string | null; // only on sections projected from a v1 built-in
+  kind: 'text' | 'entries' | 'tags' | 'groups';
+  visible: boolean;
+  column: 'main' | 'side';
+  text: string;      // kind === 'text'
+  entries: Entry[];  // kind === 'entries'
+  tags: string[];    // kind === 'tags'
+  groups: TagGroup[]; // kind === 'groups'
 }
 ```
 
-## Custom Sections
+Full field-by-field description: [custom-sections.md](../features/custom-sections.md).
 
-Users can add custom sections via `AddSectionDialog`:
+## Section Kinds
 
-| Type       | Component         | Use Case               |
-| ---------- | ----------------- | ---------------------- |
-| text       | `GenericTextForm` | Objective, statement   |
-| itemList   | `GenericItemForm` | Publications, research |
-| stringList | `GenericListForm` | Hobbies, interests     |
+`Section.kind` is the only thing a template or editor dispatches on. Both
+registries are `Record<SectionKind, …>`, so a new kind is a compile error until
+it has a renderer and a form.
+
+| Kind | Renderer (`components/resume/section-kinds/`) | Editor (`components/builder/forms/`) | Use case |
+| ---- | --------------------------------------------- | ------------------------------------ | -------- |
+| `text` | `TextSection` | `GenericTextForm` | Summary, objective, statement |
+| `entries` | `EntriesSection` | `GenericItemForm` | Experience, education, projects, publications |
+| `tags` | `TagsSection` | `GenericListForm` | Languages, hobbies, interests |
+| `groups` | `GroupsSection` | `GroupsForm` | Skills/certifications grouped by label |
+
+Users create sections through `AddSectionDialog`, which asks only for a heading
+and a kind; the result is indistinguishable from any other section.
 
 ## CSS Classes
 
@@ -118,8 +159,14 @@ Users can add custom sections via `AddSectionDialog`:
 
 ## Adding a Template
 
-1. Create `components/resume/resume-{name}.tsx`
-2. Implement `TemplateProps` interface
-3. Export from `components/resume/index.ts`
-4. Add to `FormattingControls` selector
-5. Create thumbnail for preview
+See [adding-resume-templates.md](../features/adding-resume-templates.md) for the
+full walkthrough. In short: create `components/resume/resume-{name}.tsx`
+implementing `ResumeTemplateProps`, render `doc.header` plus
+`visibleSections(doc)` through `SectionBlock`, then register the id in
+`index.ts`, `TemplateType`, `TEMPLATE_OPTIONS`, `TEMPLATE_COMPONENTS` and the
+print route's `parseTemplate` allow-list.
+
+A **LaTeX** template is a different job: add a `.tex.j2` preamble beside
+`apps/backend/app/latex/templates/_document.tex.j2`, include the shared body,
+and register its id in `LATEX_TEMPLATES` (`app/latex/render.py`). It needs no
+React component, no CSS and no print-route entry.

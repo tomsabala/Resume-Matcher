@@ -104,6 +104,28 @@
     "errors": {
       "loadFailed": "Unable to load resumes. Please try again.",
       "deleteFailed": "Unable to delete the resume. Your existing resume is still available."
+    },
+    "selection": {
+      "count": "{count} selected",
+      "compare": "Compare",
+      "clear": "Clear",
+      "hint": "Select exactly two resumes to compare",
+      "selectResume": "Select {title}"
+    },
+    "manage": {
+      "rename": "Rename",
+      "renameResume": "Rename {title}",
+      "deleteResume": "Delete {title}",
+      "renameTitle": "Rename resume",
+      "renameDescription": "The name shown on the dashboard. It does not change the resume itself.",
+      "nameLabel": "Resume name",
+      "namePlaceholder": "e.g. Backend Engineer — Acme",
+      "nameRequired": "Enter a name",
+      "renameFailed": "Could not rename this resume. Please try again.",
+      "deleteTitle": "Delete resume",
+      "deleteDescription": "“{title}” and its history will be permanently deleted.",
+      "deleteMasterDescription": "“{title}” is your master resume. Deleting it removes its history; tailored resumes stay.",
+      "deleteFailed": "Could not delete this resume. Please try again."
     }
   },
   "builder": {
@@ -134,62 +156,14 @@
       "leave": "Leave Dashboard",
       "stay": "Keep Editing"
     },
-    "personalInfo": "Personal Information",
-    "summary": "Summary",
-    "experience": "Experience",
-    "education": "Education",
-    "skills": "Skills",
-    "projects": "Projects",
-    "certifications": "Certifications",
-    "languages": "Languages",
-    "awards": "Awards",
     "addSection": "Add Section",
-    "removeSection": "Remove Section",
     "saveChanges": "Save Changes",
     "discardChanges": "Discard Changes",
-    "placeholders": {
-      "summary": "Briefly describe your professional background..."
-    },
     "contentStats": {
       "wordsChars": "{wordCount} words / {charCount} chars"
     },
-    "additionalForm": {
-      "instructions": "Enter items separated by new lines (press Enter for each item).",
-      "placeholders": {
-        "technicalSkills": "React\nTypeScript\nNode.js",
-        "languages": "English\nSpanish",
-        "certifications": "AWS Solution Architect\nGoogle Analytics",
-        "awards": "Employee of the Month\nHackathon Winner"
-      }
-    },
-    "customSections": {
-      "dialogTitle": "Add Custom Section",
-      "dialogDescription": "Create a new section for your resume with a custom name and type.",
-      "sectionNameLabel": "Section Name",
-      "sectionNamePlaceholder": "e.g., Publications, Volunteer Work, Certifications",
-      "sectionTypeLabel": "Section Type",
-      "addCustomSectionButton": "Add Custom Section",
-      "sectionTypes": {
-        "textBlockLabel": "Text Block",
-        "textBlockDescription": "Single text area (like Summary)",
-        "itemListLabel": "Item List",
-        "itemListDescription": "Multiple entries with details (like Experience)",
-        "stringListLabel": "Skill List",
-        "stringListDescription": "Simple list of items (like Skills)"
-      },
-      "contentLabel": "Content",
-      "contentPlaceholder": "Enter content for {name}...",
-      "defaultTextPlaceholder": "Enter text content...",
-      "entryLabel": "Entry",
-      "addEntryLabel": "Add Entry",
-      "itemsLabel": "Items",
-      "itemsPlaceholder": "Enter items, one per line",
-      "unknownSectionType": "Unknown section type: {type}",
-      "unknownDefaultSection": "Unknown default section: {section}"
-    },
     "sectionHeader": {
       "renameSection": "Rename section",
-      "customTag": "Custom",
       "hiddenFromPdfTag": "Hidden from PDF",
       "hideSection": "Hide section",
       "showSection": "Show section",
@@ -197,14 +171,19 @@
       "moveDown": "Move down",
       "deleteSection": "Delete section",
       "deleteTitle": "Delete Section",
-      "deleteDescription": "Are you sure you want to delete \"{name}\"? This action cannot be undone."
+      "deleteDescription": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
+      "sidebarTag": "Sidebar",
+      "moveToSide": "Move to sidebar",
+      "moveToMain": "Move to main column"
     },
     "previewTabs": {
       "resume": "RESUME",
       "coverLetter": "COVER LETTER",
       "outreach": "OUTREACH MAIL",
       "jdMatch": "JD MATCH",
-      "interviewPrep": "INTERVIEW PREP"
+      "interviewPrep": "INTERVIEW PREP",
+      "history": "History",
+      "latex": "LaTeX"
     },
     "footer": {
       "moduleLabel": "Resume Builder Module",
@@ -236,9 +215,6 @@
       "selectDialog": {
         "title": "Select Items to Regenerate",
         "subtitle": "Choose which parts of your resume you want to improve",
-        "experience": "Work Experience",
-        "projects": "Projects",
-        "skills": "Technical Skills",
         "noItemsSelected": "Please select at least one item",
         "noItemsAvailable": "No items available to regenerate. Add experience, projects, or skills first.",
         "itemCount": {
@@ -266,8 +242,6 @@
         "changesCount": "{count} items modified",
         "rejectButton": "Reject & Regenerate",
         "acceptButton": "Accept Changes",
-        "originalLabel": "Original",
-        "newLabel": "New",
         "noContent": "No content",
         "applying": "Applying...",
         "loading": "Generating improved content...",
@@ -309,80 +283,6 @@
         "keywordsExtracted": "{count} keywords extracted",
         "matchesFound": "{count} matches found",
         "matchRateLabel": "Match Rate:"
-      }
-    },
-    "genericItemForm": {
-      "itemLabel": "Item",
-      "addItemLabel": "Add {label}",
-      "fields": {
-        "title": "Title",
-        "organization": "Organization",
-        "location": "Location",
-        "years": "Years",
-        "descriptionPoints": "Description Points"
-      },
-      "actions": {
-        "addPoint": "Add Point",
-        "togglePointStyle": "Toggle bullet marker"
-      },
-      "placeholders": {
-        "title": "Title",
-        "organization": "Organization",
-        "location": "Location",
-        "years": "Jan 2020 - Present",
-        "description": "Describe your contribution..."
-      },
-      "noEntries": "// NO {label} ENTRIES",
-      "addFirstItem": "Add First {label}"
-    },
-    "forms": {
-      "experience": {
-        "addJob": "Add Job",
-        "addFirstJob": "Add First Job",
-        "fields": {
-          "jobTitle": "Job Title",
-          "company": "Company"
-        },
-        "placeholders": {
-          "jobTitle": "Senior Developer",
-          "company": "Tech Corp",
-          "location": "Remote / City",
-          "years": "Jan 2020 - Present",
-          "description": "Describe your achievement..."
-        }
-      },
-      "education": {
-        "addSchool": "Add School",
-        "addFirstSchool": "Add First School",
-        "fields": {
-          "institution": "Institution",
-          "degree": "Degree",
-          "description": "Description",
-          "descriptionOptional": "Description (Optional)"
-        },
-        "placeholders": {
-          "institution": "University Name",
-          "degree": "Bachelor of Science",
-          "years": "Aug 2016 - May 2020",
-          "description": "Additional details..."
-        }
-      },
-      "projects": {
-        "addProject": "Add Project",
-        "addFirstProject": "Add First Project",
-        "fields": {
-          "projectName": "Project Name",
-          "role": "Role",
-          "website": "Website"
-        },
-        "placeholders": {
-          "projectName": "Resume Matcher",
-          "role": "Creator",
-          "years": "Mar 2023",
-          "github": "github.com/username/project",
-          "website": "https://project-demo.com",
-          "description": "Project detail..."
-        }
       }
     },
     "formatting": {
@@ -462,18 +362,6 @@
       "compactHint": "Compact mode tightens spacing and line height. Margins and base font size stay literal.",
       "resetDefaults": "Reset to Defaults"
     },
-    "personalInfoForm": {
-      "placeholders": {
-        "name": "John Doe",
-        "title": "Software Engineer",
-        "email": "john@example.com",
-        "phone": "+1 (555) 000-0000",
-        "location": "City, Country",
-        "website": "portfolio.com",
-        "linkedin": "linkedin.com/in/john",
-        "github": "github.com/john"
-      }
-    },
     "leftPanel": {
       "editorPanel": "Editor Panel",
       "coverLetterEditor": "Cover Letter Editor",
@@ -506,6 +394,124 @@
       "description": "Your latest edits could not be synced to the server or saved in this browser. Leaving now may lose those edits.",
       "leave": "Leave Anyway",
       "stay": "Keep Editing"
+    },
+    "header": {
+      "title": "Header",
+      "fields": {
+        "name": "Full Name",
+        "headline": "Headline",
+        "contacts": "Contacts",
+        "contactLabel": "Contact label",
+        "contactValue": "Contact value",
+        "contactUrl": "Contact URL"
+      },
+      "placeholders": {
+        "name": "John Doe",
+        "headline": "Software Engineer",
+        "contactLabel": "Email",
+        "contactValue": "john@example.com",
+        "contactUrl": "https://example.com"
+      },
+      "addContact": "Add Contact",
+      "removeContact": "Remove contact",
+      "noContacts": "// NO CONTACTS",
+      "contactKinds": {
+        "email": "Email",
+        "phone": "Phone",
+        "website": "Website",
+        "github": "GitHub",
+        "linkedin": "LinkedIn",
+        "location": "Location",
+        "other": "Other"
+      }
+    },
+    "sectionForms": {
+      "text": {
+        "label": "Content",
+        "placeholder": "Write this section..."
+      },
+      "tags": {
+        "label": "Items",
+        "instructions": "Enter items separated by new lines (press Enter for each item).",
+        "placeholder": "React\nTypeScript\nNode.js"
+      },
+      "entries": {
+        "addEntry": "Add Entry",
+        "addFirstEntry": "Add First Entry",
+        "noEntries": "// NO ENTRIES",
+        "removeEntry": "Remove entry",
+        "fields": {
+          "title": "Title",
+          "subtitle": "Organization",
+          "meta": "Location",
+          "period": "Period",
+          "summary": "Summary",
+          "links": "Links",
+          "bullets": "Bullet Points"
+        },
+        "placeholders": {
+          "title": "Senior Developer",
+          "subtitle": "Tech Corp",
+          "meta": "Remote / City",
+          "period": "Jan 2020 - Present",
+          "summary": "One paragraph of context...",
+          "bullet": "Describe your achievement...",
+          "linkUrl": "https://github.com/user/project"
+        },
+        "actions": {
+          "addBullet": "Add Point",
+          "toggleBulletStyle": "Toggle bullet marker",
+          "removeBullet": "Remove this line",
+          "addLink": "Add Link",
+          "removeLink": "Remove link"
+        }
+      },
+      "groups": {
+        "addGroup": "Add Group",
+        "addFirstGroup": "Add First Group",
+        "noGroups": "// NO GROUPS",
+        "removeGroup": "Remove group",
+        "instructions": "Enter values separated by new lines (press Enter for each value).",
+        "fields": {
+          "label": "Group Label",
+          "values": "Values"
+        },
+        "placeholders": {
+          "label": "Languages",
+          "values": "English\nSpanish"
+        }
+      },
+      "linkKinds": {
+        "github": "GitHub",
+        "website": "Website",
+        "linkedin": "LinkedIn",
+        "other": "Other"
+      },
+      "kinds": {
+        "text": {
+          "label": "Text Block",
+          "description": "One block of prose, like a summary"
+        },
+        "entries": {
+          "label": "Entry List",
+          "description": "Rows with dates and bullet points, like experience"
+        },
+        "tags": {
+          "label": "Tag List",
+          "description": "A flat list of short items, like skills"
+        },
+        "groups": {
+          "label": "Labelled Groups",
+          "description": "Named groups of values, like languages"
+        }
+      }
+    },
+    "addSectionDialog": {
+      "title": "Add Section",
+      "description": "Name the section and choose the shape of its content.",
+      "headingLabel": "Section Heading",
+      "headingPlaceholder": "e.g., Publications, Volunteer Work, Certifications",
+      "kindLabel": "Content Shape"
     }
   },
   "enrichment": {
@@ -520,8 +526,8 @@
     },
     "questionProgress": "Question {current} of {total}",
     "itemType": {
-      "experience": "Experience",
-      "project": "Project"
+      "entry": "Entry",
+      "values": "List"
     },
     "shortcutHint": "Press Shift+Enter for new line, Cmd/Ctrl+Enter to continue",
     "preview": {
@@ -595,25 +601,10 @@
     "diffModal": {
       "title": "Review AI Tailoring Results",
       "subtitle": "Please carefully review the changes to ensure no false information has been added",
-      "summary": "Change Summary",
-      "skillsAdded": "Skills Added",
-      "skillsRemoved": "Skills Removed",
-      "descriptionsModified": "Descriptions Modified",
-      "certificationsAdded": "Certifications Added",
-      "highRiskChanges": "High Risk Changes",
-      "warningTitle": "Detected {count} high-risk addition(s)",
-      "warningMessage": "Please confirm these additions exist in your original resume or are reflected in your descriptions",
-      "summaryChanges": "Summary Changes",
-      "skillChanges": "Skill Changes",
-      "descriptionChanges": "Experience Description Changes",
-      "experienceChanges": "Experience Entry Changes",
-      "educationChanges": "Education Changes",
-      "projectChanges": "Project Changes",
-      "certificationChanges": "Certification Changes",
-      "languageChanges": "Language Changes",
-      "awardChanges": "Award Changes",
       "rejectButton": "Reject & Regenerate",
-      "confirmButton": "Confirm & Save"
+      "confirmButton": "Confirm & Save",
+      "acceptingCount": "Saving {count} of {total} changes",
+      "noSelection": "Nothing selected - pick at least one change to save."
     },
     "regenerateDialog": {
       "title": "Regenerate tailored resume?",
@@ -954,12 +945,6 @@
     "sections": {
       "intro": "Getting started",
       "contact": "Contact details",
-      "summary": "Professional summary",
-      "workExperience": "Work experience",
-      "internships": "Internships",
-      "education": "Education",
-      "personalProjects": "Projects",
-      "skills": "Skills",
       "review": "Review"
     },
     "actions": {
@@ -979,9 +964,6 @@
       "label": "Live Draft",
       "empty": "Your resume appears here as you answer.",
       "unnamed": "Unnamed Resume",
-      "experience": "Experience",
-      "education": "Education",
-      "projects": "Projects",
       "skills": "Skills"
     },
     "errors": {
@@ -1113,6 +1095,145 @@
       "projectFollowUps": "Project Follow-Ups",
       "skillGaps": "Skill Gaps",
       "talkingPoints": "Talking Points"
+    }
+  },
+  "workspaces": {
+    "switcherLabel": "Workspace",
+    "loading": "Loading...",
+    "new": "New workspace",
+    "newTitle": "New workspace",
+    "newDescription": "A workspace keeps its own resumes, jobs and tracker cards.",
+    "nameLabel": "Workspace name",
+    "namePlaceholder": "e.g. Tom, Lior, Tom — Hebrew",
+    "nameRequired": "Enter a workspace name",
+    "create": "Create",
+    "createFailed": "Failed to create workspace",
+    "manageLabel": "Manage {name}",
+    "manageTitle": "Workspace settings",
+    "manageDescription": "Rename this workspace, set the language its content is written in, or delete it.",
+    "languageLabel": "Content language",
+    "makeDefault": "Make default",
+    "isDefault": "Default workspace",
+    "updateFailed": "Failed to update workspace",
+    "deleteFailed": "Failed to delete workspace",
+    "deleteTitle": "Delete workspace",
+    "deleteDescription": "“{name}” and every resume, job and tracker card in it will be permanently deleted."
+  },
+  "versions": {
+    "title": "Version history",
+    "empty": "No versions yet. Saving an edit records one.",
+    "loadFailed": "Failed to load version history",
+    "loadMore": "Load older",
+    "current": "Current",
+    "pinned": "Pinned",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "compare": "Compare",
+    "restore": "Restore",
+    "delete": "Delete",
+    "labelPlaceholder": "Name this version",
+    "restoreConfirmTitle": "Restore this version?",
+    "restoreConfirmBody": "Your current content is kept in history, so you can undo this.",
+    "restored": "Version restored",
+    "restoreFailed": "Failed to restore version",
+    "deleteFailed": "Failed to delete version",
+    "origin": {
+      "import": "Import",
+      "manual": "Edit",
+      "ai_tailor": "AI tailor",
+      "ai_enrich": "AI enrich",
+      "wizard": "Wizard",
+      "restore": "Restore",
+      "tex_edit": "LaTeX edit"
+    }
+  },
+  "diff": {
+    "headerSection": "Header",
+    "untitledSection": "Untitled section",
+    "noChanges": "No differences",
+    "rowCount": "Rows: {count}",
+    "acceptRow": "Accept change at {path}",
+    "selectAll": "Select all",
+    "clearAll": "Clear all",
+    "selectedCount": "{count} of {total} accepted",
+    "showUnchangedRows": "{count} unchanged rows",
+    "hideUnchangedRows": "Hide {count} unchanged rows",
+    "baseLabel": "Base",
+    "headLabel": "Head",
+    "view": {
+      "unified": "Unified",
+      "split": "Split"
+    },
+    "status": {
+      "added": "Added",
+      "removed": "Removed",
+      "modified": "Modified",
+      "moved": "Moved",
+      "unchanged": "Unchanged"
+    },
+    "sectionStatus": {
+      "added": "Added",
+      "removed": "Removed",
+      "renamed": "Renamed",
+      "modified": "Modified",
+      "moved": "Moved",
+      "unchanged": "Unchanged"
+    },
+    "stats": {
+      "totalChanges": "Total changes",
+      "sections_added": "Sections added",
+      "sections_removed": "Sections removed",
+      "sections_renamed": "Sections renamed",
+      "sections_moved": "Sections moved",
+      "entries_added": "Entries added",
+      "entries_removed": "Entries removed",
+      "entries_modified": "Entries modified",
+      "entries_moved": "Entries moved",
+      "bullets_added": "Bullets added",
+      "bullets_removed": "Bullets removed",
+      "bullets_modified": "Bullets modified",
+      "tags_added": "Tags added",
+      "tags_removed": "Tags removed"
+    }
+  },
+  "compare": {
+    "title": "Compare",
+    "subtitle": "Two documents, side by side",
+    "loading": "Loading comparison...",
+    "invalidRefs": "This comparison link is incomplete. Pick two documents to compare.",
+    "loadFailed": "Failed to load comparison",
+    "resumeRef": "Resume {id}",
+    "versionRef": "Version {id}",
+    "back": "Back to dashboard"
+  },
+  "latex": {
+    "title": "LaTeX Source",
+    "template": "Template",
+    "templates": {
+      "tex-classic": "Classic",
+      "tex-compact": "Compact"
+    },
+    "state": {
+      "generated": "Generated",
+      "edited": "Edited"
+    },
+    "overrideNotice": "You are editing the LaTeX directly. Document changes no longer update this source until you reset it.",
+    "noEngine": "No LaTeX engine on this server. Download the .tex and compile it locally.",
+    "sourceLabel": "LaTeX source",
+    "lineCount": "{count} lines",
+    "downloadTex": "Download .tex",
+    "downloadPdf": "Download PDF",
+    "save": "Save source",
+    "saving": "Saving...",
+    "compiling": "Compiling...",
+    "reset": "Reset to generated",
+    "resetConfirmTitle": "Discard your LaTeX edits?",
+    "resetConfirmBody": "The source goes back to being generated from the document. Your edited version stays in the version history.",
+    "errors": {
+      "load": "Failed to load LaTeX source",
+      "save": "Failed to save LaTeX source",
+      "reset": "Failed to reset LaTeX source",
+      "compile": "LaTeX compilation failed"
     }
   }
 }

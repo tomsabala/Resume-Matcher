@@ -3,6 +3,10 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import TailorPage from '@/app/(default)/tailor/page';
 
+vi.mock('@/lib/context/workspace-context', () => ({
+  useWorkspace: () => ({ revision: 0 }),
+}));
+
 const api = vi.hoisted(() => ({
   upload: vi.fn(),
   preview: vi.fn(),
@@ -46,14 +50,14 @@ vi.mock('@/components/tailor/diff-preview-modal', () => ({
     isConfirming,
     errorMessage,
   }: {
-    onConfirm: () => void;
+    onConfirm: (acceptedPaths: string[] | null) => void;
     onReject: () => void;
     onClose: () => void;
     isConfirming: boolean;
     errorMessage?: string;
   }) => (
     <div role="dialog">
-      <button onClick={onConfirm} disabled={isConfirming}>
+      <button onClick={() => onConfirm(null)} disabled={isConfirming}>
         Confirm preview
       </button>
       <button onClick={onReject}>Reject preview</button>
@@ -79,8 +83,7 @@ const preview = {
     resume_id: null,
     resume_preview: { personalInfo: { name: 'Ada' } },
     improvements: [],
-    diff_summary: { total_changes: 1 },
-    detailed_changes: [],
+    diff: { stats: { total_changes: 1 }, header: [], sections: [] },
   },
 };
 const confirmed = {
@@ -106,7 +109,7 @@ async function generate() {
 
 describe('actual tailor page transaction boundaries', () => {
   it('clears the missing-diff confirmation state after successful save', async () => {
-    api.preview.mockResolvedValue({ ...preview, data: { ...preview.data, diff_summary: null } });
+    api.preview.mockResolvedValue({ ...preview, data: { ...preview.data, diff: null } });
     render(<TailorPage />);
     await act(async () => {});
     await generate();
@@ -162,7 +165,7 @@ describe('actual tailor page transaction boundaries', () => {
   });
 
   it('lets the user decline a preview with missing diff data without saving', async () => {
-    api.preview.mockResolvedValue({ ...preview, data: { ...preview.data, diff_summary: null } });
+    api.preview.mockResolvedValue({ ...preview, data: { ...preview.data, diff: null } });
     render(<TailorPage />);
     await act(async () => {});
     await generate();
@@ -204,7 +207,7 @@ describe('actual tailor page transaction boundaries', () => {
 it('keeps missing-diff confirmation open while its durable request is pending', async () => {
   const pending = deferred<typeof confirmed>();
   api.confirm.mockReturnValueOnce(pending.promise);
-  api.preview.mockResolvedValue({ ...preview, data: { ...preview.data, diff_summary: null } });
+  api.preview.mockResolvedValue({ ...preview, data: { ...preview.data, diff: null } });
   render(<TailorPage />);
   await act(async () => {});
   await generate();

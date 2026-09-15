@@ -5,16 +5,22 @@
 ## Base Client (`lib/api/client.ts`)
 
 ```typescript
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-export const API_BASE = `${API_URL}/api/v1`;
+export const API_URL: string;   // NEXT_PUBLIC_API_URL, default '/'
+export const API_BASE: string;  // `${API_URL}api/v1`; a '/'-relative base is
+                                // rewritten to the internal origin on the server
+export const DEFAULT_TIMEOUT_MS: number; // 240_000, matching the backend deadline
 
-export async function apiFetch(endpoint: string, options?: RequestInit);
-export async function apiPost<T>(endpoint: string, body: T);
+export function setActiveWorkspaceId(workspaceId: string | null): void;
+export async function apiFetch(endpoint: string, options?: RequestInit, timeoutMs?: number);
+export async function apiPost<T>(endpoint: string, body: T, timeoutMs?: number);
 export async function apiPatch<T>(endpoint: string, body: T);
 export async function apiPut<T>(endpoint: string, body: T);
 export async function apiDelete(endpoint: string);
 export function getUploadUrl(): string;
 ```
+
+Every request carries the active workspace as `X-Workspace-Id`; unset or
+unknown resolves to the backend's default workspace.
 
 ## Resume Operations (`lib/api/resume.ts`)
 
@@ -22,13 +28,15 @@ export function getUploadUrl(): string;
 // Job descriptions
 uploadJobDescriptions(descriptions: string[], resumeId: string) → job_id
 
-// Resume improvement
-improveResume(resumeId: string, jobId: string) → ImprovedResult
+// Resume tailoring (all three return ImprovedResult = ImproveResumeResponse['data'])
+previewImproveResume(resumeId: string, jobId: string, promptId?: string) → ImprovedResult
+confirmImproveResume(payload: ImproveResumeConfirmRequest) → ImprovedResult
+improveResume(resumeId: string, jobId: string, promptId?: string) → ImprovedResult  // legacy one-shot
 
 // CRUD
 fetchResume(resumeId: string) → ResumeResponse['data']
 fetchResumeList(includeMaster?: boolean) → ResumeListItem[]
-updateResume(resumeId: string, data: ResumeData) → ResumeResponse['data']
+updateResume(resumeId: string, resumeData: ResumeDocument) → ResumeResponse['data']
 deleteResume(resumeId: string) → void
 
 // PDF
@@ -38,10 +46,138 @@ downloadCoverLetterPdf(resumeId: string, pageSize?: string) → Blob
 // Content updates
 updateCoverLetter(resumeId: string, content: string) → void
 updateOutreachMessage(resumeId: string, content: string) → void
+renameResume(resumeId: string, title: string) → void
 
 // On-demand generated content
+generateCoverLetter(resumeId: string) → string
+generateOutreachMessage(resumeId: string) → string
 generateInterviewPrep(resumeId: string) → InterviewPrepData
 ```
+
+## The Resume Document
+
+Every endpoint that carries structured resume content carries the same object:
+`ResumeDocument` (`apps/frontend/lib/types/document.ts`, mirroring
+`apps/backend/app/schemas/document.py`). There is no separate request shape.
+
+```jsonc
+{
+  "schemaVersion": 2,
+  "header": {
+    "name": "…",
+    "headline": "…",
+    "contacts": [{ "id": "…", "kind": "email", "label": "", "value": "…", "url": "" }]
+  },
+  "sections": [
+    {
+      "id": "…",
+      "key": "experience",        // slug, unique per document; used in change paths
+      "heading": "Experience",    // user-authored, free text
+      "headingI18nKey": "resume.sections.experience", // null on user-created sections
+      "kind": "entries",          // text | entries | tags | groups
+      "visible": true,
+      "column": "main",           // main | side (two-column templates partition on this)
+      "text": "",
+      "entries": [
+        {
+          "id": "…",              // stable for the entry's life
+          "title": "Senior Engineer",
+          "subtitle": "Acme",
+          "meta": "Berlin",
+          "period": "2023 -- May 2026",
+          "links": [{ "kind": "github", "url": "…" }],
+          "summary": "Owned the ingest tier.",
+          "bullets": [{ "text": "Cut p99 by 40%", "style": "bullet" }]
+        }
+      ],
+      "tags": [],
+      "groups": []
+    }
+  ]
+}
+```
+
+Contract notes that matter on the wire:
+
+- **Order is list order.** `sections` is the display order; there is no order field.
+- **`extra="forbid"`.** An unknown field is a `422`, never silently dropped.
+  Round-trip whatever you were given.
+- **Only the field group matching `kind` is meaningful**; the others stay at
+  their empty defaults.
+- **The header is not a section.**
+- A resume stored under schema version 1 is projected to this shape on read by
+  `migrate_document`; nothing writes v1 shapes.
+
+| Endpoint | Body | Response |
+|---|---|---|
+| `GET /resumes?resume_id=` | — | `{ request_id, data: { resume_id, raw_resume, processed_resume: ResumeDocument \| null, cover_letter, outreach_message, interview_prep, parent_id, title } }` |
+| `PATCH /resumes/{id}` | a complete `ResumeDocument` | same shape as `GET /resumes` |
+| `POST /resumes/improve/preview` | `{ resume_id, job_id, prompt_id? }` | `{ request_id, data: ImproveResumeData }` — `resume_preview` is a `ResumeDocument`, `resume_id` is `null` |
+| `POST /resumes/improve/confirm` | `{ resume_id, job_id, preview_id, improved_data: ResumeDocument, improvements, accepted_paths? }` | `{ request_id, data: ImproveResumeData }` — `resume_id` is the persisted tailored resume |
+
+`PATCH` takes the whole document, not a partial patch: send back the document
+you loaded, with your edits applied. `improve/confirm` must forward the
+`improved_data` it was given by the preview unchanged — the server re-validates
+it against the recorded preview fingerprint.
+
+`ImproveResumeData.diff` is a `DocumentDiff` — the structured comparison of the
+source resume against this proposal, in exactly the shape `POST /diff` returns,
+so one component renders every diff surface. It is `null` when the comparison
+could not be made, and the response then carries a warning saying so.
+
+`accepted_paths` on confirm is the partial-accept selection: `null` (or omitted)
+accepts the whole proposal, an array takes only those diff-row paths. Selectable
+paths are content leaves only — see
+[document-diff.md](../features/document-diff.md#partial-accept).
+
+## AI change paths
+
+The tailoring LLM does not rewrite the resume; it returns a list of targeted
+changes, each one a path plus an action
+(`apps/backend/app/schemas/models.py::ResumeChange`):
+
+```jsonc
+{
+  "path": "sections.experience.entries[0].bullets[1].text",
+  "action": "replace",          // replace | append | reorder | add_skill
+  "original": "Built APIs",     // verified against the live value before applying
+  "value": "Built ingest APIs serving 1M req/day",
+  "reason": "JD asks for high-throughput API experience"
+}
+```
+
+A section is addressed **by key, not by position**: the `sections.<key>`
+segment matches the list item whose `key` field equals the segment, so a user
+reorder cannot retarget a different section.
+
+Editable paths — the allowlist is *generated per document* by
+`improver.build_allowed_paths` from the document's own sections and their kinds:
+
+| `kind` | Editable paths |
+|---|---|
+| `text` | `sections.<key>.text` |
+| `entries` | `sections.<key>.entries[i].summary`, `sections.<key>.entries[i].bullets`, `sections.<key>.entries[i].bullets[j].text` |
+| `tags` | `sections.<key>.tags` |
+| `groups` | `sections.<key>.groups[i].values` |
+
+Because the allowlist is a function of the document, **a section the user
+created is as editable as any other** — there is no fixed set of section names
+to be absent from.
+
+Never editable: `header.*` and `schemaVersion` (identity), and the fields `id`,
+`key`, `kind`, `heading`, `headingI18nKey`, `visible`, `column`, `title`,
+`subtitle`, `meta`, `period`, `links`, `label`, `style` (identity and
+structure). A change targeting one of those is rejected, not clamped.
+
+Action rules enforced by `apply_diffs`:
+
+- `replace` — one text leaf only; a list-valued path is rejected.
+- `append` — **bullet lists only** (a path ending in `.bullets`); appended as
+  `{"text": …, "style": "bullet"}`.
+- `add_skill` — the only way to add a short value to a `tags`/`groups` list, and
+  it is gated on the verified skill-target plan.
+- `reorder` — same items, new order; unverified new items are dropped and
+  omitted originals are appended back.
 
 Resume upload accepts matching PDF, DOC or DOCX filename/MIME pairs. The backend
 returns 400 for unsupported or mismatched types, 413 for raw/expanded/extracted
@@ -63,10 +199,176 @@ createInitialResumeWizardState() → ResumeWizardState
 
 Backend endpoints:
 
-- `POST /api/v1/resume-wizard/turn` — one adaptive turn. `action` is `start | answer | skip | back | review`. `answer`/`skip` run one AI call that updates `resume_data`, returns the next `current_question`, `inferred_skills`, and a strict boolean `is_complete` flag; `back`/`review`/`start` are deterministic (no LLM). The service validates the complete model envelope before advancing history or progress. Invalid envelopes return a recoverable `422` and leave the client state unchanged. Work, education, and project entries carry stable positive IDs: a correction retains the current entry ID, while an addition uses ID `0` and receives the next available ID. Partial model echoes preserve entries they omit. Deterministic fallback questions and review copy use the configured content language. The full `ResumeWizardState` round-trips in the request and response.
+- `POST /api/v1/resume-wizard/turn` — one adaptive turn. `action` is `start | answer | skip | back | review`. A turn targets `intro`, `contact`, `review`, or one section of the document as `section:<section_key>` (e.g. `section:military_service`) — the wizard has no built-in section enum, so a section the user added is a legitimate target. `answer`/`skip` run one AI call that updates `resume_data` (a full `ResumeDocument`), returns the next `current_question`, `inferred_skills`, and a strict boolean `is_complete` flag; `back`/`review`/`start` are deterministic (no LLM). The service validates the complete model envelope before advancing history or progress. Invalid envelopes return a recoverable `422` and leave the client state unchanged. Entries are merged back by their stable `Entry.id`, falling back to a `(title, subtitle, period)` signature when the model omits or invents one; a new entry is allocated a fresh id. Partial model echoes preserve entries they omit. Deterministic fallback questions and review copy use the configured content language. The full `ResumeWizardState` round-trips in the request and response.
 - `POST /api/v1/resume-wizard/finalize` — creates the single master resume from the draft (`processing_status: "ready"`), or `409` if a master already exists.
 
 The wizard is an AI-led, one-question-at-a-time flow that builds a general master resume; it does not require a job description and does not replace the upload parser. Question and content text are produced in the configured **content language**; static UI chrome uses the `resumeWizard.*` i18n keys.
+
+## AI enrichment and regenerate (`lib/api/enrichment.ts`)
+
+```typescript
+analyzeResume(resumeId: string) → AnalysisResponse
+generateEnhancements(resumeId: string, answers: AnswerInput[]) → EnhancementPreview
+applyEnhancements(resumeId: string, enhancements: EnhancedDescription[]) → { message, updated_items }
+regenerateItems(request: RegenerateRequest) → RegenerateResponse
+applyRegeneratedItems(resumeId: string, items: RegeneratedItem[]) → { message, updated_items }
+```
+
+### Item ids
+
+Both flows address a piece of the document with an `item_id` plus an
+`item_type`. **An item id is built from stable ids, never from a position or a
+heading:**
+
+| `item_type` | `item_id` | Addresses |
+|---|---|---|
+| `entry` | `<section_key>:<entry_id>` | one entry of an `entries` section — e.g. `experience:3f1c9ab24d7e4c0fa1b2c3d4e5f60718` |
+| `values` | `<section_key>:#tags` | the flat value list of a `tags` section — e.g. `languages:#tags` |
+| `values` | `<section_key>:#group:<index>` | one group's `values` in a `groups` section — e.g. `skills:#group:0` |
+
+`section_key` is `Section.key` and `entry_id` is `Entry.id`, both copied
+verbatim from the document. Entry ids are stable for the entry's life, so a
+reorder between analysis, preview and apply cannot retarget a different entry.
+An id the server cannot resolve is reported as an item error and discarded —
+it is never applied to a best-guess target. The prompts instruct the model to
+copy ids out of the JSON and never to derive one from a heading or an array
+position.
+
+Items also carry `section_heading`, a **display-only** field holding the
+owning section's heading (falling back to its key). The UI labels an item with
+the user's own section name; `item_type` is what the code dispatches on, so
+"Experience" and "Projects" are not categories the backend knows.
+
+A `RegeneratedItem` carries `item_id`, `item_type`, `title`, `subtitle`,
+`original_content`, `new_content`, a free-text `diff_summary` the model wrote,
+and **`rows: DiffRow[]`** — the server-computed comparison of
+`original_content` against `new_content`, word-level spans included. The rows
+are the same `DiffRow`s `POST /diff` returns, so the regenerate preview renders
+through the shared diff component and the client never re-derives a comparison.
+Send the item back to `apply-regenerated` as received.
+
+See [enrichment.md](../features/enrichment.md).
+
+## Version History (`lib/api/versions.ts`)
+
+```typescript
+listVersions(resumeId: string, cursor?: string) → VersionListResponse
+fetchVersion(versionId: string) → VersionDetail        // includes the full ResumeDocument
+updateVersion(versionId: string, payload) → VersionDetail   // label / pin
+deleteVersion(versionId: string) → void
+restoreVersion(resumeId: string, versionId: string) → VersionSummary
+```
+
+History is append-only: a restore writes the chosen version forward as a new
+head rather than rewinding, so the restore is itself on the timeline. A version
+carries its `origin` (`import | manual | ai_tailor | ai_enrich | wizard |
+restore | tex_edit`) — every AI write goes through this funnel, which is why an
+enrichment or tailoring the user dislikes is recoverable.
+
+## Document Diff (`POST /diff`)
+
+Each side of a comparison is a ref — exactly one of `{ resume_id }` or
+`{ version_id }`, otherwise `422` — so resume-vs-resume, version-vs-version and
+resume-vs-version are one endpoint:
+
+```jsonc
+{
+  "base": { "resume_id": "…" },
+  "head": { "version_id": "…" },
+  "mode": "document",   // "document" (section/entry/row rows) | "tex" (LaTeX line diff)
+  "context": 2          // 0-20; unchanged rows kept around each change, 0 = changes only
+}
+```
+
+`mode: "document"` returns a `DocumentDiff`: `{ stats, header: DiffRow[],
+sections: SectionDiff[] }`, grouped by section and ordered as the head document
+reads. `mode: "tex"` returns `{ rows: DiffRow[] }`, a line diff over the two
+sides' LaTeX sources. A resume ref resolves `processed_data`; a version ref
+resolves that timeline entry's document; both are projected through
+`migrate_document`.
+
+| Outcome | HTTP |
+|---|---|
+| A ref naming both `resume_id` and `version_id`, or neither | 422 |
+| Unknown `resume_id` / `version_id` | 404 |
+| Either ref outside the active workspace (`X-Workspace-Id`) | 403 |
+
+Diff rows are keyed by the same section/entry path grammar as the change paths
+above, which is what makes a row individually acceptable on confirm. Row kinds,
+statuses, spans and the pairing rules behind them:
+[document-diff.md](../features/document-diff.md).
+
+## LaTeX Export (`lib/api/tex.ts`)
+
+```typescript
+getTexCapabilities() → TexCapabilities          // GET  /resumes/tex/capabilities
+getTexSource(resumeId, { template?, regenerate? }) → TexSource
+                                                // GET  /resumes/{id}/tex
+saveTexSource(resumeId, source) → TexSource     // PUT  /resumes/{id}/tex
+clearTexSource(resumeId, template?) → TexSource // DELETE /resumes/{id}/tex
+downloadTexSource(resumeId, template?) → Blob   // GET  /resumes/{id}/tex/source
+compileTexPdf(resumeId, template?) → Blob       // GET  /resumes/{id}/tex/pdf
+```
+
+```typescript
+interface TexCapabilities {
+  engine: string | null;   // bare binary name; null = cannot compile here
+  can_compile: boolean;
+  templates: string[];     // 'tex-classic' | 'tex-compact'
+}
+
+interface TexSource {
+  resume_id: string;
+  source: string;
+  is_override: boolean;    // true = the user's own .tex, not generated
+  template: string;        // 'custom' on a PUT response
+  engine: string | null;   // travels with the source, so the UI needs no second call
+}
+```
+
+`template` defaults to `tex-classic` on every route that renders.
+`regenerate=true` returns freshly generated source for one read without
+clearing a stored override. `PUT` bodies are `{ source }`, 1–400,000 chars.
+
+| Status | Meaning |
+| ------ | ------- |
+| `400` | unknown `template` id; the detail lists the valid ones |
+| `404` | unknown resume id |
+| `422` | `/tex/pdf` — the engine rejected the source. Detail is `{ message, log }`, surfaced by the client as `TexCompileError` with the engine log attached |
+| `503` | `/tex/pdf` — no engine on this host, raised as `TexUnavailableError`. Distinct from a `500`: the request is valid, the capability is absent, and the caller should offer the `.tex` download instead |
+
+A `PUT` or `DELETE` writes a version checkpoint (`origin: "tex_edit"`,
+`tex_source_mode: "edited" | "generated"`), so the timeline above shows LaTeX
+edits and a reset never loses one. Details:
+[latex-export.md](../features/latex-export.md).
+
+## Workspaces (`lib/api/workspaces.ts`)
+
+```typescript
+listWorkspaces() → Workspace[]
+createWorkspace(payload: WorkspaceCreate) → Workspace
+updateWorkspace(workspaceId: string, payload: WorkspaceUpdate) → Workspace
+deleteWorkspace(workspaceId: string) → void
+```
+
+A workspace is a named owner profile, not a tenant — there is no auth. It scopes
+resumes, jobs and tracker cards; exactly one row is the default. Requests select
+one with `X-Workspace-Id`, and a missing **or unknown** id falls back to the
+default workspace (the Playwright print route sends no app headers, and a stored
+browser id can outlive a deleted workspace).
+
+Both mutations have a UI: the header switcher's per-row pencil opens
+`components/common/workspace-manage-dialog.tsx` (rename, content language,
+promote to default, delete). Deleting the default workspace or the only
+workspace is refused server-side with `409` and the dialog shows that message
+verbatim — the rule has one owner. Deleting the active workspace makes the
+remaining default (or first) workspace active.
+
+Resumes are managed from the dashboard cards: the pencil calls
+`renameResume(id, title)` (`PATCH /resumes/{id}/title`, dashboard label only —
+the document is untouched) and the bin calls `deleteResume(id)`. Deleting the
+master clears the stored `master_resume_id` and the dashboard falls back to its
+upload card; tailored resumes survive.
 
 ## Application Tracker (`lib/api/tracker.ts`)
 

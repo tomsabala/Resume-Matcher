@@ -17,18 +17,32 @@
 
 ```
 apps/backend/app/
-├── main.py         # Entry point (lifespan: TinyDB→SQLite import, legacy-key fold-in)
+├── main.py         # Entry point (lifespan: Alembic upgrade, TinyDB→SQLite import, legacy-key fold-in)
 ├── config.py       # Settings from env/file; encrypted API-key read/write
 ├── crypto.py       # Fernet encrypt/decrypt for API keys at rest
 ├── database.py     # Async SQLAlchemy/SQLite facade (returns plain dicts)
 ├── models.py       # SQLAlchemy declarative Base + ORM models
 ├── db_engine.py    # SQLite engine/session factories (async + sync) + PRAGMAs
 ├── llm.py          # Multi-provider LLM
-├── routers/        # health, config, resumes, jobs, applications, enrichment
-├── services/       # parser, improver, cover_letter
-├── schemas/        # Pydantic models (models.py, applications.py)
+├── deps.py         # FastAPI dependencies (resolve_workspace_id → X-Workspace-Id)
+├── preview.py      # Preview fingerprints/claims for tailoring confirmation
+├── latex/          # LaTeX export: escape.py (the escaping boundary),
+│                   #   render.py (Jinja → .tex), compile.py (engine detection +
+│                   #   sandboxed run), templates/ (*.tex.j2)
+├── routers/        # health, config, resumes, jobs, applications, enrichment,
+│                   #   workspaces, versions, diff, tex, resume_wizard
+├── services/       # parser, improver, refiner, resume_preservation,
+│                   #   document_walk, document_diff, ats, cover_letter,
+│                   #   interview_prep, resume_wizard
+├── schemas/        # Pydantic models (document.py = the resume contract,
+│                   #   models.py, enrichment.py, applications.py, versions.py,
+│                   #   workspaces.py, refinement.py, resume_wizard.py, tex.py)
 ├── scripts/        # migrate_tinydb_to_sqlite.py (one-time importer)
-└── prompts/        # templates.py
+└── prompts/        # templates.py, schema.py (document shape + allowed paths),
+                    #   enrichment.py, refinement.py, resume_wizard.py
+
+apps/backend/alembic.ini      # Alembic config (script_location = ./migrations)
+apps/backend/migrations/      # Alembic env.py + versions/
 ```
 
 ## Database Operations
@@ -43,7 +57,7 @@ await db.get_resume(resume_id) → dict | None
 await db.list_resumes() → list[dict]
 await db.update_resume(resume_id, updates)
 await db.delete_resume(resume_id) → bool
-await db.set_master_resume(resume_id)            # Exactly one master allowed
+await db.set_master_resume(resume_id)            # Exactly one master per workspace
 await db.claim_resume_processing(resume_id)      # Rotate private operation token
 await db.finish_resume_processing(...)           # Token-guarded ready/failed commit
 await db.create_job(content, resume_id)
@@ -51,8 +65,39 @@ await db.create_application(...) / list_applications / bulk_update_applications
 get_api_key_ciphertexts() / replace_api_keys(...)  # sync; encrypted api_keys table
 ```
 
-**Tables:** `resumes`, `jobs`, `improvements`, `applications`, `tailoring_previews`, `api_keys` (encrypted).
+**Tables:** `workspaces`, `resumes`, `resume_versions`, `jobs`, `improvements`, `applications`, `tailoring_previews`, `api_keys` (encrypted).
 DB file: `data/resume_matcher.db`.
+
+### Workspaces
+
+A **workspace** is a named owner profile ("Tom", "Lior — Hebrew"), not a tenant — the
+product has no auth. `resumes`, `jobs` and `applications` each carry `workspace_id`;
+exactly one workspace row has `is_default = 1`.
+
+Requests select one with the `X-Workspace-Id` header, resolved by
+`app/deps.py::resolve_workspace_id`. A missing **or unknown** id falls back to the
+default workspace: the Playwright print route is fetched by Chromium without app
+headers, and the browser's stored id can outlive a deleted workspace.
+
+Scoping applies to list/create/master paths only; fetch-by-id is not filtered, so a
+direct link (or the print route) still resolves a document from any workspace.
+`ux_resumes_workspace_master` replaces the old database-global single-master index.
+
+### Schema migrations (Alembic)
+
+`init_models_sync` (called once from the lifespan via `db.ensure_ready()`) brings the
+database to head:
+
+- **Empty file** → built from the models and stamped at head (cheap; every test builds
+  its own database). `uv run alembic check` is what keeps models and revisions in step.
+- **Pre-Alembic database** → patched to the baseline shape, stamped `0001_baseline`,
+  then upgraded.
+- **Alembic-managed** → upgraded only when behind head.
+
+Add a revision with `cd apps/backend && uv run alembic revision --autogenerate -m "…"`.
+Verify models and revisions agree with `uv run alembic upgrade head && uv run alembic check`
+(`check` needs an already-upgraded database to compare against).
+The `Dockerfile` copies `alembic.ini` and `migrations/` alongside `app/`.
 
 **Two engines, one file:** a module-level **async** engine serves the document tables +
 `applications`; a **sync** engine serves the encrypted `api_keys` table (read on the
@@ -75,6 +120,132 @@ See [storage transactions](storage-transactions.md) and [confirmation](../featur
   a legacy `data/database.json` (TinyDB) into SQLite if present, then renames it
   `database.json.migrated`. Idempotent. `migrate_legacy_keys()` likewise folds legacy
   plaintext keys into the encrypted store.
+
+## The resume document (schema version 2)
+
+Structured resume content — stored in `resumes.processed_data`, accepted by
+`PATCH /resumes/{id}`, returned by every read — is one Pydantic model:
+`app/schemas/document.py::ResumeDocument`.
+
+```python
+ResumeDocument(schemaVersion=2, header=Header(...), sections=[Section(...), ...])
+```
+
+Sections, their headings, their order and their shapes are **data**. Nothing in
+the application enumerates resume sections: consumers switch on
+`SectionKind` and iterate `document.sections`.
+
+| Model | Notes |
+| ----- | ----- |
+| `Header` | `name`, `headline`, `contacts` — **not** a section; templates render it outside the section loop |
+| `Section` | `key` (slug, unique, used in change paths), `heading` (free text), `headingI18nKey`, `kind`, `visible`, `column` (`main`/`side`), plus the one content field its `kind` selects |
+| `SectionKind` | `text` → `section.text`; `entries` → `section.entries`; `tags` → `section.tags`; `groups` → `section.groups` |
+| `Entry` | `id`, `title`, `subtitle`, `meta`, `period`, `links`, **`summary`** (a paragraph) and **`bullets`** — both, on the same entry |
+| `Bullet` | `text` + its own `style: bullet \| plain` |
+| `TagGroup` | `label` + `values` |
+
+Design properties worth knowing before you touch this:
+
+- **Order is list order.** There is no order field to reindex.
+- **`extra="forbid"` on every model.** An unknown field is a validation error.
+  The v1 models inherited Pydantic's `extra='ignore'`, so every write silently
+  discarded sections the code did not know about; forbidding extras is the point
+  of the exercise.
+- **A user-created section is an ordinary section.** There is no privileged
+  built-in set, so nothing special-cases one.
+
+### Traversal
+
+`app/services/document_walk.py` is the shared, section-agnostic traversal —
+use it instead of reaching into sections by name:
+
+| Helper | Yields |
+| ------ | ------ |
+| `iter_sections(doc, kind=None)` | sections, optionally one kind |
+| `iter_entries(doc)` | `(section, index, entry)` for every entry |
+| `skill_values(doc)` | every short value across `tags` + `groups` sections |
+| `document_text_fragments(doc)` | every user-authored string in the body (header excluded) |
+| `section_path` / `entry_paths` / `skill_list_paths` | change paths for a section, an entry, the short-value lists |
+| `sections_of` / `entries_of` / `bullet_texts` | the dict-level equivalents, for the AI apply path that mutates raw JSON before re-validating |
+
+### AI change paths
+
+The tailoring LLM returns targeted changes, each a path plus an action. The
+allowlist is **generated per document** by `improver.build_allowed_paths` from
+that document's sections and their kinds:
+
+```
+sections.<key>.text                          # kind == text
+sections.<key>.entries[i].summary            # kind == entries
+sections.<key>.entries[i].bullets
+sections.<key>.entries[i].bullets[j].text
+sections.<key>.tags                          # kind == tags
+sections.<key>.groups[i].values              # kind == groups
+```
+
+This is why a section the user created is AI-editable: the allowlist is a
+function of the document, not a fixed list of names. `sections.<key>` resolves a
+section **by key** — the path segment matches the list item whose `key` equals
+it — so a reorder cannot retarget a different section. Identity and structure
+(`header.*`, `schemaVersion`, and the fields `id`, `key`, `kind`, `heading`,
+`headingI18nKey`, `visible`, `column`, `title`, `subtitle`, `meta`, `period`,
+`links`, `label`, `style`) are never editable. `append` targets a bullet list
+only; a short value must come through the verified `add_skill` action.
+
+Full wire contract: [front-end-apis.md](../apis/front-end-apis.md#ai-change-paths).
+Section semantics from the user's side: [custom-sections.md](../features/custom-sections.md).
+
+### Reading older rows
+
+`migrate_document(raw)` projects a resume stored under schema version 1 (fixed
+`personalInfo`/`workExperience`/… keys, `sectionMeta`, `customSections`,
+parallel `description`/`descriptionStyles` arrays) onto the v2 document on
+read. It is the only place those names survive; nothing writes them.
+
+### Comparing two documents
+
+`app/services/document_diff.py` is the **only** comparison engine, and
+`app/schemas/diff.py` is its wire shape. It is a tree diff: sections pair with
+sections, entries pair inside their section, and only leaves are compared as
+text — so a renamed heading is `renamed` and a reordered entry is `moved`,
+instead of a delete plus an add.
+
+| Export | Used by |
+| ------ | ------- |
+| `diff_documents(base, head, context=2)` → `DocumentDiff` | `POST /diff` (`app/routers/diff.py`) and the tailoring responses, which embed the result as `ImproveResumeData.diff` |
+| `diff_value_lists(base, head, path=…, kind=…)` → `list[DiffRow]` | `app/routers/enrichment.py`, for `RegeneratedItem.rows` |
+| `merge_accepted(base, head, accepted_paths)` → `ResumeDocument` | `POST /resumes/improve/confirm`, when `accepted_paths` names a subset |
+| `diff_tex_sources(base_tex, head_tex, context=2)` → `list[DiffRow]` | `POST /diff` with `mode="tex"` |
+
+Rows are keyed by the AI change-path grammar above, which is what lets one row
+be accepted on its own: a partial confirm re-runs `merge_accepted` and then the
+same preservation chain and payload validation as a whole preview. Only content
+leaves are selectable — structure comes from the source document.
+
+`app/routers/diff.py` resolves each side from a ref (`{resume_id}` or
+`{version_id}`) and refuses a comparison whose sides sit in different
+workspaces (`403`), because a diff reads two documents at once.
+
+Pairing rules, thresholds, statuses and the three UI surfaces:
+[document-diff.md](../features/document-diff.md).
+
+## LaTeX export (`app/latex/`)
+
+A second render target beside the Chromium/Playwright PDF, from the same
+document. Four pieces, in dependency order:
+
+| Module | Responsibility |
+| ------ | -------------- |
+| `escape.py` | `escape_tex` — the boundary every user string crosses. Backslash first, because every other replacement introduces backslashes |
+| `render.py` | Jinja2 with LaTeX-safe delimiters (`<< >>`, `<% %>`, `<# #>`); `autoescape` off, so the `tex` filter is mandatory per site. `LATEX_TEMPLATES` = `tex-classic`, `tex-compact` |
+| `compile.py` | `latex_engine()` (`RESUME_MATCHER_LATEX_ENGINE`, else tectonic → latexmk → xelatex → pdflatex) and `compile_tex_to_pdf()` — temp cwd, `-no-shell-escape`, `openin_any`/`openout_any=p`, 120s timeout |
+| `templates/` | `_document.tex.j2` shared body + one preamble per template |
+
+`resumes.tex_source` (migration `0004_tex_source`) is NULL for generated
+source and holds the user's own `.tex` otherwise; a `PUT` checkpoints it on the
+version timeline as `origin="tex_edit"`. No engine installed is a **503**, not
+a 500 — the capability is missing, not the request. Full contract:
+[latex-export.md](../features/latex-export.md).
 
 ## Configuration ownership
 
@@ -107,9 +278,20 @@ GET  /api/v1/status              # Full status (LLM + DB isolated; 200 on partia
 GET/PUT /api/v1/config/llm-api-key            # no longer persists a key
 GET/POST/DELETE /api/v1/config/api-keys       # per-provider encrypted keys
 POST /api/v1/resumes/upload      # PDF/DOC/DOCX
-POST /api/v1/resumes/improve     # Tailor (LLM)
+GET  /api/v1/resumes?resume_id=   # ResumeDocument in data.processed_resume
+PATCH /api/v1/resumes/{id}        # body: a complete ResumeDocument
+POST /api/v1/resumes/improve/preview  + /improve/confirm   # tailor (LLM), then persist
+POST /api/v1/resumes/improve     # legacy one-shot tailor (LLM)
 GET  /api/v1/resumes/{id}/pdf
+GET  /api/v1/resumes/tex/capabilities         # engine name, can_compile, template ids
+GET/PUT/DELETE /api/v1/resumes/{id}/tex       # LaTeX source: generated | override
+GET  /api/v1/resumes/{id}/tex/source          # .tex download
+GET  /api/v1/resumes/{id}/tex/pdf             # compile (503 no engine, 422 bad source)
 DELETE /api/v1/resumes/{id}
+GET/PATCH/DELETE /api/v1/versions/{id}        # resume version history
+POST /api/v1/diff                # compare two refs (resume/version), mode document|tex
+GET/POST /api/v1/workspaces (+ PATCH/DELETE /{id})
+POST /api/v1/resume-wizard/turn  + /finalize
 GET  /api/v1/applications        # Kanban tracker: grouped list (+ POST/PATCH/DELETE/bulk)
 ```
 
@@ -162,8 +344,15 @@ uv run uvicorn app.main:app --reload --port 8000
 
 ## Adding New Endpoints
 
-1. Create router in `app/routers/`
-2. Add Pydantic models to `app/schemas/models.py`
-3. Register router in `app/main.py`
+1. Create the router in `app/routers/` (or extend an existing one).
+2. Add request/response models to `app/schemas/` — a new file per feature area;
+   `app/schemas/models.py` holds the resume/improve envelopes. Anything carrying
+   structured resume content uses `ResumeDocument` from
+   `app/schemas/document.py`; do not redeclare a resume shape.
+3. Take `workspace_id: WorkspaceId` (`app/deps.py`) on any endpoint that lists
+   or creates workspace-scoped rows.
+4. Register the router in `app/routers/__init__.py`, mounted under `/api/v1`.
+5. If the endpoint touches the schema, add an Alembic revision (see
+   [Schema migrations](#schema-migrations-alembic)).
 
 Legacy `.doc` files pass compound-file header validation, but the bundled MarkItDown DOCX converter does not guarantee binary Word conversion. Convert legacy Word documents to PDF or DOCX for reliable upload.

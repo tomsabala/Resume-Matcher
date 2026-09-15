@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from app.database import DatabaseBusyError, db
+from app.deps import WorkspaceId
 from app.services.improver import extract_job_keywords
 from app.schemas import (
     APPLICATION_STATUS_ORDER,
@@ -42,10 +43,10 @@ def _group_by_status(applications: list[dict[str, Any]]) -> dict[str, list[Appli
 
 
 @router.get("", response_model=ApplicationListResponse)
-async def list_applications() -> ApplicationListResponse:
-    """List all applications grouped by status column."""
+async def list_applications(workspace_id: WorkspaceId) -> ApplicationListResponse:
+    """List the active workspace's applications grouped by status column."""
     try:
-        applications = await db.list_applications()
+        applications = await db.list_applications(workspace_id=workspace_id)
     except DatabaseBusyError:
         raise
     except Exception as e:
@@ -55,7 +56,9 @@ async def list_applications() -> ApplicationListResponse:
 
 
 @router.post("", response_model=ApplicationResponse)
-async def create_application(request: ManualApplicationCreate) -> ApplicationResponse:
+async def create_application(
+    request: ManualApplicationCreate, workspace_id: WorkspaceId
+) -> ApplicationResponse:
     """Manually add a card from a pasted job description.
 
     Runs best-effort company/role extraction before opening a transaction, then
@@ -76,6 +79,7 @@ async def create_application(request: ManualApplicationCreate) -> ApplicationRes
             company=company,
             role=role,
             notes=request.notes,
+            workspace_id=workspace_id,
         )
     except DatabaseBusyError:
         raise

@@ -38,7 +38,7 @@ POST /resumes/upload       ← multipart/form-data {file}
                            → {resume_id}
 GET /resumes?resume_id=    → Resume object
 GET /resumes/list          → [{resume_id, filename, is_master, created_at}]
-PATCH /resumes/{id}        ← ResumeData
+PATCH /resumes/{id}        ← ResumeDocument (the whole document)
 DELETE /resumes/{id}       → {message}
 GET /resumes/{id}/pdf      → application/pdf
 POST /resumes/improve      ← {resume_id, job_id}
@@ -62,13 +62,7 @@ GET /jobs/{id}             → {job_id, content, created_at}
 {
   "resume_id": "uuid",
   "content": "markdown or json",
-  "processed_data": {
-    "personalInfo": {...},
-    "summary": "...",
-    "workExperience": [...],
-    "education": [...],
-    "additional": {...}
-  },
+  "processed_data": "ResumeDocument (see below) or null",
   "is_master": true,
   "processing_status": "ready|processing|failed",
   "cover_letter": "text or null",
@@ -77,22 +71,51 @@ GET /jobs/{id}             → {job_id, content, created_at}
 }
 ```
 
-### ResumeData
-`PATCH /resumes/{id}` accepts the structured resume payload stored in
-`processed_data`, for example:
+### ResumeDocument
+
+`PATCH /resumes/{id}` accepts the structured resume document stored in
+`processed_data` — the whole document, not a partial patch. Authoritative
+definition: `apps/backend/app/schemas/document.py`.
 
 ```json
 {
-  "personalInfo": {...},
-  "summary": "...",
-  "workExperience": [...],
-  "education": [...],
-  "personalProjects": [...],
-  "additional": {...},
-  "customSections": {...},
-  "sectionMeta": [...]
+  "schemaVersion": 2,
+  "header": { "name": "...", "headline": "...", "contacts": [] },
+  "sections": [
+    {
+      "id": "...",
+      "key": "experience",
+      "heading": "Experience",
+      "headingI18nKey": "resume.sections.experience",
+      "kind": "entries",
+      "visible": true,
+      "column": "main",
+      "text": "",
+      "entries": [
+        {
+          "id": "...",
+          "title": "...",
+          "subtitle": "...",
+          "meta": "",
+          "period": "2023 -- May 2026",
+          "links": [],
+          "summary": "",
+          "bullets": [{ "text": "...", "style": "bullet" }]
+        }
+      ],
+      "tags": [],
+      "groups": []
+    }
+  ]
 }
 ```
+
+`sections` is a list in display order; `kind` is `text | entries | tags |
+groups` and selects which content field is used. Unknown fields are rejected
+(`extra="forbid"`) — a `422`, never a silent drop. A resume stored under
+schema version 1 is projected onto this shape on read. Field-by-field notes:
+[custom-sections.md](../features/custom-sections.md); the wire contract and
+change paths: [front-end-apis.md](front-end-apis.md#the-resume-document).
 
 ### Error Response
 ```json

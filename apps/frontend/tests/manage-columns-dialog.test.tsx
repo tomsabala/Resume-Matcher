@@ -12,6 +12,10 @@ import {
 } from '@/lib/api/tracker';
 import { TRACKER_HIDDEN_STATUSES_KEY } from '@/lib/utils/tracker-column-visibility';
 
+vi.mock('@/lib/context/workspace-context', () => ({
+  useWorkspace: () => ({ revision: 0 }),
+}));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
 }));

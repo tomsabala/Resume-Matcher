@@ -17,169 +17,230 @@ def get_language_name(code: str) -> str:
     return LANGUAGE_NAMES.get(code, "English")
 
 
-# Schema with example values - used for prompts to show LLM expected format
+# A complete v2 document with example values - used for prompts that must show
+# the LLM the expected output shape when there is no prior document.
 RESUME_SCHEMA_EXAMPLE = """{
-  "personalInfo": {
+  "schemaVersion": 2,
+  "header": {
     "name": "John Doe",
-    "title": "Software Engineer",
-    "email": "john@example.com",
-    "phone": "+1-555-0100",
-    "location": "San Francisco, CA",
-    "website": "https://johndoe.dev",
-    "linkedin": "linkedin.com/in/johndoe",
-    "github": "github.com/johndoe"
+    "headline": "Software Engineer",
+    "contacts": [
+      {"kind": "email", "label": "john@example.com", "value": "john@example.com", "url": ""},
+      {"kind": "phone", "label": "+1-555-0100", "value": "+1-555-0100", "url": ""},
+      {"kind": "location", "label": "San Francisco, CA", "value": "San Francisco, CA", "url": ""},
+      {"kind": "github", "label": "", "value": "github.com/johndoe", "url": "https://github.com/johndoe"}
+    ]
   },
-  "summary": "Experienced software engineer with 5+ years...",
-  "workExperience": [
+  "sections": [
     {
-      "id": 1,
-      "title": "Senior Software Engineer",
-      "company": "Tech Corp",
-      "location": "San Francisco, CA",
-      "years": "Jan 2020 - Present",
-      "description": [
-        "Led development of microservices architecture",
-        "Improved system performance by 40%"
-      ],
-      "descriptionStyles": ["bullet", "bullet"]
-    }
-  ],
-  "education": [
+      "key": "summary",
+      "heading": "Summary",
+      "kind": "text",
+      "visible": true,
+      "column": "main",
+      "text": "Experienced software engineer with 5+ years building distributed systems."
+    },
     {
-      "id": 1,
-      "institution": "University of California",
-      "degree": "B.S. Computer Science",
-      "years": "2014 - 2018",
-      "description": "Graduated with honors"
-    }
-  ],
-  "personalProjects": [
-    {
-      "id": 1,
-      "name": "Open Source Tool",
-      "role": "Creator & Maintainer",
-      "years": "Mar 2021 - Present",
-      "description": [
-        "Built CLI tool with 1000+ GitHub stars",
-        "Used by 50+ companies worldwide"
-      ],
-      "descriptionStyles": ["bullet", "bullet"]
-    }
-  ],
-  "additional": {
-    "technicalSkills": ["Python", "JavaScript", "AWS", "Docker"],
-    "languages": ["English (Native)", "Spanish (Conversational)"],
-    "certificationsTraining": ["AWS Solutions Architect"],
-    "awards": ["Employee of the Year 2022"]
-  },
-  "customSections": {
-    "publications": {
-      "sectionType": "itemList",
-      "items": [
+      "key": "experience",
+      "heading": "Experience",
+      "kind": "entries",
+      "visible": true,
+      "column": "main",
+      "entries": [
         {
-          "id": 1,
-          "title": "Paper Title",
-          "subtitle": "Journal Name",
-          "years": "Jun 2023",
-          "description": ["Brief description of the publication"],
-          "descriptionStyles": ["bullet"]
+          "title": "Senior Software Engineer",
+          "subtitle": "Tech Corp",
+          "meta": "San Francisco, CA",
+          "period": "Jan 2020 - Present",
+          "links": [],
+          "summary": "Owned the billing platform and led a team of four engineers.",
+          "bullets": [
+            {"text": "Led development of microservices architecture", "style": "bullet"},
+            {"text": "Improved system performance by 40%", "style": "bullet"}
+          ]
         }
       ]
     },
-    "volunteer_work": {
-      "sectionType": "text",
+    {
+      "key": "education",
+      "heading": "Education",
+      "kind": "entries",
+      "visible": true,
+      "column": "main",
+      "entries": [
+        {
+          "title": "University of California",
+          "subtitle": "B.S. Computer Science",
+          "meta": "Berkeley, CA",
+          "period": "2014 - 2018",
+          "links": [],
+          "summary": "Graduated with honors.",
+          "bullets": []
+        }
+      ]
+    },
+    {
+      "key": "projects",
+      "heading": "Projects",
+      "kind": "entries",
+      "visible": true,
+      "column": "main",
+      "entries": [
+        {
+          "title": "Open Source Tool",
+          "subtitle": "Creator & Maintainer",
+          "meta": "",
+          "period": "Mar 2021 - Present",
+          "links": [{"kind": "github", "url": "https://github.com/johndoe/tool"}],
+          "summary": "",
+          "bullets": [
+            {"text": "Built CLI tool with 1000+ GitHub stars", "style": "bullet"},
+            {"text": "Used by 50+ companies worldwide", "style": "bullet"}
+          ]
+        }
+      ]
+    },
+    {
+      "key": "skills",
+      "heading": "Skills & Awards",
+      "kind": "groups",
+      "visible": true,
+      "column": "side",
+      "groups": [
+        {"label": "Technical Skills", "values": ["Python", "JavaScript", "AWS", "Docker"]},
+        {"label": "Certifications", "values": ["AWS Solutions Architect"]},
+        {"label": "Awards", "values": ["Employee of the Year 2022"]}
+      ]
+    },
+    {
+      "key": "languages",
+      "heading": "Languages",
+      "kind": "tags",
+      "visible": true,
+      "column": "side",
+      "tags": ["English (Native)", "Spanish (Conversational)"]
+    },
+    {
+      "key": "publications",
+      "heading": "Publications",
+      "kind": "entries",
+      "visible": true,
+      "column": "main",
+      "entries": [
+        {
+          "title": "Paper Title",
+          "subtitle": "Journal Name",
+          "meta": "",
+          "period": "Jun 2023",
+          "links": [],
+          "summary": "",
+          "bullets": [
+            {"text": "Brief description of the publication", "style": "bullet"}
+          ]
+        }
+      ]
+    },
+    {
+      "key": "volunteer_work",
+      "heading": "Volunteer Work",
+      "kind": "text",
+      "visible": true,
+      "column": "main",
       "text": "Description of volunteer activities..."
     }
-  }
+  ]
 }"""
 
-# Schema for improve prompts - excludes personalInfo (preserved from original)
+# Shape for improve prompts - the header is preserved from the original resume
+# and must not be echoed back.
 IMPROVE_SCHEMA_EXAMPLE = """{
-  "summary": "Experienced software engineer with 5+ years...",
-  "workExperience": [
+  "schemaVersion": 2,
+  "sections": [
     {
-      "id": 1,
-      "title": "Senior Software Engineer",
-      "company": "Tech Corp",
-      "location": "San Francisco, CA",
-      "years": "Jan 2020 - Present",
-      "description": [
-        "Led development of microservices architecture",
-        "Improved system performance by 40%"
-      ],
-      "descriptionStyles": ["bullet", "bullet"]
-    }
-  ],
-  "education": [
+      "id": "copy the section id from the original",
+      "key": "summary",
+      "heading": "Summary",
+      "kind": "text",
+      "visible": true,
+      "column": "main",
+      "text": "Experienced software engineer with 5+ years building distributed systems."
+    },
     {
-      "id": 1,
-      "institution": "University of California",
-      "degree": "B.S. Computer Science",
-      "years": "2014 - 2018",
-      "description": "Graduated with honors"
-    }
-  ],
-  "personalProjects": [
-    {
-      "id": 1,
-      "name": "Open Source Tool",
-      "role": "Creator & Maintainer",
-      "years": "Mar 2021 - Present",
-      "description": [
-        "Built CLI tool with 1000+ GitHub stars",
-        "Used by 50+ companies worldwide"
-      ],
-      "descriptionStyles": ["bullet", "bullet"]
-    }
-  ],
-  "additional": {
-    "technicalSkills": ["Python", "JavaScript", "AWS", "Docker"],
-    "languages": ["English (Native)", "Spanish (Conversational)"],
-    "certificationsTraining": ["AWS Solutions Architect"],
-    "awards": ["Employee of the Year 2022"]
-  },
-  "customSections": {
-    "publications": {
-      "sectionType": "itemList",
-      "items": [
+      "id": "copy the section id from the original",
+      "key": "experience",
+      "heading": "Experience",
+      "kind": "entries",
+      "visible": true,
+      "column": "main",
+      "entries": [
         {
-          "id": 1,
-          "title": "Paper Title",
-          "subtitle": "Journal Name",
-          "years": "Jun 2023",
-          "description": ["Brief description of the publication"],
-          "descriptionStyles": ["bullet"]
+          "id": "copy the entry id from the original",
+          "title": "Senior Software Engineer",
+          "subtitle": "Tech Corp",
+          "meta": "San Francisco, CA",
+          "period": "Jan 2020 - Present",
+          "links": [],
+          "summary": "Owned the billing platform and led a team of four engineers.",
+          "bullets": [
+            {"text": "Led development of microservices architecture", "style": "bullet"},
+            {"text": "Improved system performance by 40%", "style": "bullet"}
+          ]
         }
       ]
     },
-    "volunteer_work": {
-      "sectionType": "text",
-      "text": "Description of volunteer activities..."
+    {
+      "id": "copy the section id from the original",
+      "key": "skills",
+      "heading": "Skills & Awards",
+      "kind": "groups",
+      "visible": true,
+      "column": "side",
+      "groups": [
+        {"label": "Technical Skills", "values": ["Python", "JavaScript", "AWS", "Docker"]},
+        {"label": "Awards", "values": ["Employee of the Year 2022"]}
+      ]
     }
-  }
+  ]
 }"""
 
 PARSE_RESUME_PROMPT = """Parse this resume into JSON. Output ONLY the JSON object, no other text.
 
-Map content to standard sections when possible. For non-standard sections (like Publications, Volunteer Work, Research, Hobbies), add them to customSections with an appropriate type.
-
 Example output format:
 {schema}
 
-Custom section types:
-- "text": Single text block (e.g., objective, statement)
-- "itemList": List of items with title, subtitle, years, description (e.g., publications, research)
-- "stringList": Simple list of strings (e.g., hobbies, interests)
-
 Rules:
-- Use "" for missing text fields, [] for missing arrays, null for optional fields
-- Number IDs starting from 1
-- For workExperience, personalProjects, and custom itemList items, include descriptionStyles with one value for each description row. Use "bullet" for normal bullet rows and "plain" for rows that should render without a bullet marker (for example subheadings or standalone labels).
-- Format dates preserving the original precision. Keep months when present: "Jan 2020 - Dec 2023", "May 2021 - Present". Use "YYYY - YYYY" only when the source has no months.
-- Use snake_case for custom section keys (e.g., "volunteer_work", "publications")
-- Preserve the original section name as a descriptive key
-- Normalize date separators: "2020-2021" → "2020 - 2021", "Current"/"Ongoing" → "Present". Do NOT discard months.
-- For ambiguous dates like "3 years experience", infer approximate years from context or use "~YYYY"
+- Emit EVERY section the source contains. "sections" is an ordered list and its
+  order follows the source document's order.
+- Conventional keys, when the source has them: "summary", "experience",
+  "education", "projects", "skills". Any OTHER section you find (publications,
+  volunteer work, research, certifications, military service, languages,
+  hobbies, interests, references...) becomes one more entry in "sections" with a
+  snake_case key derived from its own heading. NEVER discard a section and never
+  fold it into an unrelated one.
+- Choose each section's "kind" from its content: one prose block -> "text";
+  dated or titled items -> "entries"; a flat list of short values -> "tags";
+  labelled lists of short values -> "groups". A skills block with labels such as
+  "Languages & Frameworks" or "Cloud / Data" is "groups", and the labels are
+  whatever the source uses - do not rename them.
+- "heading" keeps the source's own wording for that section.
+- Put an entry's leading paragraph (prose that appears before its bullet rows)
+  in "summary" and its bullet rows in "bullets". An entry may have BOTH: never
+  drop the paragraph, and never turn it into a bullet.
+- Every bullet is an object with "text" and "style". Use "bullet" for a normal
+  bullet row and "plain" for a row that should render without a bullet marker
+  (for example a subheading or a standalone label).
+- Put contact details in "header.contacts", one contact per item, and put the
+  candidate's name and professional title in "header.name"/"header.headline".
+- Use "" for missing text fields and [] for missing arrays. Leave the content
+  fields a section's kind does not use empty.
+- Do NOT emit "id" fields; the application assigns identifiers.
+- "period" preserves the original date precision verbatim. Keep months when
+  present: "Jan 2020 - Dec 2023", "May 2021 - Present". Use "YYYY - YYYY" only
+  when the source has no months.
+- Normalize date separators: "2020-2021" -> "2020 - 2021", "Current"/"Ongoing"
+  -> "Present". Do NOT discard months.
+- For ambiguous dates like "3 years experience", infer approximate years from
+  context or use "~YYYY"
 - Flag overlapping dates (concurrent roles) by preserving both, don't merge
 
 Resume to parse:
@@ -243,8 +304,8 @@ IMPROVE_RESUME_PROMPT_NUDGE = """Lightly nudge this resume toward the job descri
 
 {critical_truthfulness_rules}
 
-IMPORTANT: Generate ALL text content (summary, descriptions, skills) in {output_language}.
-Do NOT include personalInfo in your output - it will be preserved from the original resume.
+IMPORTANT: Generate ALL text content (section text, entry summaries, bullets, tags, group values) in {output_language}.
+Do NOT include "header" in your output - it will be preserved from the original resume.
 
 Rules:
 - Make minimal, conservative edits only where there is a clear existing match
@@ -252,10 +313,10 @@ Rules:
 - Do NOT introduce new tools, technologies, or certifications not already present
 - Do NOT add new bullet points or sections
 - Preserve original bullet count and ordering within each section
-- Preserve descriptionStyles arrays and keep them aligned one-to-one with description arrays
+- Keep every bullet's "style" value ("bullet" or "plain") exactly as in the original
 - Keep proper nouns (names, company names, locations) unchanged
-- For customSections: preserve exact structure, item count, titles, subtitles, and years. If an item's description is an empty array [] in the original, keep it empty []. Do NOT generate descriptions for items that had none.
-- Copy the "years" field values EXACTLY as they appear in the original resume (including any month prefixes like "Jan 2020 - Present"). Do not shorten, reformat, or drop months.
+- Preserve the document's structure exactly: the same sections in the same order with the same "key", "heading", "kind", "visible" and "column"; the same entry count per section; the same entry "title", "subtitle", "meta" and "period"; and every "id" echoed verbatim. If an entry's "bullets" is [] in the original, keep it []. Do NOT generate bullets for entries that had none.
+- Copy every "period" value EXACTLY as it appears in the original resume (including any month prefixes like "Jan 2020 - Present"). Do not shorten, reformat, or drop months.
 - If the resume is non-technical, do NOT add technical jargon
 - Do NOT use em dash ("—") anywhere in the writing/output, even if it exists, remove it
 
@@ -275,17 +336,17 @@ IMPROVE_RESUME_PROMPT_KEYWORDS = """Enhance this resume with relevant keywords f
 
 {critical_truthfulness_rules}
 
-IMPORTANT: Generate ALL text content (summary, descriptions, skills) in {output_language}.
-Do NOT include personalInfo in your output - it will be preserved from the original resume.
+IMPORTANT: Generate ALL text content (section text, entry summaries, bullets, tags, group values) in {output_language}.
+Do NOT include "header" in your output - it will be preserved from the original resume.
 
 Rules:
 - Strengthen alignment by weaving in relevant keywords where evidence already exists
 - You may rephrase bullet points to include keyword phrasing
 - Do NOT introduce new skills, tools, or certifications not in the resume
 - Do NOT change role, industry, or seniority level
-- Preserve descriptionStyles arrays and keep them aligned one-to-one with description arrays
-- For customSections: preserve exact structure, item count, titles, subtitles, and years. If an item's description is an empty array [] in the original, keep it empty []. Do NOT generate descriptions for items that had none.
-- Copy the "years" field values EXACTLY as they appear in the original resume (including any month prefixes like "Jan 2020 - Present"). Do not shorten, reformat, or drop months.
+- Keep every bullet's "style" value ("bullet" or "plain") exactly as in the original
+- Preserve the document's structure exactly: the same sections in the same order with the same "key", "heading", "kind", "visible" and "column"; the same entry count per section; the same entry "title", "subtitle", "meta" and "period"; and every "id" echoed verbatim. If an entry's "bullets" is [] in the original, keep it []. Do NOT generate bullets for entries that had none.
+- Copy every "period" value EXACTLY as it appears in the original resume (including any month prefixes like "Jan 2020 - Present"). Do not shorten, reformat, or drop months.
 - If resume is non-technical, keep language non-technical while still aligning keywords
 - Do NOT use em dash ("—") anywhere in the writing/output, even if it exists, remove it
 
@@ -305,8 +366,8 @@ IMPROVE_RESUME_PROMPT_FULL = """Tailor this resume for the job. Output ONLY the 
 
 {critical_truthfulness_rules}
 
-IMPORTANT: Generate ALL text content (summary, descriptions, skills) in {output_language}.
-Do NOT include personalInfo in your output - it will be preserved from the original resume.
+IMPORTANT: Generate ALL text content (section text, entry summaries, bullets, tags, group values) in {output_language}.
+Do NOT include "header" in your output - it will be preserved from the original resume.
 
 Rules:
 - Make targeted adjustments to bullet points to align with job description phrasing. Preserve the candidate's original details and voice - adjust wording, do not rewrite entirely.
@@ -314,10 +375,10 @@ Rules:
 - Preserve existing action verbs. Do not invent quantifiable achievements not in the original.
 - Keep proper nouns (names, company names, locations) unchanged
 - Translate job titles, descriptions, and skills to {output_language}
-- Preserve descriptionStyles arrays and keep them aligned one-to-one with description arrays
-- For customSections: preserve exact structure, item count, titles, subtitles, and years. If an item's description is an empty array [] in the original, keep it empty []. Do NOT generate descriptions for items that had none.
-- Improve custom section content the same way as standard sections
-- Copy the "years" field values EXACTLY as they appear in the original resume (including any month prefixes like "Jan 2020 - Present"). Do not shorten, reformat, or drop months.
+- Keep every bullet's "style" value ("bullet" or "plain") exactly as in the original
+- Preserve the document's structure exactly: the same sections in the same order with the same "key", "heading", "kind", "visible" and "column"; the same entry count per section; the same entry "title", "subtitle", "meta" and "period"; and every "id" echoed verbatim. If an entry's "bullets" is [] in the original, keep it []. Do NOT generate bullets for entries that had none.
+- Improve every section the same way, including sections the candidate created themselves
+- Copy every "period" value EXACTLY as it appears in the original resume (including any month prefixes like "Jan 2020 - Present"). Do not shorten, reformat, or drop months.
 - Calculate and emphasize total relevant experience duration when it matches requirements
 - Do NOT use em dash ("—") anywhere in the writing/output, even if it exists, remove it
 
@@ -359,8 +420,6 @@ IMPROVE_RESUME_PROMPTS = {
 
 DEFAULT_IMPROVE_PROMPT_ID = "keywords"
 
-# Backward-compatible alias
-IMPROVE_RESUME_PROMPT = IMPROVE_RESUME_PROMPT_FULL
 
 COVER_LETTER_PROMPT = """Write a brief cover letter for this job application.
 
@@ -478,8 +537,6 @@ Rules:
 
 Output the title only, nothing else."""
 
-# Alias for backward compatibility
-RESUME_SCHEMA = RESUME_SCHEMA_EXAMPLE
 
 # Diff-based improvement: outputs targeted changes instead of full resume
 
@@ -529,7 +586,7 @@ DIFF_IMPROVE_PROMPT = """Given this resume and job description, output a JSON ob
 RULES:
 1. Only modify content; never change names, companies, dates, institutions, or degrees
 2. Do not invent metrics or achievements not supported by the original resume text
-3. Do not add new work entries, education entries, or project entries
+3. Do not add new sections and do not add or remove entries; only change content at the paths listed below
 4. {strategy_instruction}
 5. Each change MUST include the original text (copied exactly) so it can be verified
 6. For each change, explain WHY it helps match the job description
@@ -537,22 +594,12 @@ RULES:
 8. Do not use em dash characters
 9. Keep changes minimal and targeted; do not rewrite content that already aligns well
 10. Exception to rule 2: you may add a skill only if it appears in the verified skill targets below
-11. By DEFAULT, scan the summary and every work, project, and education description for content that already demonstrates a job-description keyword or skill, and reframe that text using the job description's terminology where it is not already phrased that way (per rule 9, leave content that already aligns well), while preserving the candidate's actual accomplishment. Do NOT add new work, metrics, or responsibilities; only restate existing content in the JD's language, and verify every reframe stays factually accurate.
+11. By DEFAULT, scan EVERY path listed below - section text, entry summaries, bullets, tags and group values - for content that already demonstrates a job-description keyword or skill, and reframe that text using the job description's terminology where it is not already phrased that way (per rule 9, leave content that already aligns well), while preserving the candidate's actual accomplishment. Do NOT add new work, metrics, or responsibilities; only restate existing content in the JD's language, and verify every reframe stays factually accurate.
 12. Preserve original capitalization, especially for proper nouns, technical terms (e.g., REST, API, AWS), and acronyms. Do not change the casing of words that were capitalized in the original.
 
-PATHS you can target:
-- "summary" — the resume summary text
-- "workExperience[i].description[j]" — a specific bullet (i = entry index, j = bullet index)
-- "workExperience[i].description" — append a new bullet (action: "append")
-- "personalProjects[i].description[j]" — a specific project bullet
-- "personalProjects[i].description" — append a new project bullet (action: "append")
-- "education[i].description" — the education entry's description text (replace only; it is a single string, not a list)
-- "additional.technicalSkills" — reorder the skills list (action: "reorder") or add one verified skill (action: "add_skill")
-- "additional.languages" — reorder the languages list (action: "reorder")
-- "additional.certificationsTraining" — reorder the certifications list (action: "reorder")
-- "additional.awards" — reorder the awards list (action: "reorder")
+{editable_paths}
 
-Do NOT target: personalInfo, dates/years, company names, education degree/institution/years, customSections.
+Every path above is a real path in THIS resume: use these section keys verbatim and never invent a path for a section that is not listed. Actions: "replace" (text paths), "append" (add one bullet, path "sections.<key>.entries[i].bullets", only when the strategy allows it), "reorder" (a tags or group values list), "add_skill" (add one verified skill to a tags or group values list).
 
 Keywords to emphasize (only if already supported by resume content):
 {job_keywords}
@@ -570,28 +617,28 @@ Output this exact JSON format, nothing else:
 {{
   "changes": [
     {{
-      "path": "workExperience[0].description[1]",
+      "path": "sections.<entries section key>.entries[0].bullets[1].text",
       "action": "replace",
       "original": "the exact original text at this path",
       "value": "the improved text",
       "reason": "why this change helps"
     }},
     {{
-      "path": "summary",
+      "path": "sections.<text section key>.text",
       "action": "replace",
       "original": "the current summary text",
       "value": "the improved summary",
       "reason": "why this change helps"
     }},
     {{
-      "path": "additional.technicalSkills",
+      "path": "sections.<skills section key>.groups[0].values",
       "action": "reorder",
       "original": null,
       "value": ["most relevant skill first", "then next", "..."],
       "reason": "reordered to prioritize JD-relevant skills"
     }},
     {{
-      "path": "additional.technicalSkills",
+      "path": "sections.<skills section key>.groups[0].values",
       "action": "add_skill",
       "original": null,
       "value": "verified skill target missing from the skills list",

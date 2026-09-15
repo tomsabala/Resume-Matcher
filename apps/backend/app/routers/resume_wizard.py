@@ -10,7 +10,8 @@ from fastapi import APIRouter, HTTPException
 from app.ai_budget import AIOperationDeadlineExceeded, AIOperationRoute
 from app.ai_limits import PromptSizeError
 from app.database import db
-from app.schemas.models import ResumeData, normalize_resume_data
+from app.deps import WorkspaceId
+from app.schemas.document import ResumeDocument
 from app.schemas.resume_wizard import (
     ResumeWizardFinalizeRequest,
     ResumeWizardFinalizeResponse,
@@ -102,20 +103,20 @@ async def resume_wizard_turn(
 
 @router.post("/finalize", response_model=ResumeWizardFinalizeResponse)
 async def finalize_resume_wizard(
-    request: ResumeWizardFinalizeRequest,
+    request: ResumeWizardFinalizeRequest, workspace_id: WorkspaceId
 ) -> ResumeWizardFinalizeResponse:
     """Create the master resume from a validated wizard draft."""
     try:
-        normalized = normalize_resume_data(
+        document = ResumeDocument.model_validate(
             request.state.resume_data.model_dump(mode="json")
         )
-        data = ResumeData.model_validate(normalized).model_dump(mode="json")
+        data = document.model_dump(mode="json")
         content = json.dumps(data, ensure_ascii=False, sort_keys=True)
-        name = data.get("personalInfo", {}).get("name", "").strip() or "Resume"
+        name = document.header.name.strip() or "Resume"
         filename = f"AI Resume Wizard - {name}.json"
         title = f"{name} Master Resume"
 
-        current_master = await db.get_master_resume()
+        current_master = await db.get_master_resume(workspace_id)
         if current_master and current_master.get("processing_status") == "ready":
             if _is_identical_wizard_master(
                 current_master,
@@ -132,6 +133,7 @@ async def finalize_resume_wizard(
         # Set the title in the atomic create so a separate update can't fail and
         # leave a committed-but-untitled master behind (which would 409 on retry).
         resume = await db.create_resume_atomic_master(
+            workspace_id=workspace_id,
             content=content,
             content_type="json",
             filename=filename,
@@ -148,7 +150,7 @@ async def finalize_resume_wizard(
                     resume.get("resume_id"),
                     e,
                 )
-            current_master = await db.get_master_resume()
+            current_master = await db.get_master_resume(workspace_id)
             if current_master and _is_identical_wizard_master(
                 current_master,
                 content=content,
@@ -160,6 +162,7 @@ async def finalize_resume_wizard(
                 status_code=409,
                 detail="A master resume already exists. Delete it before creating a new one.",
             )
+        await db.seed_resume_version(resume["resume_id"], origin="wizard")
         return _finalize_response(resume)
     except HTTPException:
         raise

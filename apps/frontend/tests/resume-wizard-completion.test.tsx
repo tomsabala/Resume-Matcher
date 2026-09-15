@@ -9,6 +9,10 @@ import {
   writeResumeWizardDraft,
 } from '@/lib/utils/resume-wizard-storage';
 
+vi.mock('@/lib/context/workspace-context', () => ({
+  useWorkspace: () => ({ revision: 0 }),
+}));
+
 const api = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: api.push }) }));
 vi.mock('@/lib/i18n', () => ({
@@ -44,7 +48,7 @@ function deferred<T>() {
 function writeNewDraft(): void {
   const state = createInitialResumeWizardState();
   state.step = 'question';
-  state.current_question = { text: 'A newer question', section: 'skills' };
+  state.current_question = { text: 'A newer question', section: 'section:skills' };
   writeResumeWizardDraft(state);
 }
 

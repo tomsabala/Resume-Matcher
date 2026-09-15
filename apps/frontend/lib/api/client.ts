@@ -49,6 +49,22 @@ function createTimeoutError(): Error {
   return new Error(REQUEST_TIMEOUT_MESSAGE);
 }
 
+// Active workspace, owned by `lib/context/workspace-context.tsx`. Every request
+// carries it as `X-Workspace-Id`; the backend falls back to the default
+// workspace when it is absent or unknown, so an unset value is always safe.
+let activeWorkspaceId: string | null = null;
+
+export function setActiveWorkspaceId(workspaceId: string | null): void {
+  activeWorkspaceId = workspaceId;
+}
+
+function withWorkspaceHeader(options?: RequestInit): RequestInit | undefined {
+  if (!activeWorkspaceId) return options;
+  const headers = new Headers(options?.headers);
+  headers.set('X-Workspace-Id', activeWorkspaceId);
+  return { ...options, headers };
+}
+
 function createAbortError(reason: unknown): Error {
   const error = new Error('The operation was aborted.', { cause: reason });
   error.name = 'AbortError';
@@ -137,7 +153,10 @@ export async function apiFetch(
   }, timeout);
 
   try {
-    const request = fetch(url, { ...options, signal: controller.signal }).then(bufferResponse);
+    const request = fetch(url, {
+      ...withWorkspaceHeader(options),
+      signal: controller.signal,
+    }).then(bufferResponse);
     return await Promise.race([request, cancellation]);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {

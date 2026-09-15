@@ -34,9 +34,9 @@ async def generate_tailoring(case: dict[str, Any]) -> dict[str, Any]:
     """Drive the real preview endpoint using the test-owned database."""
     from app.database import db
     from app.routers.resumes import improve_resume_preview_endpoint
-    from app.schemas import ImproveResumeRequest, ResumeData
+    from app.schemas import ImproveResumeRequest, ResumeDocument
 
-    original = ResumeData.model_validate(case["original"]).model_dump()
+    original = ResumeDocument.model_validate(case["original"]).model_dump(mode="json")
     resume = await db.create_resume(
         content=json.dumps(original),
         content_type="json",

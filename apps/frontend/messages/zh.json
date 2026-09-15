@@ -104,6 +104,28 @@
     "errors": {
       "loadFailed": "无法加载简历，请重试。",
       "deleteFailed": "无法删除简历。现有简历仍可使用。"
+    },
+    "selection": {
+      "count": "已选择 {count} 份",
+      "compare": "对比",
+      "clear": "清空",
+      "hint": "请选择正好两份简历进行对比",
+      "selectResume": "选择 {title}"
+    },
+    "manage": {
+      "rename": "重命名",
+      "renameResume": "重命名 {title}",
+      "deleteResume": "删除 {title}",
+      "renameTitle": "重命名简历",
+      "renameDescription": "仅更改仪表板上显示的名称，不会修改简历内容。",
+      "nameLabel": "简历名称",
+      "namePlaceholder": "例如：后端工程师 — Acme",
+      "nameRequired": "请输入名称",
+      "renameFailed": "无法重命名此简历，请重试。",
+      "deleteTitle": "删除简历",
+      "deleteDescription": "“{title}”及其历史记录将被永久删除。",
+      "deleteMasterDescription": "“{title}”是您的主简历。删除后其历史记录会消失，定制简历仍会保留。",
+      "deleteFailed": "无法删除此简历，请重试。"
     }
   },
   "builder": {
@@ -134,62 +156,14 @@
       "leave": "离开到仪表盘",
       "stay": "继续编辑"
     },
-    "personalInfo": "个人信息",
-    "summary": "个人简介",
-    "experience": "工作经历",
-    "education": "教育背景",
-    "skills": "技能",
-    "projects": "项目经历",
-    "certifications": "证书",
-    "languages": "语言能力",
-    "awards": "荣誉奖项",
     "addSection": "添加板块",
-    "removeSection": "删除板块",
     "saveChanges": "保存更改",
     "discardChanges": "放弃更改",
-    "placeholders": {
-      "summary": "简要描述你的职业背景..."
-    },
     "contentStats": {
       "wordsChars": "{wordCount} 词 / {charCount} 字符"
     },
-    "additionalForm": {
-      "instructions": "每行输入一条内容（按 Enter 换行）。",
-      "placeholders": {
-        "technicalSkills": "React\nTypeScript\nNode.js",
-        "languages": "中文\n英语",
-        "certifications": "AWS 解决方案架构师\nGoogle Analytics",
-        "awards": "月度最佳员工\n黑客松冠军"
-      }
-    },
-    "customSections": {
-      "dialogTitle": "添加自定义板块",
-      "dialogDescription": "为简历创建一个自定义名称与类型的新板块。",
-      "sectionNameLabel": "板块名称",
-      "sectionNamePlaceholder": "例如：论文发表、志愿者经历、证书",
-      "sectionTypeLabel": "板块类型",
-      "addCustomSectionButton": "添加自定义板块",
-      "sectionTypes": {
-        "textBlockLabel": "文本块",
-        "textBlockDescription": "单个文本区域（类似个人简介）",
-        "itemListLabel": "条目列表",
-        "itemListDescription": "包含多个条目的列表（类似工作经历）",
-        "stringListLabel": "简单列表",
-        "stringListDescription": "简单的文本列表（类似技能）"
-      },
-      "contentLabel": "内容",
-      "contentPlaceholder": "请输入“{name}”的内容...",
-      "defaultTextPlaceholder": "请输入内容...",
-      "entryLabel": "条目",
-      "addEntryLabel": "添加条目",
-      "itemsLabel": "列表项",
-      "itemsPlaceholder": "每行一个列表项",
-      "unknownSectionType": "未知板块类型：{type}",
-      "unknownDefaultSection": "未知默认板块：{section}"
-    },
     "sectionHeader": {
       "renameSection": "重命名板块",
-      "customTag": "自定义",
       "hiddenFromPdfTag": "PDF 中隐藏",
       "hideSection": "隐藏板块",
       "showSection": "显示板块",
@@ -197,14 +171,19 @@
       "moveDown": "下移",
       "deleteSection": "删除板块",
       "deleteTitle": "删除板块",
-      "deleteDescription": "确定要删除“{name}”吗？此操作无法撤销。"
+      "deleteDescription": "确定要删除“{name}”吗？此操作无法撤销。",
+      "sidebarTag": "侧栏",
+      "moveToSide": "移到侧栏",
+      "moveToMain": "移到主栏"
     },
     "previewTabs": {
       "resume": "简历",
       "coverLetter": "求职信",
       "outreach": "联系邮件",
       "jdMatch": "JD 匹配",
-      "interviewPrep": "面试准备"
+      "interviewPrep": "面试准备",
+      "history": "历史",
+      "latex": "LaTeX"
     },
     "footer": {
       "moduleLabel": "简历编辑模块",
@@ -236,9 +215,6 @@
       "selectDialog": {
         "title": "选择要重新生成的项目",
         "subtitle": "选择您想要改进的简历部分",
-        "experience": "工作经历",
-        "projects": "项目经历",
-        "skills": "技术技能",
         "noItemsSelected": "请至少选择一个项目",
         "noItemsAvailable": "没有可重新生成的项目。请先添加工作经历、项目经历或技能。",
         "itemCount": {
@@ -266,8 +242,6 @@
         "changesCount": "{count} 个项目已修改",
         "rejectButton": "拒绝并重新生成",
         "acceptButton": "接受变更",
-        "originalLabel": "原始",
-        "newLabel": "新内容",
         "noContent": "无内容",
         "applying": "正在应用...",
         "loading": "正在生成改进内容...",
@@ -309,80 +283,6 @@
         "keywordsExtracted": "已提取 {count} 个关键词",
         "matchesFound": "已匹配 {count} 处",
         "matchRateLabel": "匹配率："
-      }
-    },
-    "genericItemForm": {
-      "itemLabel": "条目",
-      "addItemLabel": "添加{label}",
-      "fields": {
-        "title": "标题",
-        "organization": "组织/公司",
-        "location": "地点",
-        "years": "时间",
-        "descriptionPoints": "描述要点"
-      },
-      "actions": {
-        "addPoint": "添加要点",
-        "togglePointStyle": "切换项目符号"
-      },
-      "placeholders": {
-        "title": "标题",
-        "organization": "组织/公司",
-        "location": "地点",
-        "years": "2020年1月 - 至今",
-        "description": "描述你的贡献..."
-      },
-      "noEntries": "// 暂无{label}",
-      "addFirstItem": "添加第一条{label}"
-    },
-    "forms": {
-      "experience": {
-        "addJob": "添加经历",
-        "addFirstJob": "添加第一条经历",
-        "fields": {
-          "jobTitle": "职位名称",
-          "company": "公司"
-        },
-        "placeholders": {
-          "jobTitle": "高级开发工程师",
-          "company": "科技公司",
-          "location": "远程 / 城市",
-          "years": "2020年1月 - 至今",
-          "description": "描述你的成果..."
-        }
-      },
-      "education": {
-        "addSchool": "添加教育经历",
-        "addFirstSchool": "添加第一条教育经历",
-        "fields": {
-          "institution": "学校/机构",
-          "degree": "学位/专业",
-          "description": "描述",
-          "descriptionOptional": "描述（可选）"
-        },
-        "placeholders": {
-          "institution": "某某大学",
-          "degree": "工学学士",
-          "years": "2016年8月 - 2020年5月",
-          "description": "补充说明..."
-        }
-      },
-      "projects": {
-        "addProject": "添加项目",
-        "addFirstProject": "添加第一个项目",
-        "fields": {
-          "projectName": "项目名称",
-          "role": "角色",
-          "website": "网站"
-        },
-        "placeholders": {
-          "projectName": "Resume Matcher",
-          "role": "作者",
-          "years": "2023年3月",
-          "github": "github.com/username/project",
-          "website": "https://project-demo.com",
-          "description": "项目细节..."
-        }
       }
     },
     "formatting": {
@@ -462,18 +362,6 @@
       "compactHint": "紧凑模式会收紧间距与行高；页边距与正文字号保持不变。",
       "resetDefaults": "恢复默认设置"
     },
-    "personalInfoForm": {
-      "placeholders": {
-        "name": "张三",
-        "title": "软件工程师",
-        "email": "zhangsan@example.com",
-        "phone": "+86 138 0000 0000",
-        "location": "城市，国家",
-        "website": "portfolio.com",
-        "linkedin": "linkedin.com/in/zhangsan",
-        "github": "github.com/zhangsan"
-      }
-    },
     "leftPanel": {
       "editorPanel": "编辑面板",
       "coverLetterEditor": "求职信编辑",
@@ -506,6 +394,124 @@
       "description": "最新更改无法同步到服务器，也无法保存在此浏览器中。现在离开可能会丢失这些更改。",
       "leave": "仍然离开",
       "stay": "继续编辑"
+    },
+    "header": {
+      "title": "页眉",
+      "fields": {
+        "name": "姓名",
+        "headline": "头衔",
+        "contacts": "联系方式",
+        "contactLabel": "联系方式标签",
+        "contactValue": "联系方式内容",
+        "contactUrl": "联系方式链接"
+      },
+      "placeholders": {
+        "name": "张三",
+        "headline": "软件工程师",
+        "contactLabel": "邮箱",
+        "contactValue": "zhangsan@example.com",
+        "contactUrl": "https://example.com"
+      },
+      "addContact": "添加联系方式",
+      "removeContact": "删除联系方式",
+      "noContacts": "// 暂无联系方式",
+      "contactKinds": {
+        "email": "邮箱",
+        "phone": "电话",
+        "website": "网站",
+        "github": "GitHub",
+        "linkedin": "LinkedIn",
+        "location": "所在地",
+        "other": "其他"
+      }
+    },
+    "sectionForms": {
+      "text": {
+        "label": "内容",
+        "placeholder": "撰写此板块..."
+      },
+      "tags": {
+        "label": "条目",
+        "instructions": "每行输入一个条目（每条按回车）。",
+        "placeholder": "React\nTypeScript\nNode.js"
+      },
+      "entries": {
+        "addEntry": "添加条目",
+        "addFirstEntry": "添加第一条",
+        "noEntries": "// 暂无条目",
+        "removeEntry": "删除条目",
+        "fields": {
+          "title": "标题",
+          "subtitle": "机构",
+          "meta": "地点",
+          "period": "时间",
+          "summary": "概述",
+          "links": "链接",
+          "bullets": "要点"
+        },
+        "placeholders": {
+          "title": "高级开发工程师",
+          "subtitle": "科技公司",
+          "meta": "远程 / 城市",
+          "period": "2020年1月 - 至今",
+          "summary": "用一段话说明背景...",
+          "bullet": "描述你的成果...",
+          "linkUrl": "https://github.com/user/project"
+        },
+        "actions": {
+          "addBullet": "添加要点",
+          "toggleBulletStyle": "切换项目符号",
+          "removeBullet": "删除此行",
+          "addLink": "添加链接",
+          "removeLink": "删除链接"
+        }
+      },
+      "groups": {
+        "addGroup": "添加分组",
+        "addFirstGroup": "添加第一个分组",
+        "noGroups": "// 暂无分组",
+        "removeGroup": "删除分组",
+        "instructions": "每行输入一个值（每个值按回车）。",
+        "fields": {
+          "label": "分组名称",
+          "values": "值"
+        },
+        "placeholders": {
+          "label": "语言",
+          "values": "英语\n中文"
+        }
+      },
+      "linkKinds": {
+        "github": "GitHub",
+        "website": "网站",
+        "linkedin": "LinkedIn",
+        "other": "其他"
+      },
+      "kinds": {
+        "text": {
+          "label": "文本段落",
+          "description": "一段成篇的文字，如个人简介"
+        },
+        "entries": {
+          "label": "条目列表",
+          "description": "带日期和要点的条目，如工作经历"
+        },
+        "tags": {
+          "label": "标签列表",
+          "description": "简短条目的平铺列表，如技能"
+        },
+        "groups": {
+          "label": "分组标签",
+          "description": "带名称的值分组，如语言"
+        }
+      }
+    },
+    "addSectionDialog": {
+      "title": "添加板块",
+      "description": "为板块命名并选择内容形式。",
+      "headingLabel": "板块标题",
+      "headingPlaceholder": "例如：出版物、志愿服务、证书",
+      "kindLabel": "内容形式"
     }
   },
   "enrichment": {
@@ -520,8 +526,8 @@
     },
     "questionProgress": "问题 {current}/{total}",
     "itemType": {
-      "experience": "经历",
-      "project": "项目"
+      "entry": "条目",
+      "values": "列表"
     },
     "shortcutHint": "Shift+Enter 换行，Cmd/Ctrl+Enter 继续",
     "preview": {
@@ -595,25 +601,10 @@
     "diffModal": {
       "title": "审核 AI 定制结果",
       "subtitle": "请仔细检查以下变更，确保不包含虚假内容",
-      "summary": "变更摘要",
-      "skillsAdded": "新增技能",
-      "skillsRemoved": "删除技能",
-      "descriptionsModified": "修改描述",
-      "certificationsAdded": "新增认证",
-      "highRiskChanges": "高风险变更",
-      "warningTitle": "检测到 {count} 项高风险新增内容",
-      "warningMessage": "请确认这些新增内容确实存在于您的原始简历中，或在描述中有所体现",
-      "summaryChanges": "摘要变更",
-      "skillChanges": "技能变更",
-      "descriptionChanges": "经历描述变更",
-      "experienceChanges": "经历条目变更",
-      "educationChanges": "教育变更",
-      "projectChanges": "项目变更",
-      "certificationChanges": "认证变更",
-      "languageChanges": "语言变更",
-      "awardChanges": "奖项变更",
       "rejectButton": "拒绝并重新生成",
-      "confirmButton": "确认并保存"
+      "confirmButton": "确认并保存",
+      "acceptingCount": "将保存 {total} 项更改中的 {count} 项",
+      "noSelection": "尚未选择任何内容：请至少选择一项更改再保存。"
     },
     "regenerateDialog": {
       "title": "重新生成定制简历？",
@@ -954,12 +945,6 @@
     "sections": {
       "intro": "开始使用",
       "contact": "联系方式",
-      "summary": "职业摘要",
-      "workExperience": "工作经历",
-      "internships": "实习经历",
-      "education": "教育背景",
-      "personalProjects": "项目",
-      "skills": "技能",
       "review": "审查"
     },
     "actions": {
@@ -979,9 +964,6 @@
       "label": "实时草稿",
       "empty": "当你回答问题时，简历将在此处显示。",
       "unnamed": "未命名简历",
-      "experience": "经历",
-      "education": "教育",
-      "projects": "项目",
       "skills": "技能"
     },
     "errors": {
@@ -1113,6 +1095,145 @@
       "projectFollowUps": "项目追问",
       "skillGaps": "技能差距",
       "talkingPoints": "沟通要点"
+    }
+  },
+  "workspaces": {
+    "switcherLabel": "工作区",
+    "loading": "加载中...",
+    "new": "新建工作区",
+    "newTitle": "新建工作区",
+    "newDescription": "每个工作区拥有独立的简历、职位和跟踪卡片。",
+    "nameLabel": "工作区名称",
+    "namePlaceholder": "例如：Tom、Lior、Tom — 希伯来语",
+    "nameRequired": "请输入工作区名称",
+    "create": "创建",
+    "createFailed": "创建工作区失败",
+    "manageLabel": "管理 {name}",
+    "manageTitle": "工作区设置",
+    "manageDescription": "重命名此工作区、设置其内容语言，或将其删除。",
+    "languageLabel": "内容语言",
+    "makeDefault": "设为默认",
+    "isDefault": "默认工作区",
+    "updateFailed": "更新工作区失败",
+    "deleteFailed": "删除工作区失败",
+    "deleteTitle": "删除工作区",
+    "deleteDescription": "“{name}”及其中的所有简历、职位和看板卡片都将被永久删除。"
+  },
+  "versions": {
+    "title": "版本历史",
+    "empty": "暂无版本。保存一次编辑即会记录。",
+    "loadFailed": "加载版本历史失败",
+    "loadMore": "加载更早的",
+    "current": "当前",
+    "pinned": "已置顶",
+    "pin": "置顶",
+    "unpin": "取消置顶",
+    "compare": "对比",
+    "restore": "恢复",
+    "delete": "删除",
+    "labelPlaceholder": "为此版本命名",
+    "restoreConfirmTitle": "恢复此版本？",
+    "restoreConfirmBody": "当前内容会保留在历史中，可以撤销。",
+    "restored": "已恢复版本",
+    "restoreFailed": "恢复版本失败",
+    "deleteFailed": "删除版本失败",
+    "origin": {
+      "import": "导入",
+      "manual": "编辑",
+      "ai_tailor": "AI 定制",
+      "ai_enrich": "AI 丰富",
+      "wizard": "向导",
+      "restore": "恢复",
+      "tex_edit": "LaTeX 编辑"
+    }
+  },
+  "diff": {
+    "headerSection": "页眉",
+    "untitledSection": "未命名板块",
+    "noChanges": "没有差异",
+    "rowCount": "行数：{count}",
+    "acceptRow": "接受 {path} 的更改",
+    "selectAll": "全选",
+    "clearAll": "清空选择",
+    "selectedCount": "已接受 {count}/{total}",
+    "showUnchangedRows": "{count} 行未更改",
+    "hideUnchangedRows": "隐藏 {count} 行未更改内容",
+    "baseLabel": "原始",
+    "headLabel": "更新后",
+    "view": {
+      "unified": "合并视图",
+      "split": "分栏视图"
+    },
+    "status": {
+      "added": "新增",
+      "removed": "删除",
+      "modified": "修改",
+      "moved": "移动",
+      "unchanged": "未更改"
+    },
+    "sectionStatus": {
+      "added": "新增",
+      "removed": "删除",
+      "renamed": "重命名",
+      "modified": "修改",
+      "moved": "移动",
+      "unchanged": "未更改"
+    },
+    "stats": {
+      "totalChanges": "更改总数",
+      "sections_added": "新增板块",
+      "sections_removed": "删除板块",
+      "sections_renamed": "重命名板块",
+      "sections_moved": "移动板块",
+      "entries_added": "新增条目",
+      "entries_removed": "删除条目",
+      "entries_modified": "修改条目",
+      "entries_moved": "移动条目",
+      "bullets_added": "新增要点",
+      "bullets_removed": "删除要点",
+      "bullets_modified": "修改要点",
+      "tags_added": "新增标签",
+      "tags_removed": "删除标签"
+    }
+  },
+  "compare": {
+    "title": "对比",
+    "subtitle": "两份文档并排对比",
+    "loading": "正在加载对比...",
+    "invalidRefs": "该对比链接不完整。请选择两份要对比的文档。",
+    "loadFailed": "加载对比失败",
+    "resumeRef": "简历 {id}",
+    "versionRef": "版本 {id}",
+    "back": "返回仪表板"
+  },
+  "latex": {
+    "title": "LaTeX 源码",
+    "template": "模板",
+    "templates": {
+      "tex-classic": "经典",
+      "tex-compact": "紧凑"
+    },
+    "state": {
+      "generated": "已生成",
+      "edited": "已编辑"
+    },
+    "overrideNotice": "你正在直接编辑 LaTeX。在重置之前，文档更改不会再更新此源码。",
+    "noEngine": "此服务器上没有 LaTeX 引擎。请下载 .tex 并在本地编译。",
+    "sourceLabel": "LaTeX 源码",
+    "lineCount": "{count} 行",
+    "downloadTex": "下载 .tex",
+    "downloadPdf": "下载 PDF",
+    "save": "保存源码",
+    "saving": "保存中...",
+    "compiling": "编译中...",
+    "reset": "重置为生成版本",
+    "resetConfirmTitle": "放弃你的 LaTeX 编辑？",
+    "resetConfirmBody": "源码将恢复为从文档生成。你编辑过的版本仍保留在版本历史中。",
+    "errors": {
+      "load": "加载 LaTeX 源码失败",
+      "save": "保存 LaTeX 源码失败",
+      "reset": "重置 LaTeX 源码失败",
+      "compile": "LaTeX 编译失败"
     }
   }
 }

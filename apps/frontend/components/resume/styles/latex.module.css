@@ -11,6 +11,13 @@
 
 .container {
   width: 100%;
+  /*
+    LaTeX's entry voice: italic secondary lines, read by the shared
+    section-kind renderers through the base `--resume-subtitle-*` properties.
+  */
+  --resume-subtitle-style: italic;
+  --resume-subtitle-weight: 400;
+  --resume-subtitle-color: var(--resume-text-body);
 }
 
 /*
@@ -71,24 +78,6 @@
   page-break-after: avoid;
   orphans: 3;
   widows: 3;
-}
-
-.entryPrimary {
-  font-weight: 700;
-  color: var(--resume-text-primary);
-}
-
-.entryDates {
-  font-weight: 700;
-  color: var(--resume-text-primary);
-  white-space: nowrap;
-  flex-shrink: 0;
-  text-align: right;
-}
-
-.entrySecondary {
-  font-style: italic;
-  color: var(--resume-text-body);
 }
 
 @media print {

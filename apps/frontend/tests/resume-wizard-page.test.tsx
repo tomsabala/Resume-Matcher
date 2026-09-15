@@ -7,6 +7,7 @@ import {
   postResumeWizardTurn,
   type ResumeWizardState,
 } from '@/lib/api';
+import { makeDocument } from './fixtures/document';
 
 const push = vi.fn();
 const incrementResumes = vi.fn();
@@ -49,11 +50,8 @@ describe('ResumeWizardPage', () => {
     mockedPostTurn.mockResolvedValueOnce({
       state: makeState({
         step: 'question',
-        current_question: { text: 'Where have you worked?', section: 'workExperience' },
-        resume_data: {
-          ...createInitialResumeWizardState().resume_data,
-          personalInfo: { name: 'James' },
-        },
+        current_question: { text: 'Where have you worked?', section: 'section:experience' },
+        resume_data: makeDocument({ header: { name: 'James' } }),
         asked_count: 1,
       }),
     });
@@ -80,7 +78,7 @@ describe('ResumeWizardPage', () => {
       JSON.stringify(
         makeState({
           step: 'question',
-          current_question: { text: 'Skills?', section: 'skills' },
+          current_question: { text: 'Skills?', section: 'section:skills' },
           asked_count: 2,
         })
       )
@@ -90,10 +88,7 @@ describe('ResumeWizardPage', () => {
         step: 'review',
         current_question: { text: 'Review', section: 'review' },
         warnings: ['Add at least one contact method.'],
-        resume_data: {
-          ...createInitialResumeWizardState().resume_data,
-          personalInfo: { name: 'James' },
-        },
+        resume_data: makeDocument({ header: { name: 'James' } }),
       }),
     });
 
@@ -103,7 +98,7 @@ describe('ResumeWizardPage', () => {
     await waitFor(() => {
       expect(mockedPostTurn).toHaveBeenCalledWith({
         state: expect.objectContaining({
-          current_question: expect.objectContaining({ section: 'skills' }),
+          current_question: expect.objectContaining({ section: 'section:skills' }),
         }),
         action: 'review',
       });
@@ -120,10 +115,7 @@ describe('ResumeWizardPage', () => {
         makeState({
           step: 'review',
           current_question: { text: 'Review', section: 'review' },
-          resume_data: {
-            ...createInitialResumeWizardState().resume_data,
-            personalInfo: { name: 'James' },
-          },
+          resume_data: makeDocument({ header: { name: 'James' } }),
         })
       )
     );
@@ -154,7 +146,7 @@ describe('ResumeWizardPage', () => {
       JSON.stringify(
         makeState({
           step: 'question',
-          current_question: { text: 'Skills?', section: 'skills' },
+          current_question: { text: 'Skills?', section: 'section:skills' },
           asked_count: 1,
         })
       )
@@ -169,36 +161,43 @@ describe('ResumeWizardPage', () => {
     expect(screen.getByText('Skills?')).toBeInTheDocument();
   });
 
-  it('recovers from a corrupt saved draft without crashing the render', async () => {
-    // workExperience is a string, not an array — the unguarded path would crash
-    // when the preview calls .map(). The normalizer must coerce it to [].
+  it('recovers from a corrupt saved draft without crashing the render', () => {
+    // `sections` is a string, not an array — the unguarded path would crash
+    // when the preview maps over it. The normalizer must coerce it to [].
     localStorage.setItem(
       'resume_wizard_draft',
       JSON.stringify({
         step: 'question',
-        current_question: { text: 'Recovered question?', section: 'skills' },
-        resume_data: { workExperience: 'x', additional: 'nope', personalInfo: { name: 'James' } },
+        current_question: { text: 'Recovered question?', section: 'section:skills' },
+        resume_data: { header: { name: 'James' }, sections: 'x' },
         asked_count: 1,
       })
     );
 
     render(<ResumeWizardPage />);
 
-    expect(await screen.findByText('Recovered question?')).toBeInTheDocument();
+    expect(screen.getByText('Recovered question?')).toBeInTheDocument();
     expect(screen.getByText('James')).toBeInTheDocument(); // preview rendered, no crash
   });
 
-  it('recovers from a draft with non-string personalInfo fields', async () => {
-    // A numeric name would make a later personalInfo.name.trim() throw; the
-    // normalizer must coerce personalInfo fields to strings.
+  it('recovers from a draft with non-string header fields', () => {
+    // A numeric name would make the preview's header.name.trim() throw; the
+    // normalizer must coerce header fields to strings.
     localStorage.setItem(
       'resume_wizard_draft',
       JSON.stringify({
         step: 'question',
-        current_question: { text: 'Recovered q2?', section: 'skills' },
+        current_question: { text: 'Recovered q2?', section: 'section:skills' },
         resume_data: {
-          personalInfo: { name: 123, title: { bad: 1 } },
-          workExperience: [{ id: 1, title: 'Engineer', company: 'Acme' }],
+          header: { name: 123, headline: { bad: 1 } },
+          sections: [
+            {
+              key: 'experience',
+              kind: 'entries',
+              heading: 'Experience',
+              entries: [{ title: 'Engineer', subtitle: 'Acme' }],
+            },
+          ],
         },
         asked_count: 1,
       })
@@ -207,32 +206,41 @@ describe('ResumeWizardPage', () => {
     render(<ResumeWizardPage />);
 
     // No crash: the question renders and the (coerced) experience shows in the preview.
-    expect(await screen.findByText('Recovered q2?')).toBeInTheDocument();
+    expect(screen.getByText('Recovered q2?')).toBeInTheDocument();
     expect(screen.getByText(/Engineer/)).toBeInTheDocument();
   });
 
-  it('normalizes malformed nested leaves and history before the restored state is used', async () => {
+  it('normalizes malformed nested leaves and history before the restored state is used', () => {
     localStorage.setItem(
       'resume_wizard_draft',
       JSON.stringify({
         step: 'question',
-        current_question: { text: 'Safe recovery?', section: 'skills' },
+        current_question: { text: 'Safe recovery?', section: 'section:skills' },
         resume_data: {
-          personalInfo: { name: 'Ada' },
-          workExperience: [
+          header: { name: 'Ada' },
+          sections: [
             {
-              id: 8,
-              title: 'Engineer',
-              company: 'Acme',
-              years: 2024,
-              description: 'Built a safe parser',
+              key: 'experience',
+              kind: 'entries',
+              heading: 'Experience',
+              entries: [
+                {
+                  title: 'Engineer',
+                  subtitle: 'Acme',
+                  period: 2024,
+                  bullets: [null, { text: 'Built a safe parser' }],
+                },
+              ],
+            },
+            {
+              key: 'skills',
+              kind: 'tags',
+              heading: 'Skills',
+              tags: [null, 42, 'TypeScript'],
             },
           ],
-          education: [],
-          personalProjects: [],
-          additional: { technicalSkills: [null, 42, 'TypeScript'] },
         },
-        history: [null, { question: 9, answer: {}, section: 'skills' }],
+        history: [null, { question: 9, answer: {}, section: 'section:skills' }],
         asked_count: 99,
         inferred_skills: [null, 'React'],
       })
@@ -240,7 +248,7 @@ describe('ResumeWizardPage', () => {
 
     render(<ResumeWizardPage />);
 
-    expect(await screen.findByText('Safe recovery?')).toBeInTheDocument();
+    expect(screen.getByText('Safe recovery?')).toBeInTheDocument();
     expect(screen.getByText('Built a safe parser')).toBeInTheDocument();
     expect(screen.getByText('TypeScript')).toBeInTheDocument();
     expect(screen.getByText('React')).toBeInTheDocument();
@@ -252,7 +260,7 @@ describe('ResumeWizardPage', () => {
   it('stores a versioned wizard draft and ignores an unknown saved schema version', async () => {
     const poisonedState = makeState({
       step: 'question',
-      current_question: { text: 'Do not restore this', section: 'skills' },
+      current_question: { text: 'Do not restore this', section: 'section:skills' },
     });
     localStorage.setItem(
       'resume_wizard_draft',
@@ -267,7 +275,7 @@ describe('ResumeWizardPage', () => {
     expect(screen.queryByText('Do not restore this')).not.toBeInTheDocument();
     await waitFor(() => {
       const persisted = JSON.parse(localStorage.getItem('resume_wizard_draft') ?? '{}');
-      expect(persisted.schemaVersion).toBe(1);
+      expect(persisted.schemaVersion).toBe(2);
       expect(persisted.state.current_question.section).toBe('intro');
     });
   });
@@ -278,7 +286,7 @@ describe('ResumeWizardPage', () => {
       JSON.stringify(
         makeState({
           step: 'question',
-          current_question: { text: 'Skills?', section: 'skills' },
+          current_question: { text: 'Skills?', section: 'section:skills' },
           asked_count: 1,
         })
       )
@@ -286,7 +294,7 @@ describe('ResumeWizardPage', () => {
     mockedPostTurn.mockResolvedValueOnce({
       state: makeState({
         step: 'question',
-        current_question: { text: 'Next?', section: 'education' },
+        current_question: { text: 'Next?', section: 'section:education' },
         asked_count: 2,
       }),
     });
@@ -306,13 +314,13 @@ describe('ResumeWizardPage', () => {
       JSON.stringify(
         makeState({
           step: 'question',
-          current_question: { text: 'Skills?', section: 'skills' },
+          current_question: { text: 'Skills?', section: 'section:skills' },
           asked_count: 1,
           history: [
             {
               question: 'Where did you work?',
               answer: 'Acme',
-              section: 'workExperience',
+              section: 'section:experience',
               resume_data_before: createInitialResumeWizardState().resume_data,
             },
           ],
@@ -322,7 +330,7 @@ describe('ResumeWizardPage', () => {
     mockedPostTurn.mockResolvedValueOnce({
       state: makeState({
         step: 'question',
-        current_question: { text: 'Where did you work?', section: 'workExperience' },
+        current_question: { text: 'Where did you work?', section: 'section:experience' },
         asked_count: 0,
       }),
     });
@@ -342,10 +350,7 @@ describe('ResumeWizardPage', () => {
         makeState({
           step: 'review',
           current_question: { text: 'Review', section: 'review' },
-          resume_data: {
-            ...createInitialResumeWizardState().resume_data,
-            personalInfo: { name: 'James' },
-          },
+          resume_data: makeDocument({ header: { name: 'James' } }),
           warnings: ['Add skills.'],
         })
       )
@@ -366,10 +371,7 @@ describe('ResumeWizardPage', () => {
         makeState({
           step: 'review',
           current_question: { text: 'Review', section: 'review' },
-          resume_data: {
-            ...createInitialResumeWizardState().resume_data,
-            personalInfo: { name: 'Ada' },
-          },
+          resume_data: makeDocument({ header: { name: 'Ada' } }),
         })
       )
     );
@@ -412,7 +414,7 @@ describe('ResumeWizardPage', () => {
       JSON.stringify(
         makeState({
           step: 'question',
-          current_question: { text: 'Current question?', section: 'skills' },
+          current_question: { text: 'Current question?', section: 'section:skills' },
           asked_count: 1,
         })
       )
@@ -420,11 +422,8 @@ describe('ResumeWizardPage', () => {
     mockedPostTurn.mockResolvedValueOnce({
       state: makeState({
         step: 'question',
-        current_question: { text: 'Next question?', section: 'workExperience' },
-        resume_data: {
-          ...createInitialResumeWizardState().resume_data,
-          personalInfo: { name: 'New in-memory answer' },
-        },
+        current_question: { text: 'Next question?', section: 'section:experience' },
+        resume_data: makeDocument({ header: { name: 'New in-memory answer' } }),
         asked_count: 2,
       }),
     });
@@ -473,7 +472,7 @@ describe('ResumeWizardPage', () => {
       expect(screen.queryByText('resumeWizard.draftStorageUnavailable.description')).toBeNull();
     });
     const persisted = JSON.parse(localStorage.getItem('resume_wizard_draft') ?? '{}');
-    expect(persisted.state.resume_data.personalInfo.name).toBe('New in-memory answer');
+    expect(persisted.state.resume_data.header.name).toBe('New in-memory answer');
 
     const allowedReload = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(allowedReload);
@@ -505,7 +504,9 @@ describe('ResumeWizardPage', () => {
   it('retains recovery until the initially scheduled builder navigation actually loads', async () => {
     localStorage.setItem(
       'resume_wizard_draft',
-      JSON.stringify(makeState({ step: 'review', resume_data: { personalInfo: { name: 'Ada' } } }))
+      JSON.stringify(
+        makeState({ step: 'review', resume_data: makeDocument({ header: { name: 'Ada' } }) })
+      )
     );
     mockedFinalize.mockResolvedValue({
       message: 'Created',
@@ -532,7 +533,9 @@ describe('ResumeWizardPage', () => {
   it('reopens the acknowledged resume after reload when draft removal fails', async () => {
     localStorage.setItem(
       'resume_wizard_draft',
-      JSON.stringify(makeState({ step: 'review', resume_data: { personalInfo: { name: 'Ada' } } }))
+      JSON.stringify(
+        makeState({ step: 'review', resume_data: makeDocument({ header: { name: 'Ada' } }) })
+      )
     );
     mockedFinalize.mockResolvedValue({
       message: 'Created',

@@ -1,38 +1,28 @@
 'use client';
 
 import { useMemo } from 'react';
-import { type ResumeData } from '@/components/dashboard/resume-component';
+import type { ResumeDocument, Section } from '@/lib/types/document';
 import { segmentTextByKeywords } from '@/lib/utils/keyword-matcher';
-import { FileUser, Briefcase, GraduationCap, FolderKanban, Wrench } from 'lucide-react';
+import { sectionHeading, visibleSections } from '@/lib/utils/section-helpers';
+import { FileUser } from 'lucide-react';
 import { useTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 interface HighlightedResumeViewProps {
-  resumeData: ResumeData;
+  doc: ResumeDocument;
   keywords: Set<string>;
 }
 
 /**
  * Display resume content with matching keywords highlighted.
- * Shows all resume sections with visual highlighting of JD matches.
+ *
+ * Every visible section is covered, whatever the user called it — the previous
+ * version enumerated the six built-ins, so a user-authored section was
+ * silently excluded from the JD match view.
  */
-export function HighlightedResumeView({ resumeData, keywords }: HighlightedResumeViewProps) {
+export function HighlightedResumeView({ doc, keywords }: HighlightedResumeViewProps) {
   const { t } = useTranslations();
-
-  // Drop blank/whitespace-only entries so empty lines (e.g. from editing in the
-  // builder) never render in the preview (issue #763).
-  const visibleTechnicalSkills =
-    resumeData.additional?.technicalSkills?.filter(
-      (item): item is string => typeof item === 'string' && item.trim() !== ''
-    ) ?? [];
-  const visibleLanguages =
-    resumeData.additional?.languages?.filter(
-      (item): item is string => typeof item === 'string' && item.trim() !== ''
-    ) ?? [];
-  const visibleCertificationsTraining =
-    resumeData.additional?.certificationsTraining?.filter(
-      (item): item is string => typeof item === 'string' && item.trim() !== ''
-    ) ?? [];
+  const sections = visibleSections(doc);
 
   return (
     <div className="h-full flex flex-col">
@@ -49,185 +39,106 @@ export function HighlightedResumeView({ resumeData, keywords }: HighlightedResum
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {/* Summary */}
-        {resumeData.summary && (
-          <Section title={t('resume.sections.summary')} icon={<FileUser className="w-4 h-4" />}>
-            <HighlightedText text={resumeData.summary} keywords={keywords} />
-          </Section>
-        )}
-
-        {/* Work Experience */}
-        {resumeData.workExperience && resumeData.workExperience.length > 0 && (
-          <Section title={t('resume.sections.experience')} icon={<Briefcase className="w-4 h-4" />}>
-            {resumeData.workExperience.map((exp) => (
-              <div key={exp.id} className="mb-4 last:mb-0">
-                <div className="font-semibold text-ink-soft">
-                  <HighlightedText text={exp.title || ''} keywords={keywords} />
-                  {exp.company && (
-                    <span className="text-ink-soft">
-                      {t('builder.jdMatch.atSeparator')}
-                      <HighlightedText text={exp.company} keywords={keywords} />
-                    </span>
-                  )}
-                </div>
-                {exp.years && <div className="text-xs text-steel-grey mb-1">{exp.years}</div>}
-                {exp.description && (
-                  <ul className="space-y-1 text-sm">
-                    {exp.description.map((bullet, i) => {
-                      // M-02: honour the per-row bullet/plain setting so this
-                      // preview agrees with the resume preview and the PDF.
-                      const showMarker = exp.descriptionStyles?.[i] !== 'plain';
-                      return (
-                        <li key={i} className={cn('flex text-ink-soft', showMarker && 'ml-4')}>
-                          {showMarker && (
-                            <span className="mr-1.5 flex-shrink-0" aria-hidden="true">
-                              &bull;&nbsp;
-                            </span>
-                          )}
-                          <span>
-                            <HighlightedText text={bullet} keywords={keywords} />
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            ))}
-          </Section>
-        )}
-
-        {/* Education */}
-        {resumeData.education && resumeData.education.length > 0 && (
-          <Section
-            title={t('resume.sections.education')}
-            icon={<GraduationCap className="w-4 h-4" />}
-          >
-            {resumeData.education.map((edu) => (
-              <div key={edu.id} className="mb-3 last:mb-0">
-                <div className="font-semibold text-ink-soft">
-                  <HighlightedText text={edu.degree || ''} keywords={keywords} />
-                </div>
-                {edu.institution && (
-                  <div className="text-sm text-ink-soft">
-                    <HighlightedText text={edu.institution} keywords={keywords} />
-                  </div>
-                )}
-                {edu.years && <div className="text-xs text-steel-grey">{edu.years}</div>}
-              </div>
-            ))}
-          </Section>
-        )}
-
-        {/* Projects */}
-        {resumeData.personalProjects && resumeData.personalProjects.length > 0 && (
-          <Section
-            title={t('resume.sections.projects')}
-            icon={<FolderKanban className="w-4 h-4" />}
-          >
-            {resumeData.personalProjects.map((proj) => (
-              <div key={proj.id} className="mb-4 last:mb-0">
-                <div className="font-semibold text-ink-soft">
-                  <HighlightedText text={proj.name || ''} keywords={keywords} />
-                  {proj.role && (
-                    <span className="text-ink-soft font-normal">
-                      {' '}
-                      {t('builder.jdMatch.roleSeparator')}{' '}
-                      <HighlightedText text={proj.role} keywords={keywords} />
-                    </span>
-                  )}
-                </div>
-                {proj.years && <div className="text-xs text-steel-grey mb-1">{proj.years}</div>}
-                {proj.description && (
-                  <ul className="space-y-1 text-sm">
-                    {proj.description.map((bullet, i) => {
-                      const showMarker = proj.descriptionStyles?.[i] !== 'plain';
-                      return (
-                        <li key={i} className={cn('flex text-ink-soft', showMarker && 'ml-4')}>
-                          {showMarker && (
-                            <span className="mr-1.5 flex-shrink-0" aria-hidden="true">
-                              &bull;&nbsp;
-                            </span>
-                          )}
-                          <span>
-                            <HighlightedText text={bullet} keywords={keywords} />
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            ))}
-          </Section>
-        )}
-
-        {/* Skills */}
-        {resumeData.additional && (
-          <Section title={t('resume.sections.skills')} icon={<Wrench className="w-4 h-4" />}>
-            {visibleTechnicalSkills.length > 0 && (
-              <div className="mb-3">
-                <div className="text-xs font-mono uppercase text-steel-grey mb-1">
-                  {t('resume.additional.technicalSkills')}
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {visibleTechnicalSkills.map((skill, i) => (
-                    <SkillTag key={i} text={skill} keywords={keywords} />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {visibleLanguages.length > 0 && (
-              <div className="mb-3">
-                <div className="text-xs font-mono uppercase text-steel-grey mb-1">
-                  {t('resume.sections.languages')}
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {visibleLanguages.map((lang, i) => (
-                    <SkillTag key={i} text={lang} keywords={keywords} />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {visibleCertificationsTraining.length > 0 && (
-              <div className="mb-3">
-                <div className="text-xs font-mono uppercase text-steel-grey mb-1">
-                  {t('resume.sections.certifications')}
-                </div>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  {visibleCertificationsTraining.map((cert, i) => (
-                    <li key={i} className="text-ink-soft">
-                      <HighlightedText text={cert} keywords={keywords} />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </Section>
-        )}
+        {sections.map((section) => (
+          <SectionPanel key={section.id} title={sectionHeading(section, t)}>
+            <SectionBody section={section} keywords={keywords} />
+          </SectionPanel>
+        ))}
       </div>
     </div>
+  );
+}
+
+/** Renders whichever field group the section's kind selects. */
+function SectionBody({ section, keywords }: { section: Section; keywords: Set<string> }) {
+  const { t } = useTranslations();
+
+  if (section.kind === 'text') {
+    return <HighlightedText text={section.text} keywords={keywords} />;
+  }
+
+  if (section.kind === 'tags') {
+    return (
+      <div className="flex flex-wrap gap-1">
+        {section.tags.map((tag, i) => (
+          <SkillTag key={i} text={tag} keywords={keywords} />
+        ))}
+      </div>
+    );
+  }
+
+  if (section.kind === 'groups') {
+    return (
+      <>
+        {section.groups.map((group, i) => (
+          <div key={i} className="mb-3 last:mb-0">
+            {group.label && (
+              <div className="text-xs font-mono uppercase text-steel-grey mb-1">{group.label}</div>
+            )}
+            <div className="flex flex-wrap gap-1">
+              {group.values.map((value, valueIndex) => (
+                <SkillTag key={valueIndex} text={value} keywords={keywords} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {section.entries.map((entry) => (
+        <div key={entry.id} className="mb-4 last:mb-0">
+          <div className="font-semibold text-ink-soft">
+            <HighlightedText text={entry.title} keywords={keywords} />
+            {entry.subtitle && (
+              <span className="text-ink-soft">
+                {t('builder.jdMatch.atSeparator')}
+                <HighlightedText text={entry.subtitle} keywords={keywords} />
+              </span>
+            )}
+          </div>
+          {entry.period && <div className="text-xs text-steel-grey mb-1">{entry.period}</div>}
+          {entry.summary && (
+            <div className="text-sm text-ink-soft mb-1">
+              <HighlightedText text={entry.summary} keywords={keywords} />
+            </div>
+          )}
+          {entry.bullets.length > 0 && (
+            <ul className="space-y-1 text-sm">
+              {entry.bullets.map((bullet, i) => {
+                // Honour the per-row bullet/plain setting so this preview
+                // agrees with the resume preview and the PDF.
+                const showMarker = bullet.style !== 'plain';
+                return (
+                  <li key={i} className={cn('flex text-ink-soft', showMarker && 'ml-4')}>
+                    {showMarker && (
+                      <span className="mr-1.5 flex-shrink-0" aria-hidden="true">
+                        &bull;&nbsp;
+                      </span>
+                    )}
+                    <span>
+                      <HighlightedText text={bullet.text} keywords={keywords} />
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ))}
+    </>
   );
 }
 
 /**
  * Section wrapper component
  */
-function Section({
-  title,
-  icon,
-  children,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function SectionPanel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="border border-paper-tint bg-white rounded-none">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-paper-tint bg-paper-tint">
-        {icon}
         <span className="font-mono text-xs font-bold uppercase text-ink-soft">{title}</span>
       </div>
       <div className="p-3">{children}</div>

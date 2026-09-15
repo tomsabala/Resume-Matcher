@@ -9,13 +9,52 @@ from unittest.mock import AsyncMock, patch
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
-from app.schemas.models import ResumeData
+from app.schemas.document import ResumeDocument
 from app.schemas.models import RefinementStats
-from tests.integration.test_pipeline_e2e import _upload_resume
+from tests.integration.test_pipeline_e2e import _section, _upload_resume
 
 
 def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+def _document(sample_resume: dict[str, Any]) -> dict[str, Any]:
+    """The fixture as the schema stores it, so payload comparisons are exact."""
+    return ResumeDocument.model_validate(copy.deepcopy(sample_resume)).model_dump(
+        mode="json"
+    )
+
+
+def _entry(entry_id: str, **fields: Any) -> dict[str, Any]:
+    return {
+        "id": entry_id,
+        "title": "",
+        "subtitle": "",
+        "meta": "",
+        "period": "",
+        "links": [],
+        "summary": "",
+        "bullets": [],
+        **fields,
+    }
+
+
+def _extra_section(key: str, heading: str, kind: str, **content: Any) -> dict[str, Any]:
+    """A user-authored section — the v2 replacement for ``customSections``."""
+    return {
+        "id": f"s-{key}",
+        "key": key,
+        "heading": heading,
+        "headingI18nKey": None,
+        "kind": kind,
+        "visible": True,
+        "column": "main",
+        "text": "",
+        "entries": [],
+        "tags": [],
+        "groups": [],
+        **content,
+    }
 
 
 async def _seed(isolated_db: Any, source: dict[str, Any]) -> tuple[str, str]:
@@ -95,22 +134,37 @@ def _pipeline_patches(initial: dict[str, Any], refinement: object) -> tuple[Any,
 async def test_partial_final_writer_preview_confirms_and_reads_back_without_loss(
     isolated_db: Any, sample_resume: dict[str, Any]
 ) -> None:
-    source = ResumeData.model_validate(copy.deepcopy(sample_resume)).model_dump()
-    source["workExperience"][0]["descriptionStyles"][0] = "plain"
-    source["customSections"] = {
-        "talks": {
-            "sectionType": "itemList",
-            "items": [{"id": 9, "title": "PyCon", "description": ["Spoke on testing"]}],
-        }
-    }
-    source = ResumeData.model_validate(source).model_dump()
+    """A writer that returns only the sections it touched must lose nothing."""
+    source = _document(sample_resume)
+    _section(source, "experience")["entries"][0]["bullets"][0]["style"] = "plain"
+    source["sections"].append(
+        _extra_section(
+            "talks",
+            "Talks",
+            "entries",
+            entries=[
+                _entry(
+                    "e-pycon",
+                    title="PyCon",
+                    bullets=[{"text": "Spoke on testing", "style": "bullet"}],
+                )
+            ],
+        )
+    )
     resume_id, job_id = await _seed(isolated_db, source)
     initial = copy.deepcopy(source)
-    initial["summary"] = "Python backend engineer."
+    _section(initial, "summary")["text"] = "Python backend engineer."
     partial = {
-        "personalInfo": copy.deepcopy(source["personalInfo"]),
-        "summary": "Python backend engineer for reliable systems.",
+        "schemaVersion": 2,
+        "header": copy.deepcopy(source["header"]),
+        "sections": [
+            {
+                **copy.deepcopy(_section(source, "summary")),
+                "text": "Python backend engineer for reliable systems.",
+            }
+        ],
     }
+    preserved = ("experience", "education", "projects", "skills", "talks")
 
     with ExitStack() as stack:
         for pipeline_patch in _pipeline_patches(initial, _refinement_result(partial)):
@@ -123,22 +177,18 @@ async def test_partial_final_writer_preview_confirms_and_reads_back_without_loss
         assert preview.status_code == 200, preview.text
         preview_data = preview.json()["data"]
         preview_resume = preview_data["resume_preview"]
-        for section in (
-            "workExperience",
-            "education",
-            "personalProjects",
-            "customSections",
-        ):
-            assert preview_resume[section] == source[section]
+        for key in preserved:
+            assert _section(preview_resume, key) == _section(source, key)
 
         mutated = copy.deepcopy(preview_resume)
-        mutated["workExperience"][0]["company"] = "Moon Base"
+        _section(mutated, "experience")["entries"][0]["subtitle"] = "Moon Base"
         async with _client() as client:
             rejected = await client.post(
                 "/api/v1/resumes/improve/confirm",
                 json={
                     "resume_id": resume_id,
                     "job_id": job_id,
+                    "preview_id": preview_data["preview_id"],
                     "improved_data": mutated,
                     "improvements": preview_data["improvements"],
                 },
@@ -151,6 +201,7 @@ async def test_partial_final_writer_preview_confirms_and_reads_back_without_loss
                 json={
                     "resume_id": resume_id,
                     "job_id": job_id,
+                    "preview_id": preview_data["preview_id"],
                     "improved_data": preview_resume,
                     "improvements": preview_data["improvements"],
                 },
@@ -160,51 +211,48 @@ async def test_partial_final_writer_preview_confirms_and_reads_back_without_loss
     tailored_id = confirm.json()["data"]["resume_id"]
     stored = await isolated_db.get_resume(tailored_id)
     assert stored is not None
-    for section in (
-        "workExperience",
-        "education",
-        "personalProjects",
-        "customSections",
-    ):
-        assert stored["processed_data"][section] == source[section]
+    for key in preserved:
+        assert _section(stored["processed_data"], key) == _section(source, key)
 
 
 async def test_schema_round_trip_preview_preserves_rows_styles_and_list_multiplicity(
     isolated_db: Any, sample_resume: dict[str, Any]
 ) -> None:
-    source = ResumeData.model_validate(copy.deepcopy(sample_resume)).model_dump()
-    source["workExperience"][0]["descriptionStyles"][0] = "plain"
-    source["additional"]["technicalSkills"] = ["Python", "Python"]
-    source["customSections"] = {
-        "talks": {
-            "sectionType": "itemList",
-            "items": [
-                {
-                    "id": 9,
-                    "title": "PyCon",
-                    "description": ["Spoke on testing"],
-                    "descriptionStyles": ["plain"],
-                }
+    """A destructive writer may not blank rows, drop styles or dedupe values."""
+    source = _document(sample_resume)
+    _section(source, "experience")["entries"][0]["bullets"][0]["style"] = "plain"
+    _section(source, "skills")["groups"][0]["values"] = ["Python", "Python"]
+    source["sections"].append(
+        _extra_section(
+            "talks",
+            "Talks",
+            "entries",
+            entries=[
+                _entry(
+                    "e-pycon",
+                    title="PyCon",
+                    bullets=[{"text": "Spoke on testing", "style": "plain"}],
+                )
             ],
-        },
-        "topics": {
-            "sectionType": "stringList",
-            "strings": ["Reliability", "Reliability"],
-        },
-    }
-    source = ResumeData.model_validate(source).model_dump()
-    destructive_writer_result = copy.deepcopy(source)
-    destructive_writer_result["workExperience"][0]["description"] = ["   "]
-    destructive_writer_result["customSections"]["talks"]["items"][0][
-        "description"
-    ] = ["\t"]
-    destructive_writer_result["additional"] = {}
-    destructive_writer_result["customSections"]["topics"]["strings"] = []
+        )
+    )
+    source["sections"].append(
+        _extra_section("topics", "Topics", "tags", tags=["Reliability", "Reliability"])
+    )
+    destructive = copy.deepcopy(source)
+    _section(destructive, "experience")["entries"][0]["bullets"] = [
+        {"text": "   ", "style": "bullet"}
+    ]
+    _section(destructive, "talks")["entries"][0]["bullets"] = [
+        {"text": "\t", "style": "bullet"}
+    ]
+    _section(destructive, "skills")["groups"] = []
+    _section(destructive, "topics")["tags"] = []
     resume_id, job_id = await _seed(isolated_db, source)
 
     with ExitStack() as stack:
         for pipeline_patch in _pipeline_patches(
-            source, _refinement_result(destructive_writer_result)
+            source, _refinement_result(destructive)
         ):
             stack.enter_context(pipeline_patch)
         async with _client() as client:
@@ -220,20 +268,23 @@ async def test_schema_round_trip_preview_preserves_rows_styles_and_list_multipli
                 json={
                     "resume_id": resume_id,
                     "job_id": job_id,
+                    "preview_id": preview_data["preview_id"],
                     "improved_data": preview_resume,
                     "improvements": preview_data["improvements"],
                 },
             )
 
     assert confirm.status_code == 200, confirm.text
-    assert preview_resume["workExperience"][0]["description"] == source[
-        "workExperience"
-    ][0]["description"]
-    assert preview_resume["workExperience"][0]["descriptionStyles"] == source[
-        "workExperience"
-    ][0]["descriptionStyles"]
-    assert preview_resume["additional"]["technicalSkills"] == ["Python", "Python"]
-    assert preview_resume["customSections"] == source["customSections"]
+    assert (
+        _section(preview_resume, "experience")["entries"][0]["bullets"]
+        == _section(source, "experience")["entries"][0]["bullets"]
+    )
+    assert _section(preview_resume, "skills")["groups"][0]["values"] == [
+        "Python",
+        "Python",
+    ]
+    assert _section(preview_resume, "talks") == _section(source, "talks")
+    assert _section(preview_resume, "topics")["tags"] == ["Reliability", "Reliability"]
     tailored_id = confirm.json()["data"]["resume_id"]
     stored = await isolated_db.get_resume(tailored_id)
     assert stored is not None
@@ -243,26 +294,29 @@ async def test_schema_round_trip_preview_preserves_rows_styles_and_list_multipli
 async def test_duplicate_identity_reorder_preview_confirms_without_false_drift(
     isolated_db: Any, sample_resume: dict[str, Any]
 ) -> None:
-    source = ResumeData.model_validate(copy.deepcopy(sample_resume)).model_dump()
-    first = source["workExperience"][0]
-    first["id"] = 0
-    first["title"] = "Software Engineer"
-    first["company"] = "Acme"
-    first["years"] = "2019 - 2020"
-    first["description"] = ["Built Python APIs"]
-    first["descriptionStyles"] = ["bullet"]
-    second = copy.deepcopy(first)
-    second["years"] = "2021 - 2023"
-    second["description"] = ["Maintained data pipelines"]
-    source["workExperience"] = [first, second]
+    """Two jobs with the same title and company must not swap their content."""
+    source = _document(sample_resume)
+    first = _entry(
+        "e-first",
+        title="Software Engineer",
+        subtitle="Acme",
+        period="2019 - 2020",
+        bullets=[{"text": "Built Python APIs", "style": "bullet"}],
+    )
+    second = _entry(
+        "e-second",
+        title="Software Engineer",
+        subtitle="Acme",
+        period="2021 - 2023",
+        bullets=[{"text": "Maintained data pipelines", "style": "bullet"}],
+    )
+    _section(source, "experience")["entries"] = [first, second]
     candidate = copy.deepcopy(source)
-    candidate["workExperience"].reverse()
+    _section(candidate, "experience")["entries"].reverse()
     resume_id, job_id = await _seed(isolated_db, source)
 
     with ExitStack() as stack:
-        for pipeline_patch in _pipeline_patches(
-            source, _refinement_result(candidate)
-        ):
+        for pipeline_patch in _pipeline_patches(source, _refinement_result(candidate)):
             stack.enter_context(pipeline_patch)
         async with _client() as client:
             preview = await client.post(
@@ -271,16 +325,22 @@ async def test_duplicate_identity_reorder_preview_confirms_without_false_drift(
             )
             assert preview.status_code == 200, preview.text
             preview_data = preview.json()["data"]
+            entries = _section(preview_data["resume_preview"], "experience")["entries"]
+            # The reorder is adopted, and each row keeps its own period/bullets.
             assert [
-                entry["years"]
-                for entry in preview_data["resume_preview"]["workExperience"]
-            ] == ["2021 - 2023", "2019 - 2020"]
+                (entry["period"], [bullet["text"] for bullet in entry["bullets"]])
+                for entry in entries
+            ] == [
+                ("2021 - 2023", ["Maintained data pipelines"]),
+                ("2019 - 2020", ["Built Python APIs"]),
+            ]
 
             confirm = await client.post(
                 "/api/v1/resumes/improve/confirm",
                 json={
                     "resume_id": resume_id,
                     "job_id": job_id,
+                    "preview_id": preview_data["preview_id"],
                     "improved_data": preview_data["resume_preview"],
                     "improvements": preview_data["improvements"],
                 },
@@ -293,7 +353,7 @@ async def test_nested_preview_and_confirm_failures_return_only_safe_warning_code
     isolated_db: Any, sample_resume: dict[str, Any]
 ) -> None:
     marker = "private-provider-marker-123"
-    source = ResumeData.model_validate(copy.deepcopy(sample_resume)).model_dump()
+    source = _document(sample_resume)
     resume_id, job_id = await _seed(isolated_db, source)
 
     patches = _pipeline_patches(source, RuntimeError(marker))
@@ -302,7 +362,7 @@ async def test_nested_preview_and_confirm_failures_return_only_safe_warning_code
             stack.enter_context(pipeline_patch)
         stack.enter_context(
             patch(
-                "app.services.improver.calculate_resume_diff",
+                "app.routers.resumes.diff_documents",
                 side_effect=RuntimeError(marker),
             )
         )
@@ -329,6 +389,7 @@ async def test_nested_preview_and_confirm_failures_return_only_safe_warning_code
                 json={
                     "resume_id": resume_id,
                     "job_id": job_id,
+                    "preview_id": preview_data["preview_id"],
                     "improved_data": preview_data["resume_preview"],
                     "improvements": preview_data["improvements"],
                 },
@@ -344,10 +405,14 @@ async def test_nested_preview_and_confirm_failures_return_only_safe_warning_code
 async def test_legacy_direct_improve_restores_unapproved_narrative_before_save(
     isolated_db: Any, sample_resume: dict[str, Any]
 ) -> None:
-    source = ResumeData.model_validate(copy.deepcopy(sample_resume)).model_dump()
-    source["workExperience"][0]["description"][0] = "Built Python APIs"
+    source = _document(sample_resume)
+    _section(source, "experience")["entries"][0]["bullets"][0]["text"] = (
+        "Built Python APIs"
+    )
     candidate = copy.deepcopy(source)
-    candidate["workExperience"][0]["description"][0] = "Owned moon missions"
+    _section(candidate, "experience")["entries"][0]["bullets"][0]["text"] = (
+        "Owned moon missions"
+    )
     resume_id, job_id = await _seed(isolated_db, source)
 
     with ExitStack() as stack:
@@ -361,26 +426,30 @@ async def test_legacy_direct_improve_restores_unapproved_narrative_before_save(
 
     assert response.status_code == 200, response.text
     data = response.json()["data"]
-    assert data["resume_preview"]["workExperience"][0]["description"][0] == (
-        "Built Python APIs"
-    )
+    assert _section(data["resume_preview"], "experience")["entries"][0]["bullets"][0][
+        "text"
+    ] == "Built Python APIs"
     assert not any(
         warning.startswith("GROUNDING_REVIEW_REQUIRED:") for warning in data["warnings"]
     )
     stored = await isolated_db.get_resume(data["resume_id"])
     assert stored is not None
-    assert stored["processed_data"]["workExperience"][0]["description"][0] == (
-        "Built Python APIs"
-    )
+    assert _section(stored["processed_data"], "experience")["entries"][0]["bullets"][0][
+        "text"
+    ] == "Built Python APIs"
 
 
 async def test_preview_metrics_count_only_keywords_in_finalized_resume(
     isolated_db: Any, sample_resume: dict[str, Any]
 ) -> None:
-    source = ResumeData.model_validate(copy.deepcopy(sample_resume)).model_dump()
-    source["workExperience"][0]["description"][0] = "Built Python APIs"
+    source = _document(sample_resume)
+    _section(source, "experience")["entries"][0]["bullets"][0]["text"] = (
+        "Built Python APIs"
+    )
     candidate = copy.deepcopy(source)
-    candidate["workExperience"][0]["description"][0] = "Improved throughput by 500%"
+    _section(candidate, "experience")["entries"][0]["bullets"][0]["text"] = (
+        "Improved throughput by 500%"
+    )
     resume_id, job_id = await _seed(isolated_db, source)
     refinement = SimpleNamespace(
         refined_data=candidate,
@@ -418,10 +487,14 @@ async def test_preview_metrics_count_only_keywords_in_finalized_resume(
 async def test_preview_warning_allows_explicit_confirmation_of_narrative_rewrite(
     isolated_db: Any, sample_resume: dict[str, Any]
 ) -> None:
-    source = ResumeData.model_validate(copy.deepcopy(sample_resume)).model_dump()
-    source["workExperience"][0]["description"][0] = "Built Python APIs"
+    source = _document(sample_resume)
+    _section(source, "experience")["entries"][0]["bullets"][0]["text"] = (
+        "Built Python APIs"
+    )
     candidate = copy.deepcopy(source)
-    candidate["workExperience"][0]["description"][0] = "Owned moon missions"
+    _section(candidate, "experience")["entries"][0]["bullets"][0]["text"] = (
+        "Owned moon missions"
+    )
     resume_id, job_id = await _seed(isolated_db, source)
 
     with ExitStack() as stack:
@@ -438,16 +511,16 @@ async def test_preview_warning_allows_explicit_confirmation_of_narrative_rewrite
                 warning.startswith("GROUNDING_REVIEW_REQUIRED:")
                 for warning in preview_data["warnings"]
             )
-            assert (
-                preview_data["resume_preview"]["workExperience"][0]["description"][0]
-                == "Owned moon missions"
-            )
+            assert _section(preview_data["resume_preview"], "experience")["entries"][0][
+                "bullets"
+            ][0]["text"] == "Owned moon missions"
 
             confirm = await client.post(
                 "/api/v1/resumes/improve/confirm",
                 json={
                     "resume_id": resume_id,
                     "job_id": job_id,
+                    "preview_id": preview_data["preview_id"],
                     "improved_data": preview_data["resume_preview"],
                     "improvements": preview_data["improvements"],
                 },
@@ -461,6 +534,6 @@ async def test_preview_warning_allows_explicit_confirmation_of_narrative_rewrite
     )
     stored = await isolated_db.get_resume(confirm_data["resume_id"])
     assert stored is not None
-    assert stored["processed_data"]["workExperience"][0]["description"][0] == (
-        "Owned moon missions"
-    )
+    assert _section(stored["processed_data"], "experience")["entries"][0]["bullets"][0][
+        "text"
+    ] == "Owned moon missions"

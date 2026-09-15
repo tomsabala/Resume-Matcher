@@ -39,5 +39,16 @@ def resume_fingerprint(
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def document_fingerprint(document: dict[str, Any]) -> str:
+    """Content hash of a resume document, for version dedup.
+
+    Same canonicalisation as :func:`resume_fingerprint`: sorted keys and no
+    incidental whitespace, so a re-serialised but identical document hashes
+    identically and never produces a spurious version.
+    """
+    serialized = json.dumps(document, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def job_fingerprint(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()

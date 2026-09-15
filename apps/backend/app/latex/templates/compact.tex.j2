@@ -1,0 +1,53 @@
+<# Compact: same structure, tighter margins and no section rules — for a
+     dense two-page history that must fit one page. #>
+\documentclass[a4paper,<< settings.get('fontSize', 10) | int >>pt]{article}
+
+\usepackage{url}
+\usepackage{parskip}
+\RequirePackage{color}
+\RequirePackage{graphicx}
+\usepackage[usenames,dvipsnames]{xcolor}
+\usepackage[margin=<< settings.get('texMargin', '1.2cm') >>]{geometry}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{supertabular}
+\usepackage{titlesec}
+\usepackage{multicol}
+\usepackage{multirow}
+\usepackage{fontawesome5}
+
+\newcolumntype{C}{>{\centering\arraybackslash}X}
+\newlength{\fullcollw}
+\setlength{\fullcollw}{0.47\textwidth}
+
+\titleformat{\section}{\normalsize\bfseries\scshape\raggedright}{}{0em}{}
+\titlespacing{\section}{0pt}{5pt}{2pt}
+\setlength{\parskip}{2pt}
+
+\usepackage[unicode, draft=false]{hyperref}
+\definecolor{linkcolour}{rgb}{0,0.2,0.6}
+\hypersetup{colorlinks,breaklinks,urlcolor=linkcolour,linkcolor=linkcolour,pdftitle={<< (header.name or 'Resume') | tex >>}}
+
+\newenvironment{jobshort}[2]
+    {
+    \begin{tabularx}{\linewidth}{@{}l X r@{}}
+    \textbf{#1} & \hfill & #2 \\[1pt]
+    \end{tabularx}
+    }
+    {
+    }
+
+\newenvironment{joblong}[2]
+    {
+    \begin{tabularx}{\linewidth}{@{}l X r@{}}
+    \textbf{#1} & \hfill & #2 \\[1pt]
+    \end{tabularx}
+    \begin{minipage}[t]{\linewidth}
+    \begin{itemize}[nosep,after=\strut, leftmargin=1em, itemsep=1pt,label=\textbullet]
+    }
+    {
+    \end{itemize}
+    \end{minipage}
+    }
+
+<% include '_document.tex.j2' %>

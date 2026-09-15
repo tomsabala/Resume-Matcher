@@ -18,6 +18,8 @@ Dashboard → Upload Master Resume → Tailor for Job → View/Edit → Download
 - Auto-refreshes on window focus
 - List and status results are applied only while their request and master identity are current. Late responses cannot replace newer cards or clear a different master.
 - Pending/processing master status is polled serially with a 3–30 second backoff, for at most 12 polls. Hidden tabs skip polling. Polling stops on ready/failed, missing master, or unmount; focus refresh and Retry provide recovery after a failure.
+- Selecting exactly two resume cards enables **Compare**, which navigates to
+  `/compare?base=resume:<a>&head=resume:<b>`.
 
 ### 2. Resume Viewer (`/resumes/[id]`)
 
@@ -53,6 +55,17 @@ Dashboard → Upload Master Resume → Tailor for Job → View/Edit → Download
 - LLM configuration (6 providers)
 - Last fetched indicator + manual refresh
 
+### 6. Compare (`/compare`)
+
+- Reads `?base=` and `?head=`; each is a `resume:<id>` or `version:<id>` token,
+  so a comparison is a linkable thing rather than modal state. A token that
+  does not parse is reported as an invalid link and no request is made.
+- Fetches `POST /diff` through `lib/api/diff.ts` and renders `DiffView`
+  read-only (no accept checkboxes).
+- Reached from the dashboard's two-resume selection and from the **Compare**
+  button on a version-timeline row (`base=version:<id>&head=resume:<id>` —
+  "what changed since this point").
+
 ## Pagination Rules
 
 - Sections CAN span pages
@@ -86,24 +99,85 @@ Dashboard → Upload Master Resume → Tailor for Job → View/Edit → Download
 
 ## Section Management
 
-| Action  | Result                                    |
-| ------- | ----------------------------------------- |
-| Rename  | Click pencil icon                         |
-| Reorder | Up/down arrows                            |
-| Hide    | Eye icon (hidden sections still editable) |
-| Delete  | Hides default, removes custom             |
-| Add     | "Add Section" button                      |
+Sections are data, so the builder edits a list rather than a fixed set of
+panels. Each row gets the same controls (see
+[custom-sections.md](../features/custom-sections.md)):
+
+| Action  | Result                                                                  |
+| ------- | ----------------------------------------------------------------------- |
+| Rename  | Pencil icon — edits `section.heading` (free text)                       |
+| Reorder | Up/down arrows or drag — moves the item within `doc.sections`            |
+| Column  | Toggle — flips `section.column` between `main` and `side`                |
+| Hide    | Eye icon — `section.visible = false`; still editable, absent from the PDF |
+| Delete  | Trash icon — removes the section (confirmation dialog)                  |
+| Add     | "Add Section" — asks for a heading and a `SectionKind`, nothing else    |
+
+## Registry-Driven Component Flow
+
+Neither the editor nor the renderer enumerates resume sections. Both look up a
+component by `section.kind`:
+
+```
+ResumeDocument
+├── header ──────────────────────────────► PersonalInfoForm  /  template <header>
+└── sections[] (list order = display order)
+     ├── builder:  resume-form.tsx  → SECTION_KIND_FORMS[section.kind]
+     │                                (components/builder/forms/index.ts)
+     └── preview:  resume-{template} → visibleSections(doc)
+                                     → SectionBlock
+                                     → SECTION_KIND_RENDERERS[section.kind]
+                                       (components/resume/section-kinds/index.ts)
+```
+
+Consequences worth remembering:
+
+- A section with a key no component has heard of still renders and still edits.
+- Two-column templates partition on `section.column`; single-column ones ignore it.
+- Headings come from `sectionHeading(section, t)`, which translates a heading
+  only while it still equals its `headingI18nKey`'s English default — a user
+  heading is never passed to `t()`.
+- `SectionHeader` owns rename/reorder/column/visibility/delete for every
+  section uniformly.
+
+## Diff surfaces
+
+`components/diff/` is the one diff UI: `DiffView` (stats bar, unified/split
+toggle, one collapsible group per section), `DiffRows` (a flat row list that
+collapses unchanged runs of three or more rows behind an expander),
+`DiffRowLine`, `DiffSectionGroup`, `DiffStatsBar` and `paths.ts`.
+
+| Surface | Component | Rows come from |
+| ------- | --------- | -------------- |
+| Tailor preview modal | `components/tailor/diff-preview-modal.tsx` → `DiffView` | `ImproveResumeData.diff` |
+| Regenerate preview | `components/builder/regenerate-diff-preview.tsx` → `DiffRows` | `RegeneratedItem.rows` |
+| Compare page | `app/(default)/compare/page.tsx` → `DiffView` | `POST /diff` |
+
+Nothing here computes a diff. Every row is server-computed, and section groups
+are seeded from the response — sections are user-named, so no part of this can
+key off a fixed list of section keys.
+
+Passing `onAcceptedPathsChange` to `DiffView` turns it into a partial-accept
+picker: each selectable row (a content leaf, per `paths.ts`) gets a checkbox,
+and the tailor modal sends the selection as `accepted_paths` on confirm —
+`null` when everything is still ticked, so the ordinary accept-the-tailoring
+flow is one click. See
+[document-diff.md](../features/document-diff.md#the-three-surfaces).
 
 ## API Client
 
 ```typescript
 import { fetchResume, updateResume } from '@/lib/api/resume';
+import type { ResumeDocument } from '@/lib/types/document';
 
 const response = await fetchResume(resumeId);
 if (response.processed_resume) {
-  await updateResume(resumeId, response.processed_resume);
+  const doc: ResumeDocument = response.processed_resume;
+  await updateResume(resumeId, { ...doc, sections: nextSections });
 }
 ```
+
+`PATCH` takes the **whole** document; the backend forbids unknown fields, so
+round-trip what you were given instead of constructing a partial payload.
 
 ## Async ownership and acknowledged saves
 

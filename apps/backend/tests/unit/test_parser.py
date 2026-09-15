@@ -2,15 +2,21 @@
 
 The LLM frequently drops months when parsing resume dates ("Jun 2020 - Aug 2021"
 → "2020 - 2021"). restore_dates_from_markdown() patches that back from the raw
-markdown. This is pure, deterministic logic — the parser module was at ~20%
-coverage with none of it exercised.
+markdown: the field is ``period`` on each entry of every ``entries`` section,
+and an entry is matched to a markdown date by its ``(title, subtitle)``
+identity, so the same year range in two sections still resolves correctly.
+
+has_meaningful_resume_content() guards the other end of the parse: every field
+of ``ResumeDocument`` defaults to empty, so an all-defaults response validates
+and would otherwise be stored as a "parsed" resume.
 """
 
-import pytest
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from app.services.parser import (
-    _MAX_RESUME_CONTENT_RECURSION,
     _extract_markdown_dates,
     has_meaningful_resume_content,
     parse_resume_to_json,
@@ -18,15 +24,30 @@ from app.services.parser import (
 )
 
 
-def _wrap(value: object, levels: int) -> object:
-    """Nest ``value`` inside ``levels`` plain dicts.
+def _entry(**fields: Any) -> dict[str, Any]:
+    return {"id": fields.pop("id", "e-1"), **fields}
 
-    ``has_meaningful_resume_content`` starts the recursion at depth 0 on the
-    section value, so ``levels`` wrappers put the string at depth ``levels``.
-    """
-    for _ in range(levels):
-        value = {"value": value}
-    return value
+
+def _section(key: str, kind: str, **content: Any) -> dict[str, Any]:
+    return {
+        "id": f"s-{key}",
+        "key": key,
+        "heading": key.title(),
+        "kind": kind,
+        **content,
+    }
+
+
+def _document(*sections: dict[str, Any], **header: Any) -> dict[str, Any]:
+    document: dict[str, Any] = {"schemaVersion": 2, "sections": list(sections)}
+    if header:
+        document["header"] = header
+    return document
+
+
+def _periods(document: dict[str, Any], key: str) -> list[str]:
+    section = next(s for s in document["sections"] if s["key"] == key)
+    return [entry.get("period") for entry in section["entries"]]
 
 
 class TestExtractMarkdownDates:
@@ -45,165 +66,212 @@ class TestExtractMarkdownDates:
 
 
 class TestRestoreDatesFromMarkdown:
-    def test_restores_months_in_work_experience(self):
-        parsed = {"workExperience": [{"title": "Dev", "years": "2020 - 2021"}]}
-        markdown = "Senior Dev, Jun 2020 - Aug 2021, built things"
+    def test_restores_months_in_an_entry_period(self):
+        parsed = _document(
+            _section(
+                "experience",
+                "entries",
+                entries=[_entry(title="Dev", subtitle="Acme Corp", period="2020 - 2021")],
+            )
+        )
+        markdown = "Dev, Acme Corp, Jun 2020 - Aug 2021, built things"
         result = restore_dates_from_markdown(parsed, markdown)
-        assert result["workExperience"][0]["years"] == "Jun 2020 - Aug 2021"
+        assert _periods(result, "experience") == ["Jun 2020 - Aug 2021"]
 
     def test_restores_single_date(self):
-        parsed = {"education": [{"degree": "BS", "years": "2023"}]}
-        markdown = "B.S. Computer Science, Jun 2023"
+        parsed = _document(
+            _section(
+                "education",
+                "entries",
+                entries=[_entry(title="MIT", subtitle="B.S. Computer Science", period="2023")],
+            )
+        )
+        markdown = "MIT — B.S. Computer Science, Jun 2023"
         result = restore_dates_from_markdown(parsed, markdown)
-        assert result["education"][0]["years"] == "Jun 2023"
+        assert _periods(result, "education") == ["Jun 2023"]
 
-    def test_leaves_entries_that_already_have_months(self):
-        parsed = {"workExperience": [{"years": "Jan 2020 - Mar 2021"}]}
-        markdown = "Jun 2020 - Aug 2021"  # same years, different months
-        result = restore_dates_from_markdown(parsed, markdown)
-        # Already month-precise → must NOT be overwritten.
-        assert result["workExperience"][0]["years"] == "Jan 2020 - Mar 2021"
+    def test_leaves_periods_that_already_have_months(self):
+        parsed = _document(
+            _section(
+                "experience",
+                "entries",
+                entries=[_entry(title="Dev", subtitle="Acme Corp", period="Jan 2020 - Mar 2021")],
+            )
+        )
+        # Same years, different months → must NOT be overwritten.
+        result = restore_dates_from_markdown(parsed, "Dev, Acme Corp, Jun 2020 - Aug 2021")
+        assert _periods(result, "experience") == ["Jan 2020 - Mar 2021"]
 
     def test_no_markdown_dates_is_noop(self):
-        parsed = {"workExperience": [{"years": "2020 - 2021"}]}
+        parsed = _document(
+            _section("experience", "entries", entries=[_entry(period="2020 - 2021")])
+        )
         result = restore_dates_from_markdown(parsed, "no dates here at all")
-        assert result["workExperience"][0]["years"] == "2020 - 2021"
+        assert _periods(result, "experience") == ["2020 - 2021"]
 
     def test_no_matching_year_key_is_noop(self):
-        parsed = {"workExperience": [{"years": "2019 - 2020"}]}
-        markdown = "Jun 2021 - Aug 2022"  # different years → no match
-        result = restore_dates_from_markdown(parsed, markdown)
-        assert result["workExperience"][0]["years"] == "2019 - 2020"
+        parsed = _document(
+            _section("experience", "entries", entries=[_entry(period="2019 - 2020")])
+        )
+        # Different years → no candidate to borrow months from.
+        result = restore_dates_from_markdown(parsed, "Jun 2021 - Aug 2022")
+        assert _periods(result, "experience") == ["2019 - 2020"]
 
-    def test_restores_in_custom_item_list_sections(self):
-        parsed = {
-            "customSections": {
-                "volunteering": {
-                    "sectionType": "itemList",
-                    "items": [{"name": "Mentor", "years": "2020 - 2021"}],
-                }
-            }
-        }
-        markdown = "Mentor, Jun 2020 - Aug 2021"
+    def test_restores_in_a_user_authored_entries_section(self):
+        """Nothing privileges the built-in keys: any ``entries`` section works."""
+        parsed = _document(
+            _section(
+                "volunteering",
+                "entries",
+                entries=[_entry(title="Mentor", subtitle="Code Club", period="2019")],
+            )
+        )
+        markdown = "Mentor, Code Club — Feb 2019 - Nov 2019"
         result = restore_dates_from_markdown(parsed, markdown)
-        assert result["customSections"]["volunteering"]["items"][0]["years"] == "Jun 2020 - Aug 2021"
+        assert _periods(result, "volunteering") == ["Feb 2019 - Nov 2019"]
 
-    def test_tolerates_missing_sections(self):
-        # Should not raise on a minimal/odd structure.
-        parsed = {"personalInfo": {"name": "X"}}
+    def test_identity_selects_between_equal_year_ranges_across_sections(self):
+        """Two entries share a year key; (title, subtitle) picks the right date."""
+        parsed = _document(
+            _section(
+                "experience",
+                "entries",
+                entries=[
+                    _entry(
+                        id="e-acme",
+                        title="Senior Engineer",
+                        subtitle="Acme Corp",
+                        period="2020 - 2021",
+                    )
+                ],
+            ),
+            _section(
+                "volunteering",
+                "entries",
+                entries=[
+                    _entry(
+                        id="e-club",
+                        title="Mentor",
+                        subtitle="Code Club",
+                        period="2020 - 2021",
+                    )
+                ],
+            ),
+        )
+        markdown = (
+            "Senior Engineer, Acme Corp — Jan 2020 - Mar 2021\n"
+            "Mentor, Code Club — Jun 2020 - Aug 2021\n"
+        )
+        result = restore_dates_from_markdown(parsed, markdown)
+        assert _periods(result, "experience") == ["Jan 2020 - Mar 2021"]
+        assert _periods(result, "volunteering") == ["Jun 2020 - Aug 2021"]
+
+    def test_tolerates_a_document_without_sections(self):
+        # Must not raise on a minimal/odd structure.
+        parsed = {"schemaVersion": 2, "header": {"name": "X"}}
         assert restore_dates_from_markdown(parsed, "Jun 2020 - Aug 2021") == parsed
 
     def test_skips_non_dict_entries(self):
-        parsed = {"workExperience": ["not a dict", {"years": "2020 - 2021"}]}
-        markdown = "Jun 2020 - Aug 2021"
-        result = restore_dates_from_markdown(parsed, markdown)
-        assert result["workExperience"][1]["years"] == "Jun 2020 - Aug 2021"
+        """Pre-validation LLM output may hold junk beside real entries."""
+        parsed = _document(
+            _section(
+                "experience",
+                "entries",
+                entries=[
+                    "not a dict",
+                    _entry(title="Dev", subtitle="Acme Corp", period="2020 - 2021"),
+                ],
+            )
+        )
+        result = restore_dates_from_markdown(
+            parsed, "Dev, Acme Corp, Jun 2020 - Aug 2021"
+        )
+        assert result["sections"][0]["entries"][1]["period"] == "Jun 2020 - Aug 2021"
 
 
 class TestMeaningfulResumeContent:
-    def test_rejects_schema_defaults_only(self):
+    def test_rejects_an_empty_payload(self):
+        assert has_meaningful_resume_content({}) is False
+
+    def test_rejects_a_document_whose_sections_are_all_empty(self):
         assert has_meaningful_resume_content(
-            {
-                "personalInfo": {},
-                "summary": "",
-                "workExperience": [],
-                "education": [],
-                "personalProjects": [],
-                "additional": {"technicalSkills": []},
-                "customSections": {},
-            }
+            _document(
+                _section("summary", "text", text="   "),
+                _section("experience", "entries", entries=[]),
+                _section("stack", "tags", tags=["", " "]),
+                _section("skills", "groups", groups=[{"label": "Technical", "values": []}]),
+            )
         ) is False
 
-    def test_accepts_experience_without_contact_details(self):
+    def test_accepts_a_header_with_only_a_name(self):
+        assert has_meaningful_resume_content(_document(name="Jane Doe")) is True
+
+    @pytest.mark.parametrize(
+        "section",
+        [
+            pytest.param(_section("summary", "text", text="Backend engineer."), id="text"),
+            pytest.param(
+                _section(
+                    "experience",
+                    "entries",
+                    entries=[_entry(title="Engineer")],
+                ),
+                id="entries",
+            ),
+            pytest.param(_section("stack", "tags", tags=["Python"]), id="tags"),
+            pytest.param(
+                _section(
+                    "skills",
+                    "groups",
+                    groups=[{"label": "Technical", "values": ["Python"]}],
+                ),
+                id="groups",
+            ),
+        ],
+    )
+    def test_accepts_content_in_every_section_kind(self, section: dict[str, Any]):
+        assert has_meaningful_resume_content(_document(section)) is True
+
+    def test_rejects_a_section_carrying_only_structural_fields(self):
+        """A section is scaffolding: id/key/kind/heading are never content."""
         assert has_meaningful_resume_content(
-            {"personalInfo": {}, "workExperience": [{"title": "Engineer"}]}
-        ) is True
-
-    def test_rejects_default_only_section_entries(self):
-        assert has_meaningful_resume_content(
-            {
-                "workExperience": [
-                    {
-                        "id": 0,
-                        "title": "",
-                        "company": "",
-                        "years": "",
-                        "description": [],
-                        "descriptionStyles": [],
-                    }
-                ],
-                "customSections": {
-                    "empty": {
-                        "sectionType": "itemList",
-                        "items": [{"id": 0, "title": "", "description": []}],
-                    }
-                },
-            }
-        ) is False
-
-    def test_accepts_additional_and_custom_section_text(self):
-        assert has_meaningful_resume_content(
-            {"additional": {"technicalSkills": ["Python"]}}
-        ) is True
-        assert has_meaningful_resume_content(
-            {"customSections": {"publications": {"sectionType": "text", "text": "Paper"}}}
-        ) is True
-
-    def test_accepts_custom_section_with_a_reserved_identifier(self):
-        assert has_meaningful_resume_content(
-            {"customSections": {"key": {"sectionType": "text", "text": "Paper"}}}
-        ) is True
-
-    def test_rejects_content_beyond_the_recursion_limit(self):
-        deeply_nested: object = "Resume content"
-        for _ in range(11):
-            deeply_nested = {"value": deeply_nested}
-
-        assert has_meaningful_resume_content({"summary": deeply_nested}) is False
-
-    def test_finds_content_at_the_last_allowed_depth(self):
-        """Boundary: a value at depth ``limit - 1`` is still inspected."""
-        nested = _wrap("Resume content", _MAX_RESUME_CONTENT_RECURSION - 1)
-
-        assert has_meaningful_resume_content({"summary": nested}) is True
-
-    def test_rejects_content_one_level_past_the_limit(self):
-        """Boundary: a value at exactly ``limit`` is cut off (declared empty).
-
-        This is the documented, accepted false negative. It is unreachable for
-        schema-valid resumes -- see test_deepest_real_schema_content_is_found
-        and the comment on _MAX_RESUME_CONTENT_RECURSION.
-        """
-        nested = _wrap("Resume content", _MAX_RESUME_CONTENT_RECURSION)
-
-        assert has_meaningful_resume_content({"summary": nested}) is False
-
-    def test_deepest_real_schema_content_is_found(self):
-        """The deepest path ResumeData allows (depth 5) stays well inside 10.
-
-        customSections(0) -> CustomSection(1) -> items(2) -> item(3)
-        -> description(4) -> bullet(5).
-        """
-        assert has_meaningful_resume_content(
-            {
-                "customSections": {
-                    "publications": {
-                        "sectionType": "itemList",
-                        "items": [
-                            {
-                                "id": 0,
-                                "title": "",
-                                "subtitle": None,
-                                "years": "",
-                                "description": ["A paper nobody should lose"],
-                                "descriptionStyles": [],
-                            }
-                        ],
-                    }
+            _document(
+                {
+                    "id": "s-publications",
+                    "key": "publications",
+                    "heading": "Publications",
+                    "headingI18nKey": "resume.sections.publications",
+                    "kind": "text",
+                    "visible": True,
+                    "column": "side",
                 }
-            }
-        ) is True
+            )
+        ) is False
 
+    def test_rejects_entries_that_only_carry_structural_fields(self):
+        assert has_meaningful_resume_content(
+            _document(
+                _section(
+                    "experience",
+                    "entries",
+                    entries=[
+                        {
+                            "id": "e-1",
+                            "title": "",
+                            "subtitle": "",
+                            "meta": "",
+                            "period": "",
+                            "links": [],
+                            "summary": "",
+                            "bullets": [{"text": "  ", "style": "bullet"}],
+                        }
+                    ],
+                )
+            )
+        ) is False
+
+
+class TestParseResumeToJson:
     @pytest.mark.asyncio
     @patch("app.services.parser.complete_json", new_callable=AsyncMock)
     async def test_parse_rejects_empty_llm_json(self, mock_complete_json):
@@ -214,6 +282,8 @@ class TestMeaningfulResumeContent:
     @pytest.mark.asyncio
     @patch("app.services.parser.complete_json", new_callable=AsyncMock)
     async def test_parse_rejects_default_only_llm_entries(self, mock_complete_json):
-        mock_complete_json.return_value = {"workExperience": [{}]}
+        mock_complete_json.return_value = _document(
+            _section("experience", "entries", entries=[{}])
+        )
         with pytest.raises(ValueError, match="empty structured resume"):
             await parse_resume_to_json("Jane Doe")

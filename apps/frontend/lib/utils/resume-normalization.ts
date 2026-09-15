@@ -1,168 +1,126 @@
 import type {
-  CustomSection,
-  CustomSectionItem,
-  Experience,
-  Project,
-  ResumeData,
-} from '@/components/dashboard/resume-component';
+  Bullet,
+  Contact,
+  Entry,
+  EntryLink,
+  ResumeDocument,
+  Section,
+  TagGroup,
+} from '@/lib/types/document';
 
-type DescribedItem = {
-  description?: unknown;
-  descriptionStyles?: unknown;
-};
-
-const isMeaningfulText = (value: unknown): value is string => {
-  return typeof value === 'string' && value.trim().length > 0;
-};
-
-// Param is `unknown`, not `string[] | undefined`: this runs against persisted
-// data that TypeScript never validated, and the narrow type hid that.
-const normalizeStringList = (items?: unknown): string[] | undefined => {
-  // Only `undefined` means "field absent" — preserve it so the key stays out
-  // of the payload. Every other non-array (notably `null` from malformed
-  // persisted data) is coerced to []; the old `if (!items) return items`
-  // returned null unchanged, leaking it into a value typed `string[] |
-  // undefined` and crashing callers that assume an array.
-  if (items === undefined) return undefined;
-  if (!Array.isArray(items)) return [];
-  return items.filter(isMeaningfulText).map((item) => item.trim());
-};
+// Every parameter here is `unknown`: this runs against persisted documents that
+// TypeScript never validated, so a null element or a truthy non-array is a real
+// possibility and a narrow signature would only hide it.
+const isMeaningfulText = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const normalizeDescriptionFields = <T extends DescribedItem>(item: T): T => {
-  // A null element inside an otherwise-valid array throws on property access.
-  // Guarding the container was not enough — persisted arrays can hold nulls.
-  if (!isObjectRecord(item)) {
-    return item;
-  }
-  const descriptions = Array.isArray(item.description) ? item.description : [];
-  // descriptionStyles is positional — styles[i] belongs to description[i]. It
-  // must be filtered in lockstep, or dropping a blank description silently
-  // shifts every later point's bullet/plain setting onto its neighbour.
-  const styles = Array.isArray(item.descriptionStyles) ? item.descriptionStyles : undefined;
-  const nextDescriptions: string[] = [];
-  const nextStyles: unknown[] = [];
+const asArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 
-  descriptions.forEach((description, index) => {
-    if (!isMeaningfulText(description)) {
-      return;
-    }
+const normalizeTags = (value: unknown): string[] =>
+  asArray(value)
+    .filter(isMeaningfulText)
+    .map((tag) => tag.trim());
 
-    nextDescriptions.push(description.trim());
-    if (styles) {
-      nextStyles.push(styles[index] === 'plain' ? 'plain' : 'bullet');
-    }
+const normalizeBullets = (value: unknown): Bullet[] =>
+  asArray(value).flatMap((row) => {
+    if (!isObjectRecord(row) || !isMeaningfulText(row.text)) return [];
+    // Style is a property of the bullet, so it can no longer drift out of
+    // alignment when a blank row is dropped — that was the whole point of
+    // retiring the parallel `descriptionStyles` array.
+    return [{ text: row.text.trim(), style: row.style === 'plain' ? 'plain' : 'bullet' }];
   });
 
-  return {
-    ...item,
-    description: nextDescriptions,
-    ...(styles ? { descriptionStyles: nextStyles } : {}),
-  };
-};
+const normalizeLinks = (value: unknown): EntryLink[] =>
+  asArray(value).flatMap((link) => {
+    if (!isObjectRecord(link) || !isMeaningfulText(link.url)) return [];
+    const kind = link.kind;
+    return [
+      {
+        kind:
+          kind === 'github' || kind === 'website' || kind === 'linkedin'
+            ? kind
+            : ('other' as const),
+        url: link.url.trim(),
+      },
+    ];
+  });
 
-// Optional chaining guards null/undefined but NOT a non-string: a numeric
-// `title` from malformed persisted data makes `.trim` undefined and throws
-// "item.title?.trim is not a function". isMeaningfulText type-checks first.
-const hasExperienceContent = (item: Experience): boolean => {
-  return Boolean(
-    isMeaningfulText(item.title) ||
-    isMeaningfulText(item.company) ||
-    isMeaningfulText(item.location) ||
-    isMeaningfulText(item.years) ||
-    (Array.isArray(item.description) && item.description.length)
-  );
-};
-
-const hasProjectContent = (item: Project): boolean => {
-  return Boolean(
-    isMeaningfulText(item.name) ||
-    isMeaningfulText(item.role) ||
-    isMeaningfulText(item.years) ||
-    isMeaningfulText(item.github) ||
-    isMeaningfulText(item.website) ||
-    (Array.isArray(item.description) && item.description.length)
-  );
-};
-
-const hasCustomItemContent = (item: CustomSectionItem): boolean => {
-  return Boolean(
-    isMeaningfulText(item.title) ||
-    isMeaningfulText(item.subtitle) ||
-    isMeaningfulText(item.location) ||
-    isMeaningfulText(item.years) ||
-    (Array.isArray(item.description) && item.description.length)
-  );
-};
-
-const normalizeCustomSection = (section: CustomSection): CustomSection => {
-  // A persisted customSections entry can be null or a primitive; reading
-  // .sectionType off it throws. Guard the section value, not only its items.
-  if (!isObjectRecord(section)) {
-    return section;
-  }
-
-  if (section.sectionType === 'itemList') {
-    return {
-      ...section,
-      // Array.isArray, not `|| []` — a malformed truthy non-array (an object
-      // from hand-edited storage) reaches .map and throws.
-      items: (Array.isArray(section.items) ? section.items : [])
-        .filter(isObjectRecord)
-        .map(normalizeDescriptionFields)
-        .filter(hasCustomItemContent),
+const normalizeEntries = (value: unknown): Entry[] =>
+  asArray(value).flatMap((raw) => {
+    if (!isObjectRecord(raw)) return [];
+    const entry: Entry = {
+      id: isMeaningfulText(raw.id) ? raw.id : crypto.randomUUID(),
+      title: isMeaningfulText(raw.title) ? raw.title.trim() : '',
+      subtitle: isMeaningfulText(raw.subtitle) ? raw.subtitle.trim() : '',
+      meta: isMeaningfulText(raw.meta) ? raw.meta.trim() : '',
+      period: isMeaningfulText(raw.period) ? raw.period.trim() : '',
+      links: normalizeLinks(raw.links),
+      summary: isMeaningfulText(raw.summary) ? raw.summary.trim() : '',
+      bullets: normalizeBullets(raw.bullets),
     };
-  }
 
-  if (section.sectionType === 'stringList') {
-    return {
-      ...section,
-      strings: normalizeStringList(section.strings),
+    const isEmpty =
+      !entry.title &&
+      !entry.subtitle &&
+      !entry.meta &&
+      !entry.period &&
+      !entry.summary &&
+      entry.links.length === 0 &&
+      entry.bullets.length === 0;
+    return isEmpty ? [] : [entry];
+  });
+
+const normalizeGroups = (value: unknown): TagGroup[] =>
+  asArray(value).flatMap((raw) => {
+    if (!isObjectRecord(raw)) return [];
+    const label = isMeaningfulText(raw.label) ? raw.label.trim() : '';
+    const values = normalizeTags(raw.values);
+    return !label && values.length === 0 ? [] : [{ label, values }];
+  });
+
+const normalizeContacts = (value: unknown): Contact[] =>
+  asArray(value).flatMap((raw) => {
+    if (!isObjectRecord(raw)) return [];
+    const contact: Contact = {
+      id: isMeaningfulText(raw.id) ? raw.id : crypto.randomUUID(),
+      kind: (isMeaningfulText(raw.kind) ? raw.kind : 'other') as Contact['kind'],
+      label: isMeaningfulText(raw.label) ? raw.label.trim() : '',
+      value: isMeaningfulText(raw.value) ? raw.value.trim() : '',
+      url: isMeaningfulText(raw.url) ? raw.url.trim() : '',
     };
-  }
+    return !contact.value && !contact.label && !contact.url ? [] : [contact];
+  });
 
-  return section;
-};
+/**
+ * Drop content the user cannot see, without touching section identity.
+ *
+ * Blank rows are an editing artefact (an "add bullet" click the user never
+ * filled in); they must not reach the PDF. Sections themselves are never
+ * dropped: an empty section is a deliberate placeholder, and its key is
+ * referenced by AI change paths.
+ */
+export const normalizeResumeForSave = (doc: ResumeDocument): ResumeDocument => ({
+  ...doc,
+  header: {
+    name: doc.header?.name ?? '',
+    headline: doc.header?.headline ?? '',
+    contacts: normalizeContacts(doc.header?.contacts),
+  },
+  sections: asArray(doc.sections)
+    .filter(isObjectRecord)
+    .map((raw): Section => {
+      const section = raw as unknown as Section;
+      return {
+        ...section,
+        text: typeof section.text === 'string' ? section.text : '',
+        entries: normalizeEntries(section.entries),
+        tags: normalizeTags(section.tags),
+        groups: normalizeGroups(section.groups),
+      };
+    }),
+});
 
-export const normalizeResumeForSave = (resume: ResumeData): ResumeData => {
-  const customSections = resume.customSections
-    ? Object.fromEntries(
-        Object.entries(resume.customSections).map(([key, section]) => [
-          key,
-          normalizeCustomSection(section),
-        ])
-      )
-    : resume.customSections;
-
-  return {
-    ...resume,
-    workExperience: (Array.isArray(resume.workExperience) ? resume.workExperience : [])
-      .filter(isObjectRecord)
-      .map(normalizeDescriptionFields)
-      .filter(hasExperienceContent),
-    personalProjects: (Array.isArray(resume.personalProjects) ? resume.personalProjects : [])
-      .filter(isObjectRecord)
-      .map(normalizeDescriptionFields)
-      .filter(hasProjectContent),
-    // education was the one top-level collection left unguarded, so a null or
-    // primitive entry survived normalization and reached the render path.
-    // Education.description is a scalar, so there are no styles to align here.
-    education: (Array.isArray(resume.education) ? resume.education : []).filter(isObjectRecord),
-    additional: resume.additional
-      ? {
-          ...resume.additional,
-          technicalSkills: normalizeStringList(resume.additional.technicalSkills),
-          languages: normalizeStringList(resume.additional.languages),
-          certificationsTraining: normalizeStringList(resume.additional.certificationsTraining),
-          awards: normalizeStringList(resume.additional.awards),
-        }
-      : resume.additional,
-    customSections,
-  };
-};
-
-export const normalizeResumeForRender = (resume: ResumeData): ResumeData => {
-  return normalizeResumeForSave(resume);
-};
+export const normalizeResumeForRender = normalizeResumeForSave;

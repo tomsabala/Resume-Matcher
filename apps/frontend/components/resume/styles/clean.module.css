@@ -11,6 +11,13 @@
 
 .container {
   width: 100%;
+  /*
+    Clean's entry voice: small-caps tertiary subtitles, read by the shared
+    section-kind renderers through the base `--resume-subtitle-*` properties.
+  */
+  --resume-subtitle-variant: small-caps;
+  --resume-subtitle-tracking: 0.02em;
+  --resume-subtitle-color: var(--resume-text-tertiary);
 }
 
 /*
@@ -65,30 +72,6 @@
   page-break-after: avoid;
   orphans: 3;
   widows: 3;
-}
-
-.entryCompany {
-  font-weight: 700;
-  color: var(--resume-text-primary);
-}
-
-.entryRole {
-  font-variant: small-caps;
-  letter-spacing: 0.02em;
-  color: var(--resume-text-tertiary);
-}
-
-.entryMeta {
-  font-size: calc(var(--font-size-base) * 0.85);
-  color: var(--resume-text-tertiary);
-  white-space: nowrap;
-  flex-shrink: 0;
-  text-align: right;
-}
-
-.skillLabel {
-  font-weight: 700;
-  color: var(--resume-text-primary);
 }
 
 @media print {

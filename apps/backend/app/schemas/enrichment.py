@@ -5,15 +5,27 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from app.ai_limits import validate_source_size
+from app.schemas.diff import DiffRow
+
+# "entry" targets one entry's bullets; "values" targets a flat list of short
+# values (a TAGS section, or one group of a GROUPS section). Which section
+# holds them is the user's choice, so the type says what the content *is*,
+# never which section it came from.
+EnrichmentItemType = Literal["entry", "values"]
+RegenerateItemType = EnrichmentItemType
 
 
 class EnrichmentItem(BaseModel):
     """An item identified by AI as needing enrichment."""
 
-    item_id: str  # ID of the experience/project (e.g., "exp_0", "proj_1")
-    item_type: str  # "experience" | "project"
-    title: str  # Job title or project name
-    subtitle: str | None = None  # Company name or project role
+    item_id: str  # "<section_key>:<entry_id>" or "<section_key>:#tags"
+    item_type: EnrichmentItemType
+    # The owning section's heading, for display. The UI labels an item with
+    # the user's own section name; "Experience"/"Projects" are no longer
+    # categories the code knows about.
+    section_heading: str = ""
+    title: str  # Entry title
+    subtitle: str | None = None  # Entry subtitle (company, institution, role)
     current_description: list[str] = Field(default_factory=list)
     weakness_reason: str  # Why AI flagged this item
 
@@ -62,7 +74,8 @@ class EnhancedDescription(BaseModel):
     """AI-generated enhanced description for an item."""
 
     item_id: str
-    item_type: str  # "experience" | "project"
+    item_type: EnrichmentItemType
+    section_heading: str = ""
     title: str  # For display purposes
     original_description: list[str] = Field(default_factory=list)
     enhanced_description: list[str] = Field(default_factory=list)
@@ -72,7 +85,8 @@ class EnhancementItemError(BaseModel):
     """A safe, non-fatal error for one requested enhancement item."""
 
     item_id: str
-    item_type: str
+    item_type: EnrichmentItemType
+    section_heading: str = ""
     title: str
     subtitle: str | None = None
     message: str
@@ -95,13 +109,14 @@ class ApplyEnhancementsRequest(BaseModel):
 # AI Regenerate Feature Schemas
 # ============================================
 
-RegenerateItemType = Literal["experience", "project", "skills"]
-
-
 class RegenerateItemInput(BaseModel):
     """Input for a single item to regenerate."""
 
-    item_id: str  # "exp_0", "proj_1", "skills"
+    # "<section_key>:<entry_id>" for an entry; "<section_key>:#tags" or
+    # "<section_key>:#group:<index>" for a value list. Entry ids are stable
+    # for the entry's life, so a reorder between preview and apply cannot
+    # silently retarget a different entry.
+    item_id: str
     item_type: RegenerateItemType
     title: str
     subtitle: str | None = None
@@ -133,6 +148,10 @@ class RegeneratedItem(BaseModel):
     subtitle: str | None = None
     original_content: list[str] = Field(default_factory=list)
     new_content: list[str] = Field(default_factory=list)
+    # Server-computed comparison of original_content against new_content,
+    # with word-level spans — the same rows the document diff produces, so
+    # one UI renders both surfaces.
+    rows: list[DiffRow] = Field(default_factory=list)
     diff_summary: str = ""  # AI-generated summary of changes
 
 

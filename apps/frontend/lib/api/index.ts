@@ -14,7 +14,19 @@ export {
   apiPut,
   apiDelete,
   getUploadUrl,
+  setActiveWorkspaceId,
 } from './client';
+
+// Workspace operations
+export {
+  listWorkspaces,
+  createWorkspace,
+  updateWorkspace,
+  deleteWorkspace,
+  type Workspace,
+  type WorkspaceCreate,
+  type WorkspaceUpdate,
+} from './workspaces';
 
 // Resume operations
 export {

@@ -159,6 +159,16 @@ Analyze your resume against the job description with a match score, keyword high
 
 Export your tailored resume and cover letter in PDF.
 
+### LaTeX Export
+
+Export the same resume as real LaTeX: pick a `.tex` template, download the
+source, or hand-edit it in the builder's LaTeX tab and compile straight to PDF.
+Hand-edited source is checkpointed in version history, so a reset is never a
+loss. The Docker image ships a TeX engine (Tectonic) for in-container
+compilation; build with `INSTALL_LATEX=false` for a smaller image where the
+`.tex` download is the export path. Pin an engine with
+`RESUME_MATCHER_LATEX_ENGINE`.
+
 ### Templates
 
 | Template Name | Preview | Description |

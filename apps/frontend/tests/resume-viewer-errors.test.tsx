@@ -9,6 +9,7 @@ import {
   retryProcessing,
 } from '@/lib/api/resume';
 import { openUrlInNewTab } from '@/lib/utils/download';
+import { sampleDocument } from './fixtures/document';
 
 const route = vi.hoisted(() => ({ resumeId: 'resume-123' }));
 const push = vi.fn();
@@ -57,7 +58,7 @@ beforeEach(() => {
   localStorage.clear();
   mockedFetch.mockResolvedValue({
     title: 'Original title',
-    processed_resume: { personalInfo: { name: 'Ada' } },
+    processed_resume: sampleDocument({ header: { name: 'Ada' } }),
     raw_resume: { processing_status: 'ready' },
   } as Awaited<ReturnType<typeof fetchResume>>);
 });
@@ -181,7 +182,7 @@ it('keeps the current resume title when an old rename settles after identity cha
   fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
   mockedFetch.mockResolvedValueOnce({
     title: 'New B title',
-    processed_resume: { personalInfo: { name: 'B' } },
+    processed_resume: sampleDocument({ header: { name: 'B' } }),
     raw_resume: { processing_status: 'ready' },
   } as Awaited<ReturnType<typeof fetchResume>>);
   route.resumeId = 'resume-b';

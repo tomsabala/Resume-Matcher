@@ -1,7 +1,14 @@
 services:
   resume-matcher:
     image: ghcr.io/srbhr/resume-matcher
-    build: .
+    build:
+      context: .
+      args:
+        # Ships Tectonic (~30MB + a warmed TeX bundle) so LaTeX export can
+        # compile in-container. Set false for a smaller image: generation,
+        # source editing and the .tex download still work, only PDF
+        # compilation is unavailable.
+        INSTALL_LATEX: ${INSTALL_LATEX:-true}
     container_name: resume-matcher
     ports:
       - "${PORT:-3000}:3000"
@@ -31,6 +38,9 @@ services:
       - LLM_API_BASE=${LLM_API_BASE:-}
       # CORS origins (JSON array format). FRONTEND_BASE_URL is auto-included.
       #- CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
+      # Pin the LaTeX engine instead of auto-detecting
+      # (tectonic > latexmk > xelatex > pdflatex).
+      #- RESUME_MATCHER_LATEX_ENGINE=tectonic
     restart: unless-stopped
 
 #secrets:

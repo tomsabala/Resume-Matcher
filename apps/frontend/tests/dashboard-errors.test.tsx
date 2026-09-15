@@ -3,6 +3,10 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from '@/app/(default)/dashboard/page';
 
+vi.mock('@/lib/context/workspace-context', () => ({
+  useWorkspace: () => ({ revision: 0 }),
+}));
+
 const list = vi.fn();
 const get = vi.fn();
 const remove = vi.fn();

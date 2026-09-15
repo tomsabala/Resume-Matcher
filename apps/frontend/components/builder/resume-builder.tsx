@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense, useCallback, useMemo, useRef } from 'react';
 import Image from 'next/image';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { type ResumeData } from '@/components/dashboard/resume-component';
+import { SCHEMA_VERSION, type ResumeDocument } from '@/lib/types/document';
 import { ResumeForm } from './resume-form';
 import { FormattingControls } from './formatting-controls';
 import { CoverLetterEditor } from './cover-letter-editor';
@@ -46,11 +46,13 @@ import {
   fetchJobDescription,
 } from '@/lib/api/resume';
 import { JDComparisonView } from './jd-comparison-view';
+import { VersionTimeline } from '@/components/versions/version-timeline';
+import { LatexPanel } from '@/components/latex/latex-panel';
 import { RegenerateWizard } from './regenerate-wizard';
 import { useRegenerateWizard } from '@/hooks/use-regenerate-wizard';
 import { useTranslations } from '@/lib/i18n';
 import { type TemplateSettings, DEFAULT_TEMPLATE_SETTINGS } from '@/lib/types/template-settings';
-import { withLocalizedDefaultSections } from '@/lib/utils/section-helpers';
+import { sectionHeading, visibleSections } from '@/lib/utils/section-helpers';
 import { useLanguage } from '@/lib/context/language-context';
 import { buildResumeFilename, downloadBlobAsFile, openUrlInNewTab } from '@/lib/utils/download';
 import { normalizeResumeForRender, normalizeResumeForSave } from '@/lib/utils/resume-normalization';
@@ -59,12 +61,12 @@ import {
   getResumeDraftStorageKey,
   LEGACY_RESUME_DRAFT_STORAGE_KEY,
   parseResumeDraft,
-  isResumeDataShape,
+  isResumeDocumentShape,
   safeStorage,
   shouldPromptForDraftRestore,
   type ResumeDraftEnvelope,
 } from '@/lib/utils/resume-draft-storage';
-import type { RegenerateItemInput } from '@/lib/api/enrichment';
+import type { RegenerateGroup } from './regenerate-dialog';
 import { clearResumeWizardCompletion } from '@/lib/utils/resume-wizard-storage';
 import {
   clearAttachmentDraft,
@@ -73,11 +75,20 @@ import {
   type AttachmentDraftEnvelope,
 } from '@/lib/utils/attachment-draft-storage';
 
-type TabId = 'resume' | 'cover-letter' | 'outreach' | 'interview-prep' | 'jd-match';
+type TabId =
+  'resume' | 'cover-letter' | 'outreach' | 'interview-prep' | 'jd-match' | 'history' | 'latex';
 type JobContextStatus = 'idle' | 'loading' | 'available' | 'missing';
 
 const SETTINGS_STORAGE_KEY = 'resume_builder_settings';
-const TAB_IDS: TabId[] = ['resume', 'cover-letter', 'outreach', 'interview-prep', 'jd-match'];
+const TAB_IDS: TabId[] = [
+  'resume',
+  'cover-letter',
+  'outreach',
+  'interview-prep',
+  'jd-match',
+  'history',
+  'latex',
+];
 const RESUME_AUTOSAVE_DEBOUNCE_MS = 2500;
 const RESUME_AUTOSAVE_MAX_WAIT_MS = 12000;
 // Floor for the computed delay. Without it, once an unsynced streak exceeds the
@@ -96,27 +107,16 @@ const getTabFromSearchParams = (searchParams: Pick<URLSearchParams, 'get'>): Tab
   return TAB_IDS.includes(tab as TabId) ? (tab as TabId) : 'resume';
 };
 
-const buildInitialData = (t: Translate): ResumeData => ({
-  personalInfo: {
-    name: t('builder.personalInfoForm.placeholders.name'),
-    title: t('builder.personalInfoForm.placeholders.title'),
-    email: t('builder.personalInfoForm.placeholders.email'),
-    phone: t('builder.personalInfoForm.placeholders.phone'),
-    location: t('builder.personalInfoForm.placeholders.location'),
-    website: t('builder.personalInfoForm.placeholders.website'),
-    linkedin: t('builder.personalInfoForm.placeholders.linkedin'),
-    github: t('builder.personalInfoForm.placeholders.github'),
+// The starting point for a builder with no server document yet: a header the
+// user can type over and no sections, because sections are data the user adds.
+const buildInitialDocument = (t: Translate): ResumeDocument => ({
+  schemaVersion: SCHEMA_VERSION,
+  header: {
+    name: t('builder.header.placeholders.name'),
+    headline: t('builder.header.placeholders.headline'),
+    contacts: [],
   },
-  summary: t('builder.placeholders.summary'),
-  workExperience: [],
-  education: [],
-  personalProjects: [],
-  additional: {
-    technicalSkills: [],
-    languages: [],
-    certificationsTraining: [],
-    awards: [],
-  },
+  sections: [],
 });
 
 type StoredResumeDraft = ResumeDraftEnvelope & { storageKey: string };
@@ -148,7 +148,7 @@ const readStoredResumeDraft = (resumeId: string | null): StoredResumeDraft | nul
   return legacyDraft;
 };
 
-const writeStoredResumeDraft = (resumeId: string | null, data: ResumeData): boolean => {
+const writeStoredResumeDraft = (resumeId: string | null, data: ResumeDocument): boolean => {
   try {
     return safeStorage.set(
       getResumeDraftStorageKey(resumeId),
@@ -195,10 +195,10 @@ const ResumeBuilderContent = () => {
     [t]
   );
 
-  const initialData = useMemo(() => buildInitialData(t), [t]);
-  const [resumeData, setResumeData] = useState<ResumeData>(() => initialData);
+  const initialData = useMemo(() => buildInitialDocument(t), [t]);
+  const [doc, setDoc] = useState<ResumeDocument>(() => initialData);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [lastSavedData, setLastSavedData] = useState<ResumeData>(() => initialData);
+  const [lastSavedData, setLastSavedData] = useState<ResumeDocument>(() => initialData);
   const [isSaving, setIsSaving] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [autoSaveError, setAutoSaveError] = useState<string | null>(null);
@@ -263,7 +263,7 @@ const ResumeBuilderContent = () => {
     if (savedDraft) {
       return;
     }
-    setResumeData(initialData);
+    setDoc(initialData);
     setLastSavedData(initialData);
   }, [initialData, resumeId, hasUnsavedChanges, improvedPreview]);
 
@@ -311,6 +311,24 @@ const ResumeBuilderContent = () => {
   const [jobDescription, setJobDescription] = useState<string | null>(null);
   const [jobContextStatus, setJobContextStatus] = useState<JobContextStatus>('idle');
 
+  // Bumped whenever the server copy changes, so the version timeline refetches.
+  const [historyRevision, setHistoryRevision] = useState(0);
+
+  /** Re-read the resume from the server and adopt it as the editor's state. */
+  const reloadFromServer = useCallback(async () => {
+    if (!resumeId) return;
+    const data = await fetchResume(resumeId);
+    setResumeTitle(data.title ?? null);
+    if (data.processed_resume) {
+      setDoc(data.processed_resume);
+      setLastSavedData(data.processed_resume);
+      setHasUnsavedChanges(false);
+      syncedVersionRef.current = editVersionRef.current;
+      unsyncedSinceRef.current = null;
+    }
+    setHistoryRevision((value) => value + 1);
+  }, [resumeId]);
+
   // AI Regenerate wizard
   const regenerateWizard = useRegenerateWizard({
     resumeId: resumeId || '',
@@ -322,16 +340,7 @@ const ResumeBuilderContent = () => {
       }
 
       try {
-        const data = await fetchResume(resumeId);
-        // Update resume title for downloads
-        setResumeTitle(data.title ?? null);
-        if (data.processed_resume) {
-          setResumeData(data.processed_resume as ResumeData);
-          setLastSavedData(data.processed_resume as ResumeData);
-          setHasUnsavedChanges(false);
-          syncedVersionRef.current = editVersionRef.current;
-          unsyncedSinceRef.current = null;
-        }
+        await reloadFromServer();
       } catch (error) {
         console.error('Failed to reload resume after applying regenerated changes:', error);
         showNotification(t('builder.alerts.reloadFailed'), 'danger');
@@ -362,48 +371,63 @@ const ResumeBuilderContent = () => {
     },
   });
 
-  const canonicalResumeDataForPreview = useMemo(
-    () => normalizeResumeForRender(resumeData),
-    [resumeData]
-  );
+  const canonicalDocument = useMemo(() => normalizeResumeForRender(doc), [doc]);
 
-  // Build regenerate items from canonical resume data so apply checks match the saved snapshot.
-  const experienceItemsForRegenerate: RegenerateItemInput[] = useMemo(() => {
-    return (canonicalResumeDataForPreview.workExperience || []).map((exp, idx) => ({
-      item_id: `exp_${idx}`,
-      item_type: 'experience' as const,
-      title: exp.title ?? '',
-      subtitle: exp.company || undefined,
-      current_content: Array.isArray(exp.description) ? exp.description : [],
-    }));
-  }, [canonicalResumeDataForPreview.workExperience]);
-
-  const projectItemsForRegenerate: RegenerateItemInput[] = useMemo(() => {
-    return (canonicalResumeDataForPreview.personalProjects || []).map((proj, idx) => ({
-      item_id: `proj_${idx}`,
-      item_type: 'project' as const,
-      title: proj.name ?? '',
-      subtitle: proj.role || undefined,
-      current_content: Array.isArray(proj.description) ? proj.description : [],
-    }));
-  }, [canonicalResumeDataForPreview.personalProjects]);
-
-  const skillsItemForRegenerate: RegenerateItemInput | null = useMemo(() => {
-    const skills = canonicalResumeDataForPreview.additional?.technicalSkills;
-    if (skills && skills.length > 0) {
-      return {
-        item_id: 'skills',
-        item_type: 'skills' as const,
-        title: t('builder.regenerate.selectDialog.skills'),
-        current_content: skills,
-      };
-    }
-    return null;
-  }, [canonicalResumeDataForPreview.additional?.technicalSkills, t]);
-  const localizedResumeDataForPreview = useMemo(
-    () => withLocalizedDefaultSections(canonicalResumeDataForPreview, t),
-    [canonicalResumeDataForPreview, t]
-  );
+  // Regenerable content, grouped by section so the wizard covers every section
+  // the user actually has. Built from the canonical document so apply-time
+  // content checks match the saved snapshot.
+  const regenerateGroups: RegenerateGroup[] = useMemo(() => {
+    return visibleSections(canonicalDocument)
+      .map((section) => {
+        const heading = sectionHeading(section, t);
+        if (section.kind === 'entries') {
+          return {
+            key: section.key,
+            heading,
+            items: section.entries.map((entry) => ({
+              // Stable entry id, not a position: reordering between
+              // regenerate and apply must not retarget a different entry.
+              item_id: `${section.key}:${entry.id}`,
+              item_type: 'entry' as const,
+              title: entry.title,
+              subtitle: entry.subtitle || undefined,
+              current_content: entry.bullets.map((bullet) => bullet.text),
+            })),
+          };
+        }
+        if (section.kind === 'tags') {
+          // A tag section is regenerated as a whole: the list is the content.
+          return {
+            key: section.key,
+            heading,
+            items: [
+              {
+                item_id: `${section.key}:#tags`,
+                item_type: 'values' as const,
+                title: heading,
+                current_content: section.tags,
+              },
+            ],
+          };
+        }
+        if (section.kind === 'groups') {
+          // Each labelled group is its own list, so the user can regenerate
+          // "Cloud & Infrastructure" without touching "Languages".
+          return {
+            key: section.key,
+            heading,
+            items: section.groups.map((group, index) => ({
+              item_id: `${section.key}:#group:${index}`,
+              item_type: 'values' as const,
+              title: group.label || heading,
+              current_content: group.values,
+            })),
+          };
+        }
+        return { key: section.key, heading, items: [] };
+      })
+      .filter((group) => group.items.length > 0);
+  }, [canonicalDocument, t]);
 
   // Save template settings to localStorage when they change
   useEffect(() => {
@@ -430,7 +454,7 @@ const ResumeBuilderContent = () => {
     // current. (The JD effect below already did this; this one did not.)
     let cancelled = false;
 
-    const loadResumeData = async () => {
+    const loadDocument = async () => {
       if (cancelled) return;
       setLoadingState('loading');
       setPendingDraftRestore(null);
@@ -446,18 +470,18 @@ const ResumeBuilderContent = () => {
           if (
             status === 'processing' ||
             status === 'failed' ||
-            (status === 'pending' && !isResumeDataShape(data.processed_resume))
+            (status === 'pending' && !isResumeDocumentShape(data.processed_resume))
           ) {
             setLoadingState('error');
             return;
           }
-          let serverData: ResumeData | null = null;
-          if (isResumeDataShape(data.processed_resume)) {
+          let serverData: ResumeDocument | null = null;
+          if (isResumeDocumentShape(data.processed_resume)) {
             serverData = data.processed_resume;
           } else if (data.raw_resume?.content) {
             try {
               const parsed: unknown = JSON.parse(data.raw_resume.content);
-              if (isResumeDataShape(parsed)) serverData = parsed;
+              if (isResumeDocumentShape(parsed)) serverData = parsed;
             } catch {
               // Raw content may still be markdown instead of structured JSON.
             }
@@ -497,7 +521,7 @@ const ResumeBuilderContent = () => {
           setInterviewPrep(data.interview_prep ?? null);
           setInterviewPrepError(null);
           const localDraft = readStoredResumeDraft(resumeId);
-          setResumeData(serverData);
+          setDoc(serverData);
           setLastSavedData(serverData);
           setHasUnsavedChanges(false);
           setHasCurrentLocalDraft(false);
@@ -526,7 +550,7 @@ const ResumeBuilderContent = () => {
       // Priority 2: Improved Data from Context (Tailor Flow)
       if (improvedPreview) {
         setIsTailoredResume(Boolean(improvedData?.data?.resume_id && improvedData.data.job_id));
-        setResumeData(improvedPreview);
+        setDoc(improvedPreview);
         setLastSavedData(improvedPreview);
         const contextCoverLetter = improvedCoverLetter ?? '';
         const contextOutreach = improvedOutreach ?? '';
@@ -559,7 +583,7 @@ const ResumeBuilderContent = () => {
       setLoadingState('loaded');
     };
 
-    loadResumeData();
+    loadDocument();
 
     return () => {
       cancelled = true;
@@ -617,10 +641,10 @@ const ResumeBuilderContent = () => {
   }, [isTailoredResume, resumeId]);
 
   const handleUpdate = useCallback(
-    (newData: ResumeData) => {
+    (newData: ResumeDocument) => {
       editVersionRef.current += 1;
       unsyncedSinceRef.current ??= Date.now();
-      setResumeData(newData);
+      setDoc(newData);
       setHasUnsavedChanges(true);
       setAutoSaveError(null);
       // Auto-save draft to localStorage
@@ -634,7 +658,7 @@ const ResumeBuilderContent = () => {
   }, []);
 
   const queueResumeSave = useCallback(
-    (editorData: ResumeData) => {
+    (editorData: ResumeDocument) => {
       if (!resumeId) {
         return Promise.reject(new Error('Resume ID is required to save.'));
       }
@@ -656,7 +680,10 @@ const ResumeBuilderContent = () => {
         () => undefined
       );
 
-      return runSave.then((response) => ({ response, canonicalPayload }));
+      return runSave.then((response) => {
+        setHistoryRevision((value) => value + 1);
+        return { response, canonicalPayload };
+      });
     },
     [resumeId]
   );
@@ -664,7 +691,7 @@ const ResumeBuilderContent = () => {
   useEffect(() => {
     if (
       !resumeId ||
-      // Never PATCH before the server copy has been read. Until then resumeData
+      // Never PATCH before the server copy has been read. Until then doc
       // still holds i18n placeholders, and a full-document replace would
       // overwrite the real resume with them.
       loadingState !== 'loaded' ||
@@ -678,7 +705,7 @@ const ResumeBuilderContent = () => {
     }
 
     const versionAtSchedule = editVersionRef.current;
-    const editorSnapshot = resumeData;
+    const editorSnapshot = doc;
     const elapsedSinceStreakStart = unsyncedSinceRef.current
       ? Date.now() - unsyncedSinceRef.current
       : 0;
@@ -696,10 +723,11 @@ const ResumeBuilderContent = () => {
       try {
         const { response, canonicalPayload } = await queueResumeSave(editorSnapshot);
         if (!documentIsActiveRef.current) return;
-        // Prefer the server's copy: it may rewrite the payload (e.g. aligning
-        // descriptionStyles), and comparing a stale client payload against the
-        // server state would surface a spurious draft-recovery prompt on reload.
-        setLastSavedData((response?.processed_resume as ResumeData) ?? canonicalPayload);
+        // Prefer the server's copy: it may rewrite the payload (dropping blank
+        // rows, filling in ids), and comparing a stale client payload against
+        // the server state would surface a spurious draft-recovery prompt on
+        // reload.
+        setLastSavedData(response?.processed_resume ?? canonicalPayload);
         setLastAutoSavedAt(Date.now());
         setAutoSaveError(null);
 
@@ -728,7 +756,7 @@ const ResumeBuilderContent = () => {
     loadingState,
     queueResumeSave,
     regenerateWizard.step,
-    resumeData,
+    doc,
     resumeId,
     t,
   ]);
@@ -750,10 +778,10 @@ const ResumeBuilderContent = () => {
       try {
         setIsSaving(true);
         const versionAtFlush = editVersionRef.current;
-        const editorSnapshot = resumeData;
+        const editorSnapshot = doc;
         const { response, canonicalPayload } = await queueResumeSave(editorSnapshot);
         if (!documentIsActiveRef.current) return false;
-        setLastSavedData((response?.processed_resume as ResumeData) ?? canonicalPayload);
+        setLastSavedData(response?.processed_resume ?? canonicalPayload);
         setAutoSaveError(null);
 
         // Compare against syncedVersionRef, not a zeroed counter: an autosave
@@ -787,7 +815,7 @@ const ResumeBuilderContent = () => {
       hasUnsavedChanges,
       loadingState,
       queueResumeSave,
-      resumeData,
+      doc,
       resumeId,
       showNotification,
       t,
@@ -804,7 +832,7 @@ const ResumeBuilderContent = () => {
 
   const handleReset = () => {
     const saveInFlight = isSaving || isAutoSaving;
-    setResumeData(lastSavedData);
+    setDoc(lastSavedData);
 
     // Bump the version so any save already in flight cannot claim the reset
     // state as synced when it lands — its captured baseline is now stale.
@@ -833,7 +861,7 @@ const ResumeBuilderContent = () => {
     if (!pendingDraftRestore) return;
     editVersionRef.current += 1;
     unsyncedSinceRef.current = Date.now();
-    setResumeData(pendingDraftRestore.data);
+    setDoc(pendingDraftRestore.data);
     setHasUnsavedChanges(true);
     setAutoSaveError(null);
     const didWriteScopedDraft = writeStoredResumeDraft(resumeId, pendingDraftRestore.data);
@@ -974,7 +1002,7 @@ const ResumeBuilderContent = () => {
       setIsDownloading(true);
       const blob = await downloadResumePdf(resumeId, templateSettings, uiLanguage);
       const company = getCompanyFromTitle(resumeTitle);
-      const userName = resumeData.personalInfo?.name?.trim() || null;
+      const userName = doc.header.name.trim() || null;
       const filename = buildResumeFilename(userName, company, resumeId, 'resume');
       downloadBlobAsFile(blob, filename);
       showNotification(t('builder.alerts.downloadSuccess'), 'success');
@@ -1109,7 +1137,7 @@ const ResumeBuilderContent = () => {
       }
       const blob = await downloadCoverLetterPdf(resumeId, templateSettings.pageSize, uiLanguage);
       const company = getCompanyFromTitle(resumeTitle);
-      const userName = resumeData.personalInfo?.name?.trim() || null;
+      const userName = doc.header.name.trim() || null;
       const filename = buildResumeFilename(userName, company, resumeId, 'cover-letter');
       downloadBlobAsFile(blob, filename);
     } catch (error) {
@@ -1550,6 +1578,8 @@ const ResumeBuilderContent = () => {
                   {activeTab === 'outreach' && t('builder.leftPanel.outreachEditor')}
                   {activeTab === 'interview-prep' && t('builder.leftPanel.interviewPrep')}
                   {activeTab === 'jd-match' && t('builder.leftPanel.jdMatchAnalysis')}
+                  {activeTab === 'history' && t('versions.title')}
+                  {activeTab === 'latex' && t('latex.title')}
                 </h2>
               </div>
 
@@ -1568,7 +1598,7 @@ const ResumeBuilderContent = () => {
                       settings={templateSettings}
                       onChange={handleSettingsChange}
                     />
-                    <ResumeForm resumeData={resumeData} onUpdate={handleUpdate} />
+                    <ResumeForm doc={doc} onUpdate={handleUpdate} />
                   </>
                 ))}
 
@@ -1619,6 +1649,24 @@ const ResumeBuilderContent = () => {
                   canGenerate={canGenerateInterviewPrep}
                   unavailableMessage={interviewPrepUnavailableMessage}
                   className="p-0"
+                />
+              )}
+
+              {/* Version History */}
+              {activeTab === 'history' && resumeId && (
+                <VersionTimeline
+                  resumeId={resumeId}
+                  revision={historyRevision}
+                  onRestored={() => void reloadFromServer()}
+                />
+              )}
+
+              {/* LaTeX source and PDF export */}
+              {activeTab === 'latex' && resumeId && (
+                <LatexPanel
+                  resumeId={resumeId}
+                  revision={historyRevision}
+                  onSourceChanged={() => setHistoryRevision((value) => value + 1)}
                 />
               )}
 
@@ -1700,6 +1748,18 @@ const ResumeBuilderContent = () => {
                     label: t('builder.previewTabs.jdMatch'),
                     disabled: !jobDescription,
                   },
+                  {
+                    id: 'history',
+                    label: t('builder.previewTabs.history'),
+                    // A resume that was never saved has no history to show.
+                    disabled: !resumeId,
+                  },
+                  {
+                    id: 'latex',
+                    label: t('builder.previewTabs.latex'),
+                    // LaTeX is generated from the saved document.
+                    disabled: !resumeId,
+                  },
                 ]}
                 activeTab={activeTab}
                 onTabChange={(id) => setActiveTab(id as TabId)}
@@ -1710,19 +1770,16 @@ const ResumeBuilderContent = () => {
             <div className="flex-1 overflow-y-auto">
               {/* Resume Preview */}
               {activeTab === 'resume' && (
-                <PaginatedPreview
-                  resumeData={localizedResumeDataForPreview}
-                  settings={templateSettings}
-                />
+                <PaginatedPreview doc={canonicalDocument} settings={templateSettings} />
               )}
 
               {/* Cover Letter Preview */}
               {activeTab === 'cover-letter' &&
-                (coverLetter && resumeData.personalInfo ? (
+                (coverLetter ? (
                   <div className="p-6">
                     <CoverLetterPreview
                       content={coverLetter}
-                      personalInfo={resumeData.personalInfo}
+                      header={doc.header}
                       pageSize={templateSettings.pageSize}
                     />
                   </div>
@@ -1765,7 +1822,17 @@ const ResumeBuilderContent = () => {
 
               {/* JD Match Comparison */}
               {activeTab === 'jd-match' && jobDescription && (
-                <JDComparisonView jobDescription={jobDescription} resumeData={resumeData} />
+                <JDComparisonView jobDescription={jobDescription} doc={doc} />
+              )}
+
+              {/* The document as it stands, beside its history. */}
+              {activeTab === 'history' && (
+                <PaginatedPreview doc={canonicalDocument} settings={templateSettings} />
+              )}
+
+              {/* The document as it stands, beside its LaTeX source. */}
+              {activeTab === 'latex' && (
+                <PaginatedPreview doc={canonicalDocument} settings={templateSettings} />
               )}
             </div>
           </div>
@@ -1879,9 +1946,7 @@ const ResumeBuilderContent = () => {
       <RegenerateWizard
         step={regenerateWizard.step}
         onStepChange={regenerateWizard.setStep}
-        experienceItems={experienceItemsForRegenerate}
-        projectItems={projectItemsForRegenerate}
-        skillsItem={skillsItemForRegenerate}
+        groups={regenerateGroups}
         selectedItems={regenerateWizard.selectedItems}
         onSelectionChange={regenerateWizard.setSelectedItems}
         instruction={regenerateWizard.instruction}

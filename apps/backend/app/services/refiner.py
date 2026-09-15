@@ -14,6 +14,8 @@ import re
 from functools import lru_cache
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.ai_budget import AIOperationDeadlineExceeded
 from app.ai_limits import PromptSizeError
 from app.llm import complete_json
@@ -22,12 +24,19 @@ from app.prompts.refinement import (
     AI_PHRASE_REPLACEMENTS,
     KEYWORD_INJECTION_PROMPT,
 )
+from app.prompts.schema import describe_document_schema
+from app.schemas.document import ResumeDocument, SectionKind, migrate_document
 from app.schemas.refinement import (
     AlignmentReport,
     AlignmentViolation,
     KeywordGapAnalysis,
     RefinementConfig,
     RefinementResult,
+)
+from app.services.document_walk import (
+    document_text_fragments,
+    iter_entries,
+    skill_values,
 )
 from app.services.resume_preservation import finalize_ai_resume
 
@@ -364,18 +373,16 @@ def validate_master_alignment(
         AlignmentReport with violations and confidence score
     """
     violations: list[AlignmentViolation] = []
+    tailored_document = migrate_document(tailored)
+    master_document = migrate_document(master)
 
-    # Check skills - use full resume text for broader matching
-    tailored_skills = set(
-        s.lower()
-        for s in tailored.get("additional", {}).get("technicalSkills", [])
-        if isinstance(s, str)
-    )
-    master_skills = set(
-        s.lower()
-        for s in master.get("additional", {}).get("technicalSkills", [])
-        if isinstance(s, str)
-    )
+    # Check short values (skills, certifications, languages, awards — whatever
+    # the user's TAGS/GROUPS sections hold). Any value present in the tailored
+    # document but not the master is a candidate fabrication.
+    tailored_values = {
+        value.lower() for value in skill_values(tailored_document) if value
+    }
+    master_values = {value.lower() for value in skill_values(master_document) if value}
     allowed_skills = {
         _normalize_skill_key(skill)
         for skill in (allowed_new_skills or set())
@@ -383,76 +390,39 @@ def validate_master_alignment(
     }
     master_full_text = _extract_all_text(master).lower()
 
-    for skill in tailored_skills - master_skills:
-        if _normalize_skill_key(skill) in allowed_skills:
+    for value in tailored_values - master_values:
+        if _normalize_skill_key(value) in allowed_skills:
             continue
-        # Check substring/containment: e.g. "Python" in "Python 3.x"
+        # Substring/containment ("Python" in "Python 3.x") or a mention
+        # anywhere in the master's prose downgrades this to a variant.
         has_substring_match = any(
-            skill in ms or ms in skill for ms in master_skills if ms
+            value in other or other in value for other in master_values if other
         )
-        # Check if skill appears anywhere in master resume text
-        found_in_text = _keyword_in_text(skill, master_full_text)
-
-        if has_substring_match or found_in_text:
-            violations.append(
-                AlignmentViolation(
-                    field_path="additional.technicalSkills",
-                    violation_type="skill_variant",
-                    value=skill,
-                    severity="info",
-                )
-            )
-        else:
-            violations.append(
-                AlignmentViolation(
-                    field_path="additional.technicalSkills",
-                    violation_type="fabricated_skill",
-                    value=skill,
-                    severity="critical",
-                )
-            )
-
-    # Check certifications
-    tailored_certs = set(
-        c.lower()
-        for c in tailored.get("additional", {}).get("certificationsTraining", [])
-        if isinstance(c, str)
-    )
-    master_certs = set(
-        c.lower()
-        for c in master.get("additional", {}).get("certificationsTraining", [])
-        if isinstance(c, str)
-    )
-
-    for cert in tailored_certs - master_certs:
+        grounded = has_substring_match or _keyword_in_text(value, master_full_text)
         violations.append(
             AlignmentViolation(
-                field_path="additional.certificationsTraining",
-                violation_type="fabricated_cert",
-                value=cert,
-                severity="critical",
+                field_path="sections.values",
+                violation_type="skill_variant" if grounded else "fabricated_skill",
+                value=value,
+                severity="info" if grounded else "critical",
             )
         )
 
-    # Check work experience companies (should not add new companies)
-    tailored_companies = set(
-        exp.get("company", "").lower()
-        for exp in tailored.get("workExperience", [])
-        if isinstance(exp, dict)
-    )
-    master_companies = set(
-        exp.get("company", "").lower()
-        for exp in master.get("workExperience", [])
-        if isinstance(exp, dict)
-    )
-
-    for company in tailored_companies - master_companies:
-        if company:  # Skip empty strings
+    # Check entry identity: tailoring may rewrite prose, never invent an
+    # employer, institution or project.
+    master_subtitles = {
+        entry.subtitle.lower()
+        for _, _, entry in iter_entries(master_document)
+        if entry.subtitle
+    }
+    for section, _, entry in iter_entries(tailored_document):
+        subtitle = entry.subtitle.lower()
+        if subtitle and subtitle not in master_subtitles:
             violations.append(
                 AlignmentViolation(
-                    field_path="workExperience",
+                    field_path=f"sections.{section.key}.entries",
                     violation_type="fabricated_company",
-                    value=company,
+                    value=subtitle,
                     severity="critical",
                 )
             )
@@ -486,98 +456,46 @@ def _prepare_job_description(job_description: str) -> tuple[str, bool]:
 
 
 def _validate_resume_structure(data: dict[str, Any]) -> bool:
-    """LLM-014: Validate resume maintains required structure after keyword injection.
+    """LLM-014: Validate the document survives keyword injection.
 
     Returns:
         True if structure is valid, False otherwise.
     """
-    # Check for required top-level keys
-    required_keys = ["personalInfo"]
-    for key in required_keys:
-        if key not in data:
-            logger.warning("Resume structure invalid: missing '%s'", key)
-            return False
-
-    # Check that arrays are still arrays
-    array_fields = ["workExperience", "education", "personalProjects"]
-    for field in array_fields:
-        if field in data and not isinstance(data[field], list):
-            logger.warning("Resume structure invalid: '%s' is not a list", field)
-            return False
-
+    try:
+        ResumeDocument.model_validate(data)
+    except ValidationError as error:
+        logger.warning("Resume structure invalid after injection: %s", error)
+        return False
     return True
 
 
-def _preserve_description_styles(
+def _restore_bullet_styles(
     original: dict[str, Any], improved: dict[str, Any]
 ) -> dict[str, Any]:
-    """Restore descriptionStyles the LLM dropped or truncated (H-04).
+    """Restore per-bullet styles the LLM dropped (H-04).
 
-    ``descriptionStyles`` is positional metadata parallel to ``description``.
-    An LLM cannot be relied on to carry it through a rewrite, and when it is
-    absent ``ResumeData`` silently backfills every row to ``"bullet"`` — so a
-    user's "plain" rows are erased with no warning and no log.
-
-    Rows are matched by index, which is the same contract the frontend and the
-    Pydantic validators use. Where the improved list is longer than the
-    original, the extra rows keep whatever the model returned (defaulting to
-    bullet downstream).
-
-    Args:
-        original: The resume before refinement.
-        improved: The resume returned by the LLM.
-
-    Returns:
-        ``improved``, mutated in place, with descriptionStyles restored.
+    Style is a property of the bullet now, so it can no longer *desync* from
+    its text — but a model rewriting a bullet can still return it with the
+    default style and silently turn a user's plain paragraph row into a
+    bulleted one. Rows are matched by index within their entry, which is the
+    same contract the editor uses.
     """
-    item_fields = ("workExperience", "personalProjects")
+    source = migrate_document(original)
+    result = migrate_document(improved)
+    source_by_key = {section.key: section for section in source.sections}
 
-    def _restore(orig_items: Any, new_items: Any) -> None:
-        if not isinstance(orig_items, list) or not isinstance(new_items, list):
-            return
-        for index, new_item in enumerate(new_items):
-            if index >= len(orig_items):
+    for section in result.sections:
+        origin = source_by_key.get(section.key)
+        if origin is None or section.kind is not SectionKind.ENTRIES:
+            continue
+        for index, entry in enumerate(section.entries):
+            if index >= len(origin.entries):
                 continue
-            orig_item = orig_items[index]
-            if not isinstance(orig_item, dict) or not isinstance(new_item, dict):
-                continue
-            orig_styles = orig_item.get("descriptionStyles")
-            if not isinstance(orig_styles, list) or not orig_styles:
-                continue
-            new_styles = new_item.get("descriptionStyles")
-            if isinstance(new_styles, list) and len(new_styles) == len(
-                new_item.get("description") or []
-            ):
-                # The model returned a correctly-aligned list; trust it.
-                continue
-            description = new_item.get("description")
-            if not isinstance(description, list):
-                continue
-            new_item["descriptionStyles"] = [
-                orig_styles[i] if i < len(orig_styles) else "bullet"
-                for i in range(len(description))
-            ]
-            logger.debug(
-                "Restored descriptionStyles dropped by the LLM (index %d)", index
-            )
-
-    for field in item_fields:
-        _restore(original.get(field), improved.get(field))
-
-    # customSections is `dict[str, CustomSection]` keyed by section id (see
-    # ResumeData in app/schemas/models.py) -- NOT a list. Matching by position
-    # would be wrong even if the shape allowed it, since dict ordering is not
-    # part of the contract; match by key.
-    orig_sections = original.get("customSections")
-    new_sections = improved.get("customSections")
-    if isinstance(orig_sections, dict) and isinstance(new_sections, dict):
-        for key, new_section in new_sections.items():
-            orig_section = orig_sections.get(key)
-            if not isinstance(orig_section, dict) or not isinstance(new_section, dict):
-                continue
-            _restore(orig_section.get("items"), new_section.get("items"))
-
-    return improved
+            origin_bullets = origin.entries[index].bullets
+            for row, bullet in enumerate(entry.bullets):
+                if row < len(origin_bullets):
+                    bullet.style = origin_bullets[row].style
+    return result.model_dump(mode="json")
 
 
 async def inject_keywords(
@@ -608,19 +526,29 @@ async def inject_keywords(
             len(job_description),
         )
 
+    document = migrate_document(tailored)
     prompt = KEYWORD_INJECTION_PROMPT.format(
         keywords_to_inject=json.dumps(keywords_to_inject),
         current_resume=json.dumps(tailored),
         master_resume=json.dumps(master),
         job_description=truncated_jd,
+        document_schema=describe_document_schema(document),
     )
+
+    populated = {
+        section.key
+        for section in document.sections
+        if section.kind is SectionKind.ENTRIES and section.entries
+    }
 
     def validate_writer_result(result: dict[str, Any]) -> dict[str, Any]:
         if not _validate_resume_structure(result):
             raise ValueError("Keyword injection corrupted resume structure")
-        for field in ("workExperience", "education", "personalProjects"):
-            if tailored.get(field) and not result.get(field):
-                raise ValueError(f"Keyword injection omitted populated {field}")
+        returned = migrate_document(result)
+        for key in populated:
+            section = returned.section(key)
+            if section is None or not section.entries:
+                raise ValueError(f"Keyword injection omitted populated {key}")
         return result
 
     try:
@@ -645,11 +573,11 @@ async def inject_keywords(
             )
             return tailored
 
-        # H-04: the prompt asks the model to preserve descriptionStyles, but a
-        # prompt is not a guarantee for positional metadata. Restore it locally,
-        # matching the defence-in-depth pattern the improve pipeline already
-        # uses for dates, skills, personalInfo and custom sections.
-        return _preserve_description_styles(tailored, result)
+        # H-04: the prompt asks the model to preserve bullet styles, but a
+        # prompt is not a guarantee. Restore them locally, matching the
+        # defence-in-depth pattern the improve pipeline already uses for
+        # dates, skills and the header.
+        return _restore_bullet_styles(tailored, result)
 
     except (AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -673,39 +601,50 @@ def fix_alignment_violations(
     Returns:
         Fixed resume data
     """
-    fixed = _deep_copy(tailored)
+    document = migrate_document(tailored)
+    fabricated_values = {
+        violation.value.lower()
+        for violation in violations
+        if violation.severity == "critical"
+        and violation.violation_type in ("fabricated_skill", "fabricated_cert")
+    }
+    fabricated_subtitles = {
+        violation.value.lower()
+        for violation in violations
+        if violation.severity == "critical"
+        and violation.violation_type == "fabricated_company"
+    }
+    if not fabricated_values and not fabricated_subtitles:
+        return _deep_copy(tailored)
 
-    for violation in violations:
-        if violation.severity != "critical":
-            continue
-
-        if violation.violation_type == "fabricated_skill":
-            skills = fixed.get("additional", {}).get("technicalSkills", [])
-            fixed.setdefault("additional", {})["technicalSkills"] = [
-                s for s in skills if s.lower() != violation.value.lower()
+    for section in document.sections:
+        if section.kind is SectionKind.TAGS:
+            section.tags = [
+                value for value in section.tags if value.lower() not in fabricated_values
             ]
-
-        elif violation.violation_type == "fabricated_cert":
-            certs = fixed.get("additional", {}).get("certificationsTraining", [])
-            fixed.setdefault("additional", {})["certificationsTraining"] = [
-                c for c in certs if c.lower() != violation.value.lower()
-            ]
-
-        elif violation.violation_type == "fabricated_company":
-            # SVC-002: Remove the fabricated work experience entry
-            logger.error("Critical: Fabricated company detected: %s", violation.value)
-            if "workExperience" in fixed:
-                fixed["workExperience"] = [
-                    exp
-                    for exp in fixed["workExperience"]
-                    if exp.get("company", "").lower() != violation.value.lower()
+        elif section.kind is SectionKind.GROUPS:
+            for group in section.groups:
+                group.values = [
+                    value
+                    for value in group.values
+                    if value.lower() not in fabricated_values
                 ]
-                logger.info(
-                    "Removed fabricated company '%s' from resume",
-                    violation.value,
+        elif section.kind is SectionKind.ENTRIES and fabricated_subtitles:
+            kept = [
+                entry
+                for entry in section.entries
+                if entry.subtitle.lower() not in fabricated_subtitles
+            ]
+            if len(kept) != len(section.entries):
+                # SVC-002: an invented employer/institution is removed outright.
+                logger.error(
+                    "Critical: removed %d fabricated entries from %s",
+                    len(section.entries) - len(kept),
+                    section.key,
                 )
+            section.entries = kept
 
-    return fixed
+    return document.model_dump(mode="json")
 
 
 def calculate_keyword_match(
@@ -761,82 +700,8 @@ def _extract_all_text_cached(data_json: str) -> str:
     SVC-011: LRU cache avoids re-extracting text from the same resume
     multiple times during a single refinement pass.
     """
-    data = json.loads(data_json)
-    parts: list[str] = []
-
-    # Summary
-    if data.get("summary"):
-        parts.append(str(data["summary"]))
-
-    # Work experience
-    for exp in data.get("workExperience", []):
-        if isinstance(exp, dict):
-            parts.append(str(exp.get("title", "")))
-            parts.append(str(exp.get("company", "")))
-            desc = exp.get("description", [])
-            if isinstance(desc, list):
-                parts.extend(str(d) for d in desc)
-
-    # Education
-    for edu in data.get("education", []):
-        if isinstance(edu, dict):
-            parts.append(str(edu.get("degree", "")))
-            parts.append(str(edu.get("institution", "")))
-            if edu.get("description"):
-                parts.append(str(edu["description"]))
-
-    # Projects
-    for proj in data.get("personalProjects", []):
-        if isinstance(proj, dict):
-            parts.append(str(proj.get("name", "")))
-            parts.append(str(proj.get("role", "")))
-            desc = proj.get("description", [])
-            if isinstance(desc, list):
-                parts.extend(str(d) for d in desc)
-
-    # Additional
-    additional = data.get("additional", {})
-    if isinstance(additional, dict):
-        skills = additional.get("technicalSkills", [])
-        if isinstance(skills, list):
-            parts.extend(str(s) for s in skills)
-        certs = additional.get("certificationsTraining", [])
-        if isinstance(certs, list):
-            parts.extend(str(c) for c in certs)
-        languages = additional.get("languages", [])
-        if isinstance(languages, list):
-            parts.extend(str(lang) for lang in languages)
-        awards = additional.get("awards", [])
-        if isinstance(awards, list):
-            parts.extend(str(a) for a in awards)
-
-    # Custom sections
-    custom_sections = data.get("customSections", {})
-    if isinstance(custom_sections, dict):
-        for section in custom_sections.values():
-            if not isinstance(section, dict):
-                continue
-            section_type = section.get("sectionType", "")
-            if section_type == "itemList":
-                for item in section.get("items", []):
-                    if isinstance(item, dict):
-                        parts.append(str(item.get("title", "")))
-                        parts.append(str(item.get("subtitle", "")))
-                        desc = item.get("description", [])
-                        if isinstance(desc, list):
-                            parts.extend(str(d) for d in desc)
-                        elif isinstance(desc, str):
-                            parts.append(desc)
-            elif section_type == "text":
-                text = section.get("text", "")
-                if isinstance(text, str):
-                    parts.append(text)
-            elif section_type == "stringList":
-                items = section.get("strings", [])
-                if isinstance(items, list):
-                    parts.extend(str(i) for i in items)
-
-    return " ".join(p for p in parts if p)
+    parts = list(document_text_fragments(migrate_document(json.loads(data_json))))
+    return " ".join(part for part in parts if part)
 
 
 def _deep_copy(data: dict[str, Any]) -> dict[str, Any]:

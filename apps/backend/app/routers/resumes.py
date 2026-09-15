@@ -23,6 +23,7 @@ from app.ai_budget import (
 )
 from app.config_cache import get_content_language, load_config as _load_config
 from app.database import DatabaseBusyError, ProcessingFinishOutcome, ResumeNotFoundError, db
+from app.deps import WorkspaceId
 from app.pdf import render_resume_pdf, PDFRenderError
 from app.config import settings
 from app.preview import (
@@ -45,9 +46,6 @@ from app.schemas import (
     ImproveResumeData,
     InterviewPrepData,
     RefinementStats,
-    ResumeDiffSummary,
-    ResumeFieldDiff,
-    ResumeData,
     ResumeFetchData,
     ResumeFetchResponse,
     ResumeListResponse,
@@ -57,7 +55,17 @@ from app.schemas import (
     UpdateCoverLetterRequest,
     UpdateOutreachMessageRequest,
     UpdateTitleRequest,
-    normalize_resume_data,
+)
+from app.schemas.document import (
+    ResumeDocument,
+    Section,
+    SectionKind,
+    migrate_document,
+)
+from app.schemas.versions import (
+    RestoreVersionRequest,
+    VersionListResponse,
+    VersionSummary,
 )
 from app.services.parser import (
     DocumentResourceLimitError,
@@ -90,6 +98,8 @@ from app.services.resume_preservation import (
     validate_confirmed_resume,
 )
 from app.services.ats import compute_ats_score
+from app.schemas.diff import DocumentDiff
+from app.services.document_diff import diff_documents, merge_accepted
 from app.schemas.refinement import RefinementConfig
 from app.services.cover_letter import (
     generate_cover_letter,
@@ -197,16 +207,18 @@ def _parse_interview_prep(
 def _hash_improved_data(data: dict[str, Any]) -> str:
     """Hash canonicalized improved data for preview/confirm validation.
 
-    Canonicalize through ``ResumeData`` first so a payload that merely omits
-    optional fields (which the schema defaults) hashes identically to its
-    schema-complete form. Without this, ``improve/preview`` (which hashes the
-    raw ``improved_data`` dict) and ``improve/confirm`` (which hashes the
-    ``ResumeData`` round-trip, ``request.improved_data.model_dump()``) disagree
-    for any stored resume whose ``processed_data`` is not schema-complete, and a
-    valid tailoring is rejected with 400 ("preview hash mismatch").
+    Canonicalize through ``ResumeDocument`` first so a payload that merely
+    omits optional fields (which the schema defaults) hashes identically to
+    its schema-complete form. Without this, ``improve/preview`` (which hashes
+    the raw ``improved_data`` dict) and ``improve/confirm`` (which hashes the
+    model round-trip) disagree for any stored resume whose ``processed_data``
+    is not schema-complete, and a valid tailoring is rejected with 400
+    ("preview hash mismatch").
     """
     try:
-        canonical: dict[str, Any] = ResumeData.model_validate(data).model_dump()
+        canonical: dict[str, Any] = ResumeDocument.model_validate(data).model_dump(
+            mode="json"
+        )
     except ValidationError:
         canonical = data  # not a full resume payload; hash as-is
     normalized = _normalize_payload(canonical)
@@ -290,215 +302,130 @@ def _restore_original_dates(
     original_data: dict[str, Any] | None,
     improved_data: dict[str, Any],
 ) -> dict[str, Any]:
-    """Restore original date/years values that the LLM may have truncated.
+    """Restore entry periods the LLM truncated.
 
-    Compares each entry's ``years`` field in the tailored resume against
-    the corresponding entry in the original.  If the original has more
-    date precision (e.g. includes a month) and the tailored version lost
-    it, the original value is restored.
+    Compares each entry's ``period`` against the original at the same index of
+    the same section. When the original carried more precision (a month) and
+    the tailored version lost it, the original wins.
     """
     if not original_data:
         return improved_data
 
-    result = copy.deepcopy(improved_data)
+    original = migrate_document(original_data)
+    result = migrate_document(improved_data)
+    original_by_key = {section.key: section for section in original.sections}
 
-    for section_key in ("workExperience", "education", "personalProjects"):
-        orig_entries = original_data.get(section_key, [])
-        result_entries = result.get(section_key, [])
-        for idx, orig_entry in enumerate(orig_entries):
-            if idx >= len(result_entries):
+    for section in result.sections:
+        source = original_by_key.get(section.key)
+        if source is None or section.kind is not SectionKind.ENTRIES:
+            continue
+        for index, entry in enumerate(section.entries):
+            if index >= len(source.entries):
                 break
-            if not isinstance(orig_entry, dict) or not isinstance(
-                result_entries[idx], dict
-            ):
-                continue
-            orig_years = orig_entry.get("years", "")
-            result_years = result_entries[idx].get("years", "")
+            source_period = source.entries[index].period
             if (
-                isinstance(orig_years, str)
-                and isinstance(result_years, str)
-                and orig_years
-                and orig_years != result_years
-                and _has_month(orig_years)
-                and not _has_month(result_years)
+                source_period
+                and source_period != entry.period
+                and _has_month(source_period)
+                and not _has_month(entry.period)
             ):
                 logger.info(
-                    "Restoring date in %s[%d]: %r → %r",
-                    section_key,
-                    idx,
-                    result_years,
-                    orig_years,
+                    "Restoring date in %s.entries[%d]: %r → %r",
+                    section.key,
+                    index,
+                    entry.period,
+                    source_period,
                 )
-                result_entries[idx]["years"] = orig_years
+                entry.period = source_period
 
-    # Custom sections (itemList)
-    orig_custom = original_data.get("customSections", {})
-    result_custom = result.get("customSections", {})
-    if isinstance(orig_custom, dict) and isinstance(result_custom, dict):
-        for section_key, orig_section in orig_custom.items():
-            if not isinstance(orig_section, dict):
-                continue
-            result_section = result_custom.get(section_key)
-            if not isinstance(result_section, dict):
-                continue
-            if orig_section.get("sectionType") != "itemList":
-                continue
-            orig_items = orig_section.get("items", [])
-            result_items = result_section.get("items", [])
-            for idx, orig_item in enumerate(orig_items):
-                if idx >= len(result_items):
-                    break
-                if not isinstance(orig_item, dict) or not isinstance(
-                    result_items[idx], dict
-                ):
-                    continue
-                orig_years = orig_item.get("years", "")
-                result_years = result_items[idx].get("years", "")
-                if (
-                    isinstance(orig_years, str)
-                    and isinstance(result_years, str)
-                    and orig_years
-                    and orig_years != result_years
-                    and _has_month(orig_years)
-                    and not _has_month(result_years)
-                ):
-                    result_items[idx]["years"] = orig_years
-
-    return result
+    return result.model_dump(mode="json")
 
 
 def _preserve_original_skills(
     original_data: dict[str, Any] | None,
     improved_data: dict[str, Any],
 ) -> dict[str, Any]:
-    """Restore any skills, certs, languages, or awards dropped by the LLM.
+    """Restore short values (skills, certs, languages, awards) the LLM dropped.
 
-    This is a hard safety net: regardless of what the LLM returns, no
-    original item from these lists is ever lost.  Dropped items are
-    appended at the end of the improved list.
+    A hard safety net over every ``TAGS``/``GROUPS`` section: whatever the LLM
+    returns, no original value is lost. Dropped values are appended.
     """
     if not original_data:
         return improved_data
 
-    result = copy.deepcopy(improved_data)
+    original = migrate_document(original_data)
+    result = migrate_document(improved_data)
+    original_by_key = {section.key: section for section in original.sections}
 
-    orig_additional = original_data.get("additional", {})
-    if not isinstance(orig_additional, dict):
-        return result
-    result_additional = result.setdefault("additional", {})
-
-    list_fields = [
-        "technicalSkills",
-        "certificationsTraining",
-        "languages",
-        "awards",
-    ]
-    for field in list_fields:
-        orig_items = orig_additional.get(field, [])
-        if not isinstance(orig_items, list) or not orig_items:
-            continue
-        current_items = result_additional.get(field, [])
-        if not isinstance(current_items, list):
-            current_items = []
-
-        # Build a case-insensitive index of what the LLM kept
-        current_lower = {
-            item.casefold() for item in current_items if isinstance(item, str)
-        }
-
-        # Append any originals that were dropped
-        restored = 0
-        for item in orig_items:
-            if isinstance(item, str) and item.casefold() not in current_lower:
-                current_items.append(item)
-                current_lower.add(item.casefold())
-                restored += 1
-
+    def restore(source_values: list[str], current: list[str]) -> list[str]:
+        present = {value.casefold() for value in current}
+        restored = [value for value in source_values if value.casefold() not in present]
         if restored:
-            logger.info("Restored %d dropped items in additional.%s", restored, field)
-        result_additional[field] = current_items
+            logger.info("Restored %d dropped short values", len(restored))
+        return current + restored
 
-    return result
+    for section in result.sections:
+        source = original_by_key.get(section.key)
+        if source is None or source.kind is not section.kind:
+            continue
+        if section.kind is SectionKind.TAGS:
+            section.tags = restore(source.tags, section.tags)
+        elif section.kind is SectionKind.GROUPS:
+            source_groups = {group.label: group for group in source.groups}
+            for group in section.groups:
+                origin = source_groups.get(group.label)
+                if origin is not None:
+                    group.values = restore(origin.values, group.values)
+
+    return result.model_dump(mode="json")
 
 
-def _protect_custom_sections(
+def _trim_hallucinated_entries(
     original_data: dict[str, Any] | None,
     improved_data: dict[str, Any],
 ) -> dict[str, Any]:
-    """Protect custom sections from LLM hallucination.
+    """Drop sections and entries the LLM invented.
 
-    - If an item originally had description: [], revert any fabricated descriptions.
-    - If the LLM added items that weren't in the original, remove them.
+    Tailoring rewrites content; it never authors structure. A section missing
+    from the result is restored, a section the model invented is dropped, and
+    an entry list longer than the original is trimmed back.
     """
     if not original_data:
         return improved_data
 
-    orig_custom = original_data.get("customSections")
-    if not isinstance(orig_custom, dict) or not orig_custom:
+    original = migrate_document(original_data)
+    result = migrate_document(improved_data)
+    if not original.sections:
         return improved_data
+    result_by_key = {section.key: section for section in result.sections}
 
-    result = copy.deepcopy(improved_data)
-    result_custom = result.get("customSections")
-    if not isinstance(result_custom, dict):
-        return result
-
-    for section_key, orig_section in orig_custom.items():
-        if not isinstance(orig_section, dict):
+    kept: list[Section] = []
+    for source in original.sections:
+        section = result_by_key.get(source.key)
+        if section is None or section.kind is not source.kind:
+            logger.info("Restored missing section: %s", source.key)
+            kept.append(source.model_copy(deep=True))
             continue
-        result_section = result_custom.get(section_key)
-        if not isinstance(result_section, dict):
-            # Section was removed by LLM — restore original
-            result_custom[section_key] = copy.deepcopy(orig_section)
-            logger.info("Restored missing custom section: %s", section_key)
-            continue
+        if section.kind is SectionKind.ENTRIES and len(section.entries) > len(
+            source.entries
+        ):
+            logger.info(
+                "Trimming %d hallucinated entries from %s",
+                len(section.entries) - len(source.entries),
+                source.key,
+            )
+            section.entries = section.entries[: len(source.entries)]
+        kept.append(section)
 
-        section_type = orig_section.get("sectionType", "")
-        if section_type == "itemList":
-            orig_items = orig_section.get("items", [])
-            result_items = result_section.get("items", [])
-            if not isinstance(orig_items, list) or not isinstance(result_items, list):
-                continue
-
-            # Trim any items the LLM added beyond the original count
-            if len(result_items) > len(orig_items):
-                logger.info(
-                    "Trimming %d hallucinated items from customSections.%s",
-                    len(result_items) - len(orig_items),
-                    section_key,
-                )
-                result_items = result_items[: len(orig_items)]
-
-            # Revert fabricated descriptions on items that had empty descriptions
-            for idx, orig_item in enumerate(orig_items):
-                if idx >= len(result_items):
-                    break
-                if not isinstance(orig_item, dict):
-                    continue
-                orig_desc = orig_item.get("description")
-                if isinstance(orig_desc, list) and len(orig_desc) == 0:
-                    result_desc = result_items[idx].get("description")
-                    if isinstance(result_desc, list) and len(result_desc) > 0:
-                        logger.info(
-                            "Reverted fabricated description on customSections.%s.items[%d]",
-                            section_key,
-                            idx,
-                        )
-                        result_items[idx]["description"] = []
-
-            result_section["items"] = result_items
-
-    result["customSections"] = result_custom
-    return result
+    result.sections = kept
+    return result.model_dump(mode="json")
 
 
-def _preserve_personal_info(
+def _preserve_header(
     original_data: dict[str, Any] | None,
     improved_data: dict[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
-    """Preserve personal info from original, return warnings if unable.
-
-    Uses deep copy to prevent mutation of original data.
-    """
+    """Restore the header from the original, returning warnings if unable."""
     warnings: list[str] = []
 
     if not original_data:
@@ -507,15 +434,10 @@ def _preserve_personal_info(
         )
         return improved_data, warnings
 
-    original_info = original_data.get("personalInfo")
-    if not isinstance(original_info, dict):
-        warnings.append("Original personal info missing or invalid")
-        return improved_data, warnings
-
-    # SVC-001: Use deep copy to prevent any mutation of original data
-    result = copy.deepcopy(improved_data)
-    result["personalInfo"] = copy.deepcopy(original_info)
-    return result, warnings
+    original = migrate_document(original_data)
+    result = migrate_document(improved_data)
+    result.header = original.header.model_copy(deep=True)
+    return result.model_dump(mode="json"), warnings
 
 
 def _finalized_refinement_stats(
@@ -570,26 +492,28 @@ def _build_ats_score(
         return None
 
 
-def _calculate_diff_from_resume(
+def _diff_from_resume(
     resume: dict[str, Any],
     improved_data: dict[str, Any],
-) -> tuple[ResumeDiffSummary | None, list[ResumeFieldDiff] | None, str | None]:
-    """Calculate resume diffs when structured data is available.
+) -> tuple[DocumentDiff | None, str | None]:
+    """Compare a resume against a proposal for it.
 
-    Returns (summary, changes, error_reason). Error reason is None on success,
-    or a string describing why diff calculation failed.
+    Returns ``(diff, error_reason)``; the reason is ``None`` on success, or a
+    string naming why the comparison could not be made.
     """
     original_data = _get_original_resume_data(resume)
     if not original_data:
-        return None, None, "original_data_missing"
-    from app.services.improver import calculate_resume_diff
-
+        return None, "original_data_missing"
     try:
-        summary, changes = calculate_resume_diff(original_data, improved_data)
-        return summary, changes, None
+        return (
+            diff_documents(
+                migrate_document(original_data), migrate_document(improved_data)
+            ),
+            None,
+        )
     except Exception as e:
         logger.warning("Skipping resume diff due to calculation failure: %s", e)
-        return None, None, "calculation_error"
+        return None, "calculation_error"
 
 
 def _validate_confirm_payload(
@@ -603,30 +527,20 @@ def _validate_confirm_payload(
             "Skipping confirm payload validation; structured resume data unavailable."
         )
         return
-    original_info = original_data.get("personalInfo")
-    improved_info = improved_data.get("personalInfo")
-    # JSON-008: Explicit null checks with clear error messages
-    if original_info is None:
-        raise ValueError("Original resume missing personalInfo")
-    if improved_info is None:
-        raise ValueError("Improved resume missing personalInfo")
-    if not isinstance(original_info, dict):
-        raise ValueError(
-            f"Original personalInfo is not a dict: {type(original_info).__name__}"
-        )
-    if not isinstance(improved_info, dict):
-        raise ValueError(
-            f"Improved personalInfo is not a dict: {type(improved_info).__name__}"
-        )
-    fields = set(original_info.keys()) | set(improved_info.keys())
+    original_header = migrate_document(original_data).header.model_dump(mode="json")
+    improved_header = migrate_document(improved_data).header.model_dump(mode="json")
+    # Contacts carry generated ids; compare what the reader actually sees.
+    for header in (original_header, improved_header):
+        for contact in header["contacts"]:
+            contact.pop("id", None)
     mismatches = [
         field
-        for field in sorted(fields)
-        if _normalize_personal_info_value(original_info.get(field))
-        != _normalize_personal_info_value(improved_info.get(field))
+        for field in sorted(original_header)
+        if _normalize_personal_info_value(original_header.get(field))
+        != _normalize_personal_info_value(improved_header.get(field))
     ]
     if mismatches:
-        raise ValueError(f"personalInfo fields changed: {', '.join(mismatches)}")
+        raise ValueError(f"header fields changed: {', '.join(mismatches)}")
     preservation_violations = validate_confirmed_resume(
         original_data, improved_data, allow_appended_rows=allow_appended_rows
     )
@@ -907,7 +821,7 @@ async def _claim_processing(
 
 @router.post("/upload", response_model=ResumeUploadResponse)
 async def upload_resume(
-    request: Request, file: UploadFile = File(...)
+    request: Request, workspace_id: WorkspaceId, file: UploadFile = File(...)
 ) -> ResumeUploadResponse:
     """Upload and process a resume file (PDF/DOCX).
 
@@ -965,6 +879,7 @@ async def upload_resume(
     # builder saves overwrite `content` with JSON.
     require_source_size(markdown_content)
     resume = await db.create_resume_atomic_master(
+        workspace_id=workspace_id,
         content=markdown_content,
         content_type="md",
         filename=file.filename,
@@ -1026,6 +941,7 @@ async def upload_resume(
             )
             resume["processed_data"] = processed_data
             resume["processing_status"] = "ready"
+            await db.seed_resume_version(resume["resume_id"], origin="import")
 
         # Return accurate status to client (API-001 fix)
         return ResumeUploadResponse(
@@ -1078,11 +994,8 @@ async def get_resume(resume_id: str = Query(...)) -> ResumeFetchResponse:
     processed_data = resume.get("processed_data")
 
     # Apply lazy migration - add section metadata to old resumes
-    if processed_data:
-        processed_data = normalize_resume_data(processed_data)
-
     processed_resume = (
-        ResumeData.model_validate(processed_data) if processed_data else None
+        migrate_document(processed_data) if processed_data else None
     )
 
     return ResumeFetchResponse(
@@ -1104,9 +1017,11 @@ async def get_resume(resume_id: str = Query(...)) -> ResumeFetchResponse:
 
 
 @router.get("/list", response_model=ResumeListResponse)
-async def list_resumes(include_master: bool = Query(False)) -> ResumeListResponse:
-    """List resumes, optionally including the master resume."""
-    resumes = await db.list_resumes()
+async def list_resumes(
+    workspace_id: WorkspaceId, include_master: bool = Query(False)
+) -> ResumeListResponse:
+    """List the active workspace's resumes, optionally including its master."""
+    resumes = await db.list_resumes(workspace_id)
     if not include_master:
         resumes = [resume for resume in resumes if not resume.get("is_master", False)]
 
@@ -1335,7 +1250,7 @@ async def _improve_preview_flow(
 
     progress["stage"] = "preserve_source_fields"
     # Safety nets (defense in depth — should rarely activate with diff-based flow)
-    improved_data, preserve_warnings = _preserve_personal_info(
+    improved_data, preserve_warnings = _preserve_header(
         original_resume_data,
         improved_data,
     )
@@ -1346,7 +1261,7 @@ async def _improve_preview_flow(
     if original_markdown:
         improved_data = restore_dates_from_markdown(improved_data, original_markdown)
     improved_data = _preserve_original_skills(original_resume_data, improved_data)
-    improved_data = _protect_custom_sections(original_resume_data, improved_data)
+    improved_data = _trim_hallucinated_entries(original_resume_data, improved_data)
 
     # Multi-pass refinement: keyword injection, AI phrase removal, alignment validation
     refinement_stats: RefinementStats | None = None
@@ -1355,7 +1270,7 @@ async def _improve_preview_flow(
     refinement_successful = False
     try:
         # Get master resume for alignment validation
-        master_resume = await db.get_master_resume()
+        master_resume = await db.get_master_resume(resume.get("workspace_id"))
         master_data = (
             _get_original_resume_data(master_resume)
             if master_resume
@@ -1423,7 +1338,7 @@ async def _improve_preview_flow(
         improvements=improvements,
     )
     progress["stage"] = "calculate_diff"
-    diff_summary, detailed_changes, diff_error = _calculate_diff_from_resume(
+    document_diff, diff_error = _diff_from_resume(
         resume,
         improved_data,
     )
@@ -1440,7 +1355,7 @@ async def _improve_preview_flow(
             preview_id=registered_preview["preview_id"],
             preview_expires_at=registered_preview["expires_at"],
             job_id=request.job_id,
-            resume_preview=ResumeData.model_validate(improved_data),
+            resume_preview=migrate_document(improved_data),
             improvements=[
                 {
                     "suggestion": imp["suggestion"],
@@ -1453,8 +1368,7 @@ async def _improve_preview_flow(
             cover_letter=None,
             outreach_message=None,
             interview_prep=None,
-            diff_summary=diff_summary,
-            detailed_changes=detailed_changes,
+            diff=document_diff,
             refinement_stats=refinement_stats,
             ats_score=_build_ats_score(
                 improved_data,
@@ -1509,12 +1423,31 @@ async def improve_resume_confirm_endpoint(
             original = _get_original_resume_data(resume)
             if original is None:
                 raise ValueError("Original resume data is unavailable; process the source before preview")
-            canonical = ResumeData.model_validate(
+            canonical = ResumeDocument.model_validate(
                 finalize_ai_resume(original, improved_data, allow_appended_rows=True)
-            ).model_dump()
+            ).model_dump(mode="json")
             if canonical != improved_data:
                 raise ValueError("Registered preview no longer satisfies preservation rules")
             _validate_confirm_payload(original, improved_data, allow_appended_rows=True)
+
+            if request.accepted_paths is not None:
+                # Partial accept: keep only the ticked rows, then re-run the
+                # preservation chain so a subset is held to the same contract
+                # as the whole preview.
+                improved_data = ResumeDocument.model_validate(
+                    finalize_ai_resume(
+                        original,
+                        merge_accepted(
+                            migrate_document(original),
+                            migrate_document(improved_data),
+                            set(request.accepted_paths),
+                        ).model_dump(mode="json"),
+                        allow_appended_rows=True,
+                    )
+                ).model_dump(mode="json")
+                _validate_confirm_payload(
+                    original, improved_data, allow_appended_rows=True
+                )
         except ValueError as e:
             logger.warning("Resume confirm rejected: %s", e)
             raise HTTPException(
@@ -1524,7 +1457,7 @@ async def improve_resume_confirm_endpoint(
 
         stage = "calculate_diff"
         response_warnings: list[str] = []
-        diff_summary, detailed_changes, diff_error = _calculate_diff_from_resume(
+        document_diff, diff_error = _diff_from_resume(
             resume, improved_data
         )
         if diff_error:
@@ -1565,14 +1498,14 @@ async def improve_resume_confirm_endpoint(
             cover_letter=cover_letter,
             outreach_message=outreach_message,
             interview_prep=interview_prep,
-            diff_summary=diff_summary,
-            detailed_changes=detailed_changes,
+            diff=document_diff,
             warnings=response_warnings,
         )
         stage = "commit_confirmation"
         result = await db.complete_preview(
             claim=claim,
             resume_fields={
+                "workspace_id": resume.get("workspace_id", ""),
                 "content": improved_text,
                 "content_type": "json",
                 "filename": f"tailored_{resume.get('filename', 'resume')}",
@@ -1589,6 +1522,9 @@ async def improve_resume_confirm_endpoint(
             improvements=claim.improvements or [],
         )
         claim = None  # The transaction committed; there is no lease to release.
+        await db.seed_resume_version(
+            result["resume_id"], origin="ai_tailor", origin_ref=result["preview_id"]
+        )
         await _auto_create_tracker_application(
             job_id=request.job_id,
             tailored_resume_id=result["resume_id"],
@@ -1722,7 +1658,7 @@ async def improve_resume_endpoint(
             )
 
         # Safety nets (defense in depth)
-        improved_data, preserve_warnings = _preserve_personal_info(
+        improved_data, preserve_warnings = _preserve_header(
             original_resume_data,
             improved_data,
         )
@@ -1735,7 +1671,7 @@ async def improve_resume_endpoint(
                 improved_data, original_markdown
             )
         improved_data = _preserve_original_skills(original_resume_data, improved_data)
-        improved_data = _protect_custom_sections(original_resume_data, improved_data)
+        improved_data = _trim_hallucinated_entries(original_resume_data, improved_data)
 
         # Multi-pass refinement: keyword injection, AI phrase removal, alignment validation
         refinement_stats: RefinementStats | None = None
@@ -1744,7 +1680,7 @@ async def improve_resume_endpoint(
         refinement_successful = False
         try:
             # Get master resume for alignment validation
-            master_resume = await db.get_master_resume()
+            master_resume = await db.get_master_resume(resume.get("workspace_id"))
             master_data = (
                 _get_original_resume_data(master_resume)
                 if master_resume
@@ -1797,7 +1733,7 @@ async def improve_resume_endpoint(
         improved_text = json.dumps(improved_data, indent=2)
 
         # Calculate differences between original and improved resume
-        diff_summary, detailed_changes, diff_error = _calculate_diff_from_resume(
+        document_diff, diff_error = _diff_from_resume(
             resume,
             improved_data,
         )
@@ -1831,6 +1767,7 @@ async def improve_resume_endpoint(
             original_resume_id=request.resume_id,
             job_id=request.job_id,
             resume_fields={
+                "workspace_id": resume.get("workspace_id", ""),
                 "content": improved_text,
                 "content_type": "json",
                 "filename": f"tailored_{resume.get('filename', 'resume')}",
@@ -1846,6 +1783,9 @@ async def improve_resume_endpoint(
             improvements=improvements,
         )
 
+        await db.seed_resume_version(
+            tailored_resume["resume_id"], origin="ai_tailor", origin_ref=request_id
+        )
         await _auto_create_tracker_application(
             job_id=request.job_id,
             tailored_resume_id=tailored_resume["resume_id"],
@@ -1860,7 +1800,7 @@ async def improve_resume_endpoint(
                 request_id=request_id,
                 resume_id=tailored_resume["resume_id"],
                 job_id=request.job_id,
-                resume_preview=ResumeData.model_validate(improved_data),
+                resume_preview=migrate_document(improved_data),
                 improvements=[
                     {
                         "suggestion": imp["suggestion"],
@@ -1874,8 +1814,7 @@ async def improve_resume_endpoint(
                 outreach_message=outreach_message,
                 interview_prep=interview_prep,
                 # Diff metadata
-                diff_summary=diff_summary,
-                detailed_changes=detailed_changes,
+                diff=document_diff,
                 refinement_stats=refinement_stats,
                 ats_score=_build_ats_score(
                     improved_data,
@@ -1902,26 +1841,31 @@ async def improve_resume_endpoint(
 
 @router.patch("/{resume_id}", response_model=ResumeFetchResponse)
 async def update_resume_endpoint(
-    resume_id: str, resume_data: ResumeData
+    resume_id: str, resume_data: ResumeDocument, workspace_id: WorkspaceId
 ) -> ResumeFetchResponse:
-    """Update a resume with new structured data."""
+    """Update a resume with new structured data.
+
+    Goes through the version funnel, so every builder save is an addressable
+    point in history (consecutive autosaves coalesce — see
+    ``Database.commit_resume_version``).
+    """
     existing = await db.get_resume(resume_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Resume not found")
 
-    updated_data = resume_data.model_dump()
-    updated_content = json.dumps(updated_data, indent=2)
-
-    updated = await db.update_resume(
+    updated_data = resume_data.model_dump(mode="json")
+    await db.commit_resume_version(
         resume_id,
-        {
-            "content": updated_content,
-            "content_type": "json",
-            "processed_data": updated_data,
+        updated_data,
+        origin="manual",
+        resume_updates={
+            "content": json.dumps(updated_data, indent=2),
+            "content_type": "document",
             "processing_status": "ready",
         },
     )
 
+    updated = await db.get_resume(resume_id)
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update resume")
 
@@ -1934,7 +1878,7 @@ async def update_resume_endpoint(
     )
 
     processed_resume = (
-        ResumeData.model_validate(updated.get("processed_data"))
+        migrate_document(updated.get("processed_data"))
         if updated.get("processed_data")
         else None
     )
@@ -1955,6 +1899,67 @@ async def update_resume_endpoint(
             title=updated.get("title"),
         ),
     )
+
+
+@router.get("/{resume_id}/versions", response_model=VersionListResponse)
+async def list_resume_versions(
+    resume_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    cursor: str | None = Query(None),
+) -> VersionListResponse:
+    """Page through a resume's history, newest first.
+
+    Metadata only: the timeline renders hundreds of rows and must not pull a
+    full document for each. Fetch one with ``GET /versions/{version_id}``.
+    """
+    try:
+        versions = await db.list_resume_versions(resume_id, limit=limit, cursor=cursor)
+    except ResumeNotFoundError:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    # A full page implies there may be more; the next cursor is the oldest
+    # created_at we returned.
+    next_cursor = versions[-1]["created_at"] if len(versions) == limit else None
+    return VersionListResponse(
+        versions=[VersionSummary(**version) for version in versions],
+        next_cursor=next_cursor,
+    )
+
+
+@router.post("/{resume_id}/restore", response_model=VersionSummary)
+async def restore_resume_version(
+    resume_id: str, request: RestoreVersionRequest
+) -> VersionSummary:
+    """Restore a past version by writing it forward as a new head.
+
+    History is append-only: nothing is rewound, so the restore itself stays
+    on the timeline and is itself undoable.
+    """
+    version = await db.get_resume_version(request.version_id)
+    if version is None or version["resume_id"] != resume_id:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    document = version["document"]
+    try:
+        restored = await db.commit_resume_version(
+            resume_id,
+            document,
+            origin="restore",
+            origin_ref=request.version_id,
+            # A restore returns the whole checkpoint, LaTeX override
+            # included; inheriting the *current* override would hand back a
+            # document/source pair that never existed.
+            tex_source=version["tex_source"],
+            tex_source_mode=version["tex_source_mode"],
+            resume_updates={
+                "content": json.dumps(document, indent=2),
+                "content_type": "document",
+                "processing_status": "ready",
+                "tex_source": version["tex_source"],
+            },
+        )
+    except ResumeNotFoundError:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    return VersionSummary(**{k: v for k, v in restored.items() if k != "document"})
 
 
 @router.get("/{resume_id}/pdf")
@@ -2130,6 +2135,7 @@ async def retry_processing(resume_id: str) -> ResumeUploadResponse:
                 outcome,
                 deleted_detail="Resume was deleted during retry.",
             )
+            await db.seed_resume_version(resume_id, origin="import")
             return ResumeUploadResponse(
                 message="Resume processing succeeded on retry",
                 request_id=str(uuid4()),

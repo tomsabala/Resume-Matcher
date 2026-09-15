@@ -18,7 +18,8 @@ from app.database import Database
 from app.main import app
 from app.models import Improvement, Resume
 from app.routers import resumes
-from app.schemas.models import ImproveDiffResult, ResumeData
+from app.schemas.document import ResumeDocument
+from app.schemas.models import ImproveDiffResult
 
 
 @pytest.fixture
@@ -27,7 +28,7 @@ async def direct_case(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[tuple[AsyncClient, dict[str, str]]]:
-    source = ResumeData.model_validate(sample_resume).model_dump()
+    source = ResumeDocument.model_validate(sample_resume).model_dump(mode="json")
     original = await isolated_db.create_resume_atomic_master(
         content=json.dumps(source), processed_data=source, processing_status="ready"
     )

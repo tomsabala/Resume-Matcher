@@ -13,23 +13,28 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, FileText, List, ListOrdered } from 'lucide-react';
-import type { SectionType } from '@/components/dashboard/resume-component';
+import { Plus, FileText, List, ListOrdered, LayoutList } from 'lucide-react';
+import type { SectionKind } from '@/lib/types/document';
 import { useTranslations } from '@/lib/i18n';
 
 interface AddSectionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAdd: (displayName: string, sectionType: SectionType) => void;
+  onAdd: (heading: string, kind: SectionKind) => void;
 }
 
-type SelectableSectionType = Exclude<SectionType, 'personalInfo'>;
+const KIND_ICONS: Record<SectionKind, React.ReactNode> = {
+  text: <FileText className="w-5 h-5" />,
+  entries: <ListOrdered className="w-5 h-5" />,
+  tags: <List className="w-5 h-5" />,
+  groups: <LayoutList className="w-5 h-5" />,
+};
+
+const KIND_ORDER: SectionKind[] = ['text', 'entries', 'tags', 'groups'];
 
 /**
- * AddSectionDialog Component
- *
- * Dialog for creating new custom sections.
- * Allows user to enter a name and select a section type.
+ * Creates a section: a heading and a content shape. Every section in the
+ * document is created this way — there is no privileged built-in set.
  */
 export const AddSectionDialog: React.FC<AddSectionDialogProps> = ({
   open,
@@ -37,91 +42,60 @@ export const AddSectionDialog: React.FC<AddSectionDialogProps> = ({
   onAdd,
 }) => {
   const { t } = useTranslations();
-  const [displayName, setDisplayName] = useState('');
-  const [sectionType, setSectionType] = useState<SelectableSectionType>('text');
+  const [heading, setHeading] = useState('');
+  const [kind, setKind] = useState<SectionKind>('text');
 
   const handleSubmit = () => {
-    if (displayName.trim()) {
-      onAdd(displayName.trim(), sectionType);
-      setDisplayName('');
-      setSectionType('text');
+    if (heading.trim()) {
+      onAdd(heading.trim(), kind);
+      setHeading('');
+      setKind('text');
       onOpenChange(false);
     }
   };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && displayName.trim()) {
-      handleSubmit();
-    }
-  };
-
-  const sectionTypes: {
-    type: SelectableSectionType;
-    label: string;
-    icon: React.ReactNode;
-    description: string;
-  }[] = [
-    {
-      type: 'text',
-      label: t('builder.customSections.sectionTypes.textBlockLabel'),
-      icon: <FileText className="w-5 h-5" />,
-      description: t('builder.customSections.sectionTypes.textBlockDescription'),
-    },
-    {
-      type: 'itemList',
-      label: t('builder.customSections.sectionTypes.itemListLabel'),
-      icon: <ListOrdered className="w-5 h-5" />,
-      description: t('builder.customSections.sectionTypes.itemListDescription'),
-    },
-    {
-      type: 'stringList',
-      label: t('builder.customSections.sectionTypes.stringListLabel'),
-      icon: <List className="w-5 h-5" />,
-      description: t('builder.customSections.sectionTypes.stringListDescription'),
-    },
-  ];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px] p-0 gap-0 rounded-none">
         <DialogHeader className="p-6 pb-4 border-b border-black">
           <DialogTitle className="font-serif text-xl font-bold uppercase tracking-tight">
-            {t('builder.customSections.dialogTitle')}
+            {t('builder.addSectionDialog.title')}
           </DialogTitle>
           <DialogDescription className="font-mono text-xs text-ink-soft mt-2">
-            {t('builder.customSections.dialogDescription')}
+            {t('builder.addSectionDialog.description')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="p-6 space-y-6">
-          {/* Section Name */}
           <div className="space-y-2">
             <Label className="font-mono text-xs uppercase tracking-wider text-steel-grey">
-              {t('builder.customSections.sectionNameLabel')}
+              {t('builder.addSectionDialog.headingLabel')}
             </Label>
             <Input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={t('builder.customSections.sectionNamePlaceholder')}
+              value={heading}
+              onChange={(e) => setHeading(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && heading.trim()) handleSubmit();
+              }}
+              placeholder={t('builder.addSectionDialog.headingPlaceholder')}
               className="rounded-none border-black"
               autoFocus
             />
           </div>
 
-          {/* Section Type */}
           <div className="space-y-3">
             <Label className="font-mono text-xs uppercase tracking-wider text-steel-grey">
-              {t('builder.customSections.sectionTypeLabel')}
+              {t('builder.addSectionDialog.kindLabel')}
             </Label>
             <div className="space-y-2">
-              {sectionTypes.map((item) => (
+              {KIND_ORDER.map((option) => (
                 <button
-                  key={item.type}
+                  key={option}
                   type="button"
-                  onClick={() => setSectionType(item.type)}
+                  onClick={() => setKind(option)}
+                  aria-pressed={kind === option}
                   className={`w-full p-4 border text-left transition-colors ${
-                    sectionType === item.type
+                    kind === option
                       ? 'border-black bg-paper-tint shadow-sw-sm'
                       : 'border-steel-grey hover:border-steel-grey'
                   }`}
@@ -129,22 +103,22 @@ export const AddSectionDialog: React.FC<AddSectionDialogProps> = ({
                   <div className="flex items-start gap-3">
                     <div
                       className={`p-2 border ${
-                        sectionType === item.type
+                        kind === option
                           ? 'border-black bg-white'
                           : 'border-steel-grey bg-paper-tint'
                       }`}
                     >
-                      {item.icon}
+                      {KIND_ICONS[option]}
                     </div>
                     <div className="flex-1">
-                      <div className="font-sans font-medium text-sm">{item.label}</div>
+                      <div className="font-sans font-medium text-sm">
+                        {t(`builder.sectionForms.kinds.${option}.label`)}
+                      </div>
                       <div className="font-mono text-xs text-steel-grey mt-0.5">
-                        {item.description}
+                        {t(`builder.sectionForms.kinds.${option}.description`)}
                       </div>
                     </div>
-                    {sectionType === item.type && (
-                      <div className="w-4 h-4 border-2 border-black bg-black" />
-                    )}
+                    {kind === option && <div className="w-4 h-4 border-2 border-black bg-black" />}
                   </div>
                 </button>
               ))}
@@ -158,7 +132,7 @@ export const AddSectionDialog: React.FC<AddSectionDialogProps> = ({
               {t('common.cancel')}
             </Button>
           </DialogClose>
-          <Button onClick={handleSubmit} disabled={!displayName.trim()} className="rounded-none">
+          <Button onClick={handleSubmit} disabled={!heading.trim()} className="rounded-none">
             <Plus className="w-4 h-4 mr-2" />
             {t('builder.addSection')}
           </Button>
@@ -168,13 +142,8 @@ export const AddSectionDialog: React.FC<AddSectionDialogProps> = ({
   );
 };
 
-/**
- * AddSectionButton Component
- *
- * Button that triggers the AddSectionDialog.
- */
 interface AddSectionButtonProps {
-  onAdd: (displayName: string, sectionType: SectionType) => void;
+  onAdd: (heading: string, kind: SectionKind) => void;
 }
 
 export const AddSectionButton: React.FC<AddSectionButtonProps> = ({ onAdd }) => {
@@ -189,7 +158,7 @@ export const AddSectionButton: React.FC<AddSectionButtonProps> = ({ onAdd }) => 
         className="w-full rounded-none border-dashed border-2 border-black py-6 hover:bg-paper-tint hover:border-solid transition-all"
       >
         <Plus className="w-5 h-5 mr-2" />
-        {t('builder.customSections.addCustomSectionButton')}
+        {t('builder.addSection')}
       </Button>
       <AddSectionDialog open={open} onOpenChange={setOpen} onAdd={onAdd} />
     </>

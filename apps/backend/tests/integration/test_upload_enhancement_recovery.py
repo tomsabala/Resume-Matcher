@@ -13,8 +13,17 @@ from app.config import settings
 from app.database import Database
 from app.main import app
 from app.routers import enrichment, resumes
-from tests.integration.test_ai_result_contracts import _enhance_request, _source_resume
+from tests.integration.test_ai_result_contracts import (
+    EXPERIENCE_ITEM,
+    PROJECT_ITEM,
+    _enhance_request,
+    _source_resume,
+)
 from tests.integration.test_upload_processing import _docx_bytes
+
+
+def _section(document: dict[str, Any], key: str) -> dict[str, Any]:
+    return next(s for s in document["sections"] if s["key"] == key)
 
 
 @pytest.mark.parametrize("oversized_first", [False, True])
@@ -25,7 +34,9 @@ async def test_enhancement_prompt_limit_keeps_other_items(
     oversized_first: bool,
 ) -> None:
     source_data = copy.deepcopy(sample_resume)
-    source_data["personalProjects"][0]["description"] = ["x" * 20_000]
+    _section(source_data, "projects")["entries"][0]["bullets"] = [
+        {"text": "x" * 20_000, "style": "bullet"}
+    ]
     source = await _source_resume(isolated_db, source_data)
     monkeypatch.setattr(ai_limits, "MAX_PROMPT_CHARACTERS", 10_000)
 
@@ -42,9 +53,9 @@ async def test_enhancement_prompt_limit_keeps_other_items(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert [item["item_id"] for item in body["enhancements"]] == ["exp_0"]
+    assert [item["item_id"] for item in body["enhancements"]] == [EXPERIENCE_ITEM]
     assert body["enhancements"][0]["enhanced_description"] == ["Built a reliable service"]
-    assert [item["item_id"] for item in body["errors"]] == ["proj_0"]
+    assert [item["item_id"] for item in body["errors"]] == [PROJECT_ITEM]
     assert "too large" in body["errors"][0]["message"]
     stored = await isolated_db.get_resume(source["resume_id"])
     assert stored is not None and stored["processed_data"] == source_data
@@ -57,9 +68,11 @@ async def test_enhancement_prompt_limit_keeps_other_items(
     assert applied.status_code == 200
     stored = await isolated_db.get_resume(source["resume_id"])
     assert stored is not None
-    assert stored["processed_data"]["personalProjects"] == source_data["personalProjects"]
-    assert stored["processed_data"]["workExperience"][0]["description"] == (
-        source_data["workExperience"][0]["description"] + ["Built a reliable service"]
+    stored_doc = stored["processed_data"]
+    assert _section(stored_doc, "projects") == _section(source_data, "projects")
+    assert _section(stored_doc, "experience")["entries"][0]["bullets"] == (
+        _section(source_data, "experience")["entries"][0]["bullets"]
+        + [{"text": "Built a reliable service", "style": "bullet"}]
     )
 
 

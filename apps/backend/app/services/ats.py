@@ -12,6 +12,9 @@ import logging
 import re
 from typing import Any
 
+from app.schemas.document import SectionKind, migrate_document
+from app.services.document_walk import document_text_fragments, skill_values
+
 logger = logging.getLogger(__name__)
 
 # Weights must sum to 1.0
@@ -21,31 +24,13 @@ _WEIGHTS = {
     "section_completeness": 0.20,
 }
 
-# Patterns to detect resume section headings
-_SECTION_PATTERNS = {
-    "summary": ["summary", "objective", "profile", "about"],
-    "experience": ["experience", "work history", "employment"],
-    "education": ["education", "academic", "degree"],
-    "skills": ["skills", "technologies", "competencies", "technical"],
-}
+# Number of structural checks in _compute_section_completeness.
+_COMPLETENESS_CHECKS = 4
 
 
 def _extract_all_text(data: dict[str, Any]) -> str:
-    """Flatten all string values from a resume dict into a single text block."""
-    parts: list[str] = []
-
-    def _walk(obj: Any) -> None:
-        if isinstance(obj, str):
-            parts.append(obj)
-        elif isinstance(obj, list):
-            for item in obj:
-                _walk(item)
-        elif isinstance(obj, dict):
-            for v in obj.values():
-                _walk(v)
-
-    _walk(data)
-    return " ".join(parts)
+    """Flatten the document's user-authored text into a single block."""
+    return " ".join(document_text_fragments(migrate_document(data)))
 
 
 def _keyword_in_text(keyword: str, text_lower: str) -> bool:
@@ -67,8 +52,9 @@ def _compute_skills_coverage(
 ) -> float:
     """Return skills coverage score (0–100).
 
-    Checks how many required_skills / preferred_skills from the JD appear
-    in the resume's technicalSkills list (falls back to full-text search).
+    Checks how many required_skills / preferred_skills from the JD appear in
+    the resume's short-value sections (``TAGS``/``GROUPS``), falling back to a
+    whole-word search of the full resume text.
     """
     jd_skills: list[str] = []
     jd_skills.extend(job_keywords.get("required_skills", []))
@@ -77,11 +63,9 @@ def _compute_skills_coverage(
     if not jd_skills:
         return 0.0
 
-    resume_skills: list[str] = (
-        resume.get("additional", {}).get("technicalSkills", []) or []
-    )
+    document = migrate_document(resume)
     resume_text = _extract_all_text(resume).lower()
-    resume_skills_lower = {s.lower() for s in resume_skills if isinstance(s, str)}
+    resume_skills_lower = {value.lower() for value in skill_values(document)}
 
     matched = 0
     for skill in jd_skills:
@@ -98,32 +82,27 @@ def _compute_skills_coverage(
 def _compute_section_completeness(resume: dict[str, Any]) -> float:
     """Return section completeness score (0–100).
 
-    Checks the structured resume dict for the presence of key sections.
-    If no structured sections are detected, falls back to scanning all
-    extracted text for common section heading keywords.
+    Four structural checks, none of which names a section: a filled header, a
+    prose section, a section of dated entries, and a section of short skill
+    values. A resume built entirely out of user-named sections scores exactly
+    like one built from the defaults.
     """
-    found = 0
+    document = migrate_document(resume)
+    visible = [section for section in document.sections if section.visible]
 
-    # Structured-data fast path
-    if resume.get("summary"):
-        found += 1
-    if resume.get("workExperience"):
-        found += 1
-    if resume.get("education"):
-        found += 1
-    skills = resume.get("additional", {}).get("technicalSkills", [])
-    if skills:
-        found += 1
-
-    # If none of the structured checks fired, fall back to text scanning
-    if found == 0:
-        text = _extract_all_text(resume).lower()
-        for patterns in _SECTION_PATTERNS.values():
-            if any(p in text for p in patterns):
-                found += 1
-
-    total = len(_SECTION_PATTERNS)  # 4
-    return (found / total) * 100
+    checks = (
+        bool(document.header.name.strip() or document.header.contacts),
+        any(
+            section.kind is SectionKind.TEXT and section.text.strip()
+            for section in visible
+        ),
+        any(
+            section.kind is SectionKind.ENTRIES and section.entries
+            for section in visible
+        ),
+        any(skill_values(document)),
+    )
+    return (sum(checks) / _COMPLETENESS_CHECKS) * 100
 
 
 def _generate_recommendations(

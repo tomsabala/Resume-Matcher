@@ -4,9 +4,7 @@ import copy
 import json
 import logging
 import re
-from difflib import SequenceMatcher
-from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from app.llm import complete_json
 from app.prompts import (
@@ -19,9 +17,16 @@ from app.prompts import (
     SKILL_TARGET_PLAN_PROMPT,
     get_language_name,
 )
+from app.prompts.schema import describe_editable_paths
 from app.prompts.templates import IMPROVE_SCHEMA_EXAMPLE
-from app.schemas import ResumeData, ResumeFieldDiff, ResumeDiffSummary
+from app.schemas.document import ResumeDocument, SectionKind, migrate_document
 from app.schemas.models import ImproveDiffResult, ResumeChange
+from app.services.document_walk import (
+    document_text_fragments,
+    iter_entries,
+    skill_list_paths,
+    skill_values,
+)
 from app.services.parser import has_meaningful_resume_content
 
 logger = logging.getLogger(__name__)
@@ -111,17 +116,10 @@ def _validate_skill_plan_result(result: dict[str, Any]) -> dict[str, Any]:
 
 def _validate_resume_result(result: dict[str, Any]) -> dict[str, Any]:
     """Validate schema and reject a structurally valid but empty resume."""
-    validated = ResumeData.model_validate(result).model_dump()
+    validated = ResumeDocument.model_validate(result).model_dump(mode="json")
     if not has_meaningful_resume_content(validated):
         raise ValueError("LLM returned an empty structured resume")
     return validated
-
-
-@dataclass(frozen=True)
-class DiffConfidence:
-    added: str
-    removed: str
-    modified: str
 
 
 def _sanitize_user_input(text: str) -> str:
@@ -139,98 +137,124 @@ def _sanitize_user_input(text: str) -> str:
 # Diff-based improvement: path resolution, applier, verifier, LLM generator
 # ---------------------------------------------------------------------------
 
-_PATH_SEGMENT_RE = re.compile(r"([a-zA-Z_]+)(?:\[(\d+)\])?")
+# Section keys are user-authored slugs, so the grammar must accept digits and
+# hyphens as well as letters/underscores.
+_PATH_SEGMENT_RE = re.compile(r"([A-Za-z0-9_-]+)(?:\[(\d+)\])?")
 
-# Allowed path patterns — only these can be modified by diffs
-_ALLOWED_PATH_PATTERNS = [
-    re.compile(r"^summary$"),
-    re.compile(r"^workExperience\[\d+\]\.description(\[\d+\])?$"),
-    re.compile(r"^personalProjects\[\d+\]\.description(\[\d+\])?$"),
-    # Education description is a single string (Education.description: str | None),
-    # so only the scalar path is allowed — not a [j]-indexed bullet form.
-    re.compile(r"^education\[\d+\]\.description$"),
-    re.compile(r"^additional\.technicalSkills$"),
-    re.compile(r"^additional\.languages$"),
-    re.compile(r"^additional\.certificationsTraining$"),
-    re.compile(r"^additional\.awards$"),
-]
-
-# Blocked path prefixes — always rejected
-_BLOCKED_PATH_PREFIXES = frozenset({
-    "personalInfo",
-    "customSections",
-    "sectionMeta",
-})
-
-# Blocked field names — rejected when they appear as the leaf of a path
-_BLOCKED_FIELD_NAMES = frozenset({
-    "years",
-    "company",
-    "institution",
-    "title",
-    "degree",
-    "name",
-    "role",
-    "github",
-    "website",
-    "location",
-    "id",
-})
+# Never editable by the AI. The header is the user's identity; entry identity
+# fields (who/where/when) must survive tailoring untouched, and structural
+# fields would let a "change" silently retype or reorder the document.
+_BLOCKED_PATH_PREFIXES = frozenset({"header", "schemaVersion"})
+_BLOCKED_FIELD_NAMES = frozenset(
+    {
+        "id",
+        "key",
+        "kind",
+        "heading",
+        "headingI18nKey",
+        "visible",
+        "column",
+        "title",
+        "subtitle",
+        "meta",
+        "period",
+        "links",
+        "label",
+        "style",
+    }
+)
 
 _METRIC_RE = re.compile(r"\d+%|\d+x|\$\d+")
 
 
-def _is_path_allowed(path: str) -> bool:
-    """Check if a path is in the allowed whitelist."""
-    return any(p.match(path) for p in _ALLOWED_PATH_PATTERNS)
+def build_allowed_paths(document: ResumeDocument) -> list[re.Pattern[str]]:
+    """Editable change paths for this exact document, one pattern per section.
+
+    This is what makes user-created sections AI-editable: the allowlist is a
+    function of the document's sections and their kinds, not a fixed list of
+    six built-in names. Content is editable; identity is not (see
+    ``_BLOCKED_FIELD_NAMES``).
+    """
+    patterns: list[re.Pattern[str]] = []
+    for section in document.sections:
+        key = re.escape(section.key)
+        if section.kind is SectionKind.TEXT:
+            patterns.append(re.compile(rf"^sections\.{key}\.text$"))
+        elif section.kind is SectionKind.ENTRIES:
+            patterns.append(
+                re.compile(
+                    rf"^sections\.{key}\.entries\[\d+\]\."
+                    rf"(summary|bullets|bullets\[\d+\]\.text)$"
+                )
+            )
+        elif section.kind is SectionKind.TAGS:
+            patterns.append(re.compile(rf"^sections\.{key}\.tags$"))
+        else:
+            patterns.append(re.compile(rf"^sections\.{key}\.groups\[\d+\]\.values$"))
+    return patterns
+
+
+def _is_path_allowed(path: str, allowed: list[re.Pattern[str]]) -> bool:
+    """Check a path against this document's generated allowlist."""
+    return any(pattern.match(path) for pattern in allowed)
 
 
 def _is_path_blocked(path: str) -> bool:
-    """Check if a path matches any blocked pattern."""
+    """Check if a path targets identity or structure rather than content."""
     for prefix in _BLOCKED_PATH_PREFIXES:
         if path == prefix or path.startswith(prefix + ".") or path.startswith(prefix + "["):
             return True
 
-    # Check if the leaf field is blocked
-    segments = path.split(".")
-    if segments:
-        last_segment = segments[-1]
-        field_name = re.sub(r"\[\d+\]$", "", last_segment)
-        # "description" is the one allowed field that shares a name pattern
-        if field_name in _BLOCKED_FIELD_NAMES and field_name != "description":
-            return True
+    leaf = re.sub(r"\[\d+\]$", "", path.split(".")[-1])
+    return leaf in _BLOCKED_FIELD_NAMES
 
-    if path.startswith("education"):
-        # Education descriptions may be tailored; degree/institution/years stay
-        # blocked (they are also caught by the blocked-leaf-name check above).
-        if re.match(r"^education\[\d+\]\.description$", path):
-            return False
-        return True
 
-    return False
+def _descend(current: Any, key: str, index_str: str | None) -> tuple[Any, bool]:
+    """Take one path segment.
+
+    Mapping keys index a dict as usual. A **list** node is addressed by the
+    ``key`` field of its items, which is how ``sections.<section_key>`` works:
+    section order is user-editable, so a positional path would silently retarget
+    whenever the user reorders the document.
+    """
+    if isinstance(current, list):
+        match = next(
+            (
+                item
+                for item in current
+                if isinstance(item, dict) and item.get("key") == key
+            ),
+            None,
+        )
+        if match is None:
+            return None, False
+        current = match
+    elif isinstance(current, dict):
+        if key not in current:
+            return None, False
+        current = current[key]
+    else:
+        return None, False
+
+    if index_str is not None:
+        index = int(index_str)
+        if not isinstance(current, list) or index < 0 or index >= len(current):
+            return None, False
+        current = current[index]
+    return current, True
 
 
 def _resolve_path(data: dict[str, Any], path: str) -> tuple[Any, bool]:
-    """Resolve a dot+bracket path to a value in the data dict.
+    """Resolve a dot+bracket path to a value in the document.
 
     Returns:
         (value, success). On failure returns (None, False).
     """
     current: Any = data
     for segment_match in _PATH_SEGMENT_RE.finditer(path):
-        key = segment_match.group(1)
-        index_str = segment_match.group(2)
-
-        if not isinstance(current, dict) or key not in current:
+        current, ok = _descend(current, segment_match.group(1), segment_match.group(2))
+        if not ok:
             return None, False
-        current = current[key]
-
-        if index_str is not None:
-            index = int(index_str)
-            if not isinstance(current, list) or index < 0 or index >= len(current):
-                return None, False
-            current = current[index]
-
     return current, True
 
 
@@ -240,35 +264,22 @@ def _set_at_path(data: dict[str, Any], path: str, value: Any) -> bool:
     if not segments:
         return False
 
-    # Navigate to parent of the target
     current: Any = data
     for seg in segments[:-1]:
-        key = seg.group(1)
-        index_str = seg.group(2)
-
-        if not isinstance(current, dict) or key not in current:
+        current, ok = _descend(current, seg.group(1), seg.group(2))
+        if not ok:
             return False
-        current = current[key]
 
-        if index_str is not None:
-            index = int(index_str)
-            if not isinstance(current, list) or index < 0 or index >= len(current):
-                return False
-            current = current[index]
-
-    # Set on the final segment
     last = segments[-1]
     key = last.group(1)
     index_str = last.group(2)
 
     if index_str is not None:
-        if not isinstance(current, dict) or key not in current:
-            return False
-        target = current[key]
+        container, ok = _descend(current, key, None)
         index = int(index_str)
-        if not isinstance(target, list) or index < 0 or index >= len(target):
+        if not ok or not isinstance(container, list) or index < 0 or index >= len(container):
             return False
-        target[index] = value
+        container[index] = value
     else:
         if not isinstance(current, dict):
             return False
@@ -293,18 +304,18 @@ def apply_diffs(
     changes: list[ResumeChange],
     allowed_skill_targets: list[dict[str, Any] | str] | None = None,
 ) -> tuple[dict[str, Any], list[ResumeChange], list[ResumeChange]]:
-    """Apply verified diffs to original resume.
+    """Apply verified diffs to the original document.
 
     Each change goes through 4 gates:
-    1. Path is in allowed whitelist
-    2. Path is not in blocked list
+    1. Path is editable for *this* document (allowlist generated per section)
+    2. Path does not target identity or structure
     3. Path resolves to an actual value in the original
     4. Original text matches (for replace actions)
 
     For reorder: validates the new list contains exactly the same items.
 
     Args:
-        original: The original resume data (ResumeData-compatible dict)
+        original: The original document (``ResumeDocument``-shaped dict)
         changes: List of changes from the LLM
         allowed_skill_targets: Verified skill targets allowed for add_skill actions
 
@@ -315,13 +326,16 @@ def apply_diffs(
     applied: list[ResumeChange] = []
     rejected: list[ResumeChange] = []
     allowed_skill_keys = _build_allowed_skill_target_keys(allowed_skill_targets)
+    document = migrate_document(original)
+    allowed_paths = build_allowed_paths(document)
+    skill_paths = skill_list_paths(document)
 
     for change in changes:
         path = change.path
         action = change.action
 
-        # Gate 1: Path must be in allowed whitelist
-        if not _is_path_allowed(path):
+        # Gate 1: Path must be editable in this document
+        if not _is_path_allowed(path, allowed_paths):
             logger.info("Diff rejected (not in allowed list): %s", path)
             rejected.append(change)
             continue
@@ -340,6 +354,16 @@ def apply_diffs(
             continue
 
         if action == "replace":
+            # `replace` rewrites one text leaf. A list-valued path (``bullets``,
+            # ``tags``, ``values``) is only reachable by `append`/`reorder`/
+            # `add_skill`; letting `replace` through would swap the list for a
+            # bare string and make the document fail its own schema on the very
+            # next read.
+            if isinstance(actual_value, list):
+                logger.info("Diff rejected (replace targets a list): %s", path)
+                rejected.append(change)
+                continue
+
             # Gate 4: Original text must match what's actually there
             if not _verify_original_matches(actual_value, change.original):
                 logger.info(
@@ -363,16 +387,23 @@ def apply_diffs(
             applied.append(change)
 
         elif action == "append":
+            # Only bullets may be appended. A short value (skill, language,
+            # award) must come through `add_skill`, which is gated on the
+            # verified target plan — otherwise `append` would be an
+            # unverified back door into the same lists.
+            if not path.endswith(".bullets"):
+                logger.info("Diff rejected (append outside a bullet list): %s", path)
+                rejected.append(change)
+                continue
             if not isinstance(actual_value, list):
                 logger.info("Diff rejected (append to non-list): %s", path)
                 rejected.append(change)
                 continue
-            # Append must use a non-empty string (not list, to avoid nested lists)
             if not isinstance(change.value, str) or not change.value.strip():
                 logger.info("Diff rejected (append non-string or empty value): %s", path)
                 rejected.append(change)
                 continue
-            actual_value.append(change.value)
+            actual_value.append({"text": change.value, "style": "bullet"})
             applied.append(change)
 
         elif action == "reorder":
@@ -400,15 +431,15 @@ def apply_diffs(
                 # skills stay near the top) and — for the skills list only —
                 # inserting new items that pass the SAME verified gate as
                 # add_skill. Originals the model omitted are appended at the end
-                # so a real item is never silently lost. Other lists
-                # (languages/certs/awards) have no verifier, so new items are
-                # dropped to avoid fabrication.
+                # so a real item is never silently lost. Lists with no verifier
+                # (a "Languages" tag list, say) drop new items entirely, to
+                # avoid fabrication.
                 casefold_to_originals: dict[str, list[str]] = {}
                 for item in actual_value:
                     if isinstance(item, str):
                         casefold_to_originals.setdefault(item.casefold(), []).append(item)
                 original_cfs = set(casefold_to_originals)
-                is_skills = path == "additional.technicalSkills"
+                is_skills = path in skill_paths
                 added_new: set[str] = set()
                 for item in change.value:
                     if not isinstance(item, str):
@@ -439,8 +470,8 @@ def apply_diffs(
             applied.append(change)
 
         elif action == "add_skill":
-            if path != "additional.technicalSkills":
-                logger.info("Diff rejected (add_skill outside skills): %s", path)
+            if path not in skill_paths:
+                logger.info("Diff rejected (add_skill outside a skill list): %s", path)
                 rejected.append(change)
                 continue
             if not isinstance(actual_value, list):
@@ -476,19 +507,21 @@ def apply_diffs(
 
 
 def _count_description_words(data: dict[str, Any]) -> int:
-    """Count total words in all description and summary fields."""
+    """Count words in every prose field of the document.
+
+    Prose is what tailoring rewrites: ``TEXT`` sections, entry summaries and
+    bullet text. Identity fields and short tag values are excluded, so the
+    inflation check in :func:`verify_diff_result` measures what the AI touched.
+    """
+    document = migrate_document(data)
     total = 0
-    for key in ("workExperience", "personalProjects"):
-        for entry in data.get(key, []):
-            if isinstance(entry, dict):
-                desc = entry.get("description", [])
-                if isinstance(desc, list):
-                    total += sum(len(str(d).split()) for d in desc)
-                elif isinstance(desc, str):
-                    total += len(desc.split())
-    summary = data.get("summary", "")
-    if isinstance(summary, str):
-        total += len(summary.split())
+    for section in document.sections:
+        if section.kind is SectionKind.TEXT:
+            total += len(section.text.split())
+        elif section.kind is SectionKind.ENTRIES:
+            for entry in section.entries:
+                total += len(entry.summary.split())
+                total += sum(len(bullet.text.split()) for bullet in entry.bullets)
     return total
 
 
@@ -510,36 +543,39 @@ def verify_diff_result(
         warnings.append("No changes were applied — resume returned unchanged")
         return warnings
 
-    # Check 2: Section counts preserved
-    for key, label in [
-        ("workExperience", "work experience"),
-        ("education", "education"),
-        ("personalProjects", "project"),
-    ]:
-        orig_count = len(original.get(key, []))
-        result_count = len(result.get(key, []))
-        if orig_count != result_count:
+    before = migrate_document(original)
+    after = migrate_document(result)
+
+    # Check 2: Entry counts preserved, per section
+    after_by_key = {section.key: section for section in after.sections}
+    for section in before.sections:
+        if section.kind is not SectionKind.ENTRIES:
+            continue
+        result_section = after_by_key.get(section.key)
+        result_count = len(result_section.entries) if result_section else 0
+        if len(section.entries) != result_count:
             warnings.append(
-                f"Section count changed: {label} ({orig_count} → {result_count})"
+                f"Section count changed: {section.heading} "
+                f"({len(section.entries)} → {result_count})"
             )
 
-    # Check 3: Identity fields unchanged
-    for key, id_fields in [
-        ("workExperience", ["company", "title"]),
-        ("education", ["institution", "degree"]),
-    ]:
-        orig_entries = original.get(key, [])
-        result_entries = result.get(key, [])
-        for i, (orig, res) in enumerate(zip(orig_entries, result_entries)):
-            if not isinstance(orig, dict) or not isinstance(res, dict):
-                continue
-            for field in id_fields:
-                o_val = str(orig.get(field, "")).strip()
-                r_val = str(res.get(field, "")).strip()
-                if o_val and o_val != r_val:
+    # Check 3: Entry identity unchanged. Identity is (title, subtitle) for
+    # every kind of entry — who/where, never rewritten by tailoring.
+    for section in before.sections:
+        result_section = after_by_key.get(section.key)
+        if section.kind is not SectionKind.ENTRIES or result_section is None:
+            continue
+        for index, (before_entry, after_entry) in enumerate(
+            zip(section.entries, result_section.entries)
+        ):
+            for field in ("title", "subtitle"):
+                original_value = getattr(before_entry, field).strip()
+                new_value = getattr(after_entry, field).strip()
+                if original_value and original_value != new_value:
                     warnings.append(
-                        f"Identity field changed: {key}[{i}].{field} "
-                        f"('{o_val}' → '{r_val}')"
+                        f"Identity field changed: sections.{section.key}"
+                        f".entries[{index}].{field} "
+                        f"('{original_value}' → '{new_value}')"
                     )
 
     # Check 4: Word count ratio
@@ -626,6 +662,9 @@ async def generate_resume_diffs(
         skill_targets=_prepare_skill_targets_for_prompt(skill_targets),
         job_description=sanitized_jd,
         original_resume=resume_input,
+        # The model is told the real paths of this document's sections, so a
+        # user-created section is a first-class edit target.
+        editable_paths=describe_editable_paths(migrate_document(original_resume_data)),
     )
 
     result = await complete_json(
@@ -668,29 +707,11 @@ MONTH_PATTERN = re.compile(
 
 
 def _has_month_in_dates(data: dict[str, Any]) -> bool:
-    """Check whether any years field in the structured data includes a month."""
-    for section_key in ("workExperience", "education", "personalProjects"):
-        entries = data.get(section_key, [])
-        if not isinstance(entries, list):
-            continue
-        for entry in entries:
-            if isinstance(entry, dict):
-                years = entry.get("years", "")
-                if isinstance(years, str) and MONTH_PATTERN.search(years):
-                    return True
-    custom_sections = data.get("customSections", {})
-    if isinstance(custom_sections, dict):
-        for section in custom_sections.values():
-            if isinstance(section, dict) and section.get("sectionType") == "itemList":
-                items = section.get("items", [])
-                if not isinstance(items, list):
-                    continue
-                for item in items:
-                    if isinstance(item, dict):
-                        years = item.get("years", "")
-                        if isinstance(years, str) and MONTH_PATTERN.search(years):
-                            return True
-    return False
+    """Check whether any entry's period includes a month name."""
+    document = migrate_document(data)
+    return any(
+        MONTH_PATTERN.search(entry.period) for _, _, entry in iter_entries(document)
+    )
 
 
 def _prepare_keywords_for_prompt(job_keywords: dict[str, Any]) -> str:
@@ -786,8 +807,13 @@ def _extract_jd_skill_index(
 
 
 def _skill_present_in_resume_text(skill: str, resume_data: dict[str, Any]) -> bool:
-    """Return True when a skill phrase already appears in the resume text."""
-    text = json.dumps(resume_data, ensure_ascii=False)
+    """Return True when a skill phrase already appears in the resume's prose.
+
+    Only user-authored text counts: matching against the raw JSON would let a
+    structural key (``"links"``, a section slug, an id) ground a fabricated
+    skill.
+    """
+    text = "\n".join(document_text_fragments(migrate_document(resume_data)))
     return _skill_mentioned_in_text(skill, text)
 
 
@@ -805,7 +831,7 @@ def verify_skill_target_plan(
     resume text.
     """
     original_skills = _extract_skill_index(
-        original_resume_data.get("additional", {}).get("technicalSkills", [])
+        skill_values(migrate_document(original_resume_data))
     )
     jd_skills = _extract_jd_skill_index(job_keywords, job_description)
     raw_targets = raw_plan.get("target_skills", [])
@@ -884,9 +910,7 @@ async def generate_skill_target_plan(
 ) -> dict[str, Any]:
     """Ask the LLM for a compact skill target plan before editing diffs."""
     output_language = get_language_name(language)
-    existing_skills = original_resume_data.get("additional", {}).get(
-        "technicalSkills", []
-    )
+    existing_skills = skill_values(migrate_document(original_resume_data))
     sanitized_jd = _sanitize_user_input(job_description)
     prompt = SKILL_TARGET_PLAN_PROMPT.format(
         output_language=output_language,
@@ -1002,488 +1026,6 @@ async def improve_resume(
         response_validator=_validate_resume_result,
     )
     return _validate_resume_result(result)
-
-
-def _format_entry_label(parts: list[str], fallback: str) -> str:
-    label = " | ".join([part for part in parts if part])
-    return label if label else fallback
-
-
-def _format_experience_entry(entry: dict[str, Any], index: int) -> str:
-    return _format_entry_label(
-        [
-            entry.get("title", ""),
-            entry.get("company", ""),
-            entry.get("years", ""),
-        ],
-        f"Work experience #{index + 1}",
-    )
-
-
-def _format_education_entry(entry: dict[str, Any], index: int) -> str:
-    return _format_entry_label(
-        [
-            entry.get("degree", ""),
-            entry.get("institution", ""),
-            entry.get("years", ""),
-        ],
-        f"Education #{index + 1}",
-    )
-
-
-def _format_project_entry(entry: dict[str, Any], index: int) -> str:
-    return _format_entry_label(
-        [
-            entry.get("name", ""),
-            entry.get("role", ""),
-            entry.get("years", ""),
-        ],
-        f"Project #{index + 1}",
-    )
-
-
-def _normalize_entry(
-    entry: dict[str, Any],
-    ignore_keys: set[str] | None,
-) -> dict[str, Any]:
-    """Return an entry dict with ignored keys removed for diff comparisons.
-
-    Ignored keys are excluded so entry-level change detection can skip fields
-    that are diffed separately (e.g., description lists).
-    """
-    if ignore_keys is None:
-        return entry
-    return {key: value for key, value in entry.items() if key not in ignore_keys}
-
-
-def _append_entry_changes(
-    changes: list[ResumeFieldDiff],
-    field_key: str,
-    field_type: str,
-    original_items: list[dict[str, Any]],
-    improved_items: list[dict[str, Any]],
-    formatter: Callable[[dict[str, Any], int], str],
-    ignore_keys: set[str] | None = None,
-) -> None:
-    min_len = min(len(original_items), len(improved_items))
-
-    for idx in range(min_len):
-        original_entry = original_items[idx]
-        improved_entry = improved_items[idx]
-        if _normalize_entry(original_entry, ignore_keys) != _normalize_entry(
-            improved_entry, ignore_keys
-        ):
-            changes.append(
-                ResumeFieldDiff(
-                    field_path=f"{field_key}[{idx}]",
-                    field_type=field_type,
-                    change_type="modified",
-                    original_value=formatter(original_entry, idx),
-                    new_value=formatter(improved_entry, idx),
-                    confidence="medium",
-                )
-            )
-
-    for idx in range(min_len, len(improved_items)):
-        changes.append(
-            ResumeFieldDiff(
-                field_path=f"{field_key}[{idx}]",
-                field_type=field_type,
-                change_type="added",
-                new_value=formatter(improved_items[idx], idx),
-                confidence="high",
-            )
-        )
-
-    for idx in range(min_len, len(original_items)):
-        changes.append(
-            ResumeFieldDiff(
-                field_path=f"{field_key}[{idx}]",
-                field_type=field_type,
-                change_type="removed",
-                original_value=formatter(original_items[idx], idx),
-                confidence="medium",
-            )
-        )
-
-
-def _normalize_string_list(value: Any, field_name: str) -> list[str]:
-    """Normalize string list values and log any non-string entries.
-
-    Accepts lists of strings or objects containing name/label/value keys.
-    """
-    if not isinstance(value, list):
-        return []
-    normalized: list[str] = []
-    invalid_count = 0
-    for item in value:
-        if isinstance(item, str):
-            stripped = item.strip()
-            if stripped:
-                normalized.append(stripped)
-            continue
-        if isinstance(item, dict):
-            candidate = item.get("name") or item.get("label") or item.get("value")
-            if isinstance(candidate, str):
-                stripped = candidate.strip()
-                if stripped:
-                    normalized.append(stripped)
-                else:
-                    invalid_count += 1
-            else:
-                invalid_count += 1
-            continue
-        if item is None:
-            continue
-        invalid_count += 1
-    if invalid_count:
-        logger.warning("Skipped non-string entries in %s: %d", field_name, invalid_count)
-    return normalized
-
-
-def _build_string_index(value: Any, field_name: str) -> dict[str, str]:
-    """Build a case-insensitive index for string list comparisons."""
-    items = _normalize_string_list(value, field_name)
-    index: dict[str, str] = {}
-    for item in items:
-        key = item.casefold()
-        if key not in index:
-            index[key] = item
-    return index
-
-
-def _extract_description_list(entry: Any) -> list[str]:
-    if not isinstance(entry, dict):
-        return []
-    return _normalize_string_list(entry.get("description", []), "workExperience.description")
-
-
-def _append_list_changes(
-    changes: list[ResumeFieldDiff],
-    field_path: str,
-    field_type: str,
-    original_items: list[str],
-    improved_items: list[str],
-    confidences: DiffConfidence,
-) -> None:
-    matcher = SequenceMatcher(a=original_items, b=improved_items, autojunk=False)
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "equal":
-            continue
-        if tag == "delete":
-            for item in original_items[i1:i2]:
-                changes.append(
-                    ResumeFieldDiff(
-                        field_path=field_path,
-                        field_type=field_type,
-                        change_type="removed",
-                        original_value=item,
-                        confidence=confidences.removed,
-                    )
-                )
-        elif tag == "insert":
-            for item in improved_items[j1:j2]:
-                changes.append(
-                    ResumeFieldDiff(
-                        field_path=field_path,
-                        field_type=field_type,
-                        change_type="added",
-                        new_value=item,
-                        confidence=confidences.added,
-                    )
-                )
-        elif tag == "replace":
-            original_segment = original_items[i1:i2]
-            improved_segment = improved_items[j1:j2]
-            segment_len = max(len(original_segment), len(improved_segment))
-            for offset in range(segment_len):
-                original_value = (
-                    original_segment[offset] if offset < len(original_segment) else None
-                )
-                new_value = (
-                    improved_segment[offset] if offset < len(improved_segment) else None
-                )
-                if original_value is not None and new_value is not None:
-                    changes.append(
-                        ResumeFieldDiff(
-                            field_path=field_path,
-                            field_type=field_type,
-                            change_type="modified",
-                            original_value=original_value,
-                            new_value=new_value,
-                            confidence=confidences.modified,
-                        )
-                    )
-                elif new_value is not None:
-                    changes.append(
-                        ResumeFieldDiff(
-                            field_path=field_path,
-                            field_type=field_type,
-                            change_type="added",
-                            new_value=new_value,
-                            confidence=confidences.added,
-                        )
-                    )
-                elif original_value is not None:
-                    changes.append(
-                        ResumeFieldDiff(
-                            field_path=field_path,
-                            field_type=field_type,
-                            change_type="removed",
-                            original_value=original_value,
-                            confidence=confidences.removed,
-                        )
-                    )
-
-
-def calculate_resume_diff(
-    original: dict[str, Any],
-    improved: dict[str, Any],
-) -> tuple[ResumeDiffSummary, list[ResumeFieldDiff]]:
-    """Compute the diff between original and improved resumes.
-
-    Args:
-        original: Original resume data dict
-        improved: Improved resume data dict
-
-    Returns:
-        (diff summary, detailed change list)
-    """
-    changes: list[ResumeFieldDiff] = []
-
-    # 1. Compare summary
-    original_summary = (original.get("summary") or "").strip()
-    improved_summary = (improved.get("summary") or "").strip()
-    if original_summary != improved_summary:
-        if original_summary and not improved_summary:
-            change_type = "removed"
-        elif improved_summary and not original_summary:
-            change_type = "added"
-        else:
-            change_type = "modified"
-        changes.append(
-            ResumeFieldDiff(
-                field_path="summary",
-                field_type="summary",
-                change_type=change_type,
-                original_value=original_summary or None,
-                new_value=improved_summary or None,
-                confidence="medium",
-            )
-        )
-
-    # 2. Compare skills (order changes are intentionally ignored)
-    orig_skills = _build_string_index(
-        original.get("additional", {}).get("technicalSkills", []),
-        "additional.technicalSkills",
-    )
-    new_skills = _build_string_index(
-        improved.get("additional", {}).get("technicalSkills", []),
-        "additional.technicalSkills",
-    )
-    orig_skill_keys = set(orig_skills)
-    new_skill_keys = set(new_skills)
-    for skill_key in new_skill_keys - orig_skill_keys:
-        changes.append(ResumeFieldDiff(
-            field_path="additional.technicalSkills",
-            field_type="skill",
-            change_type="added",
-            new_value=new_skills[skill_key],
-            confidence="high"  # Newly added skills are high risk
-        ))
-
-    for skill_key in orig_skill_keys - new_skill_keys:
-        changes.append(ResumeFieldDiff(
-            field_path="additional.technicalSkills",
-            field_type="skill",
-            change_type="removed",
-            original_value=orig_skills[skill_key],
-            confidence="medium"
-        ))
-
-    # 3. Compare work experience descriptions
-    original_experiences = original.get("workExperience", [])
-    improved_experiences = improved.get("workExperience", [])
-    max_experience_len = max(len(original_experiences), len(improved_experiences))
-    confidences = DiffConfidence(added="medium", removed="low", modified="medium")
-    for idx in range(max_experience_len):
-        original_entry = (
-            original_experiences[idx] if idx < len(original_experiences) else None
-        )
-        improved_entry = (
-            improved_experiences[idx] if idx < len(improved_experiences) else None
-        )
-        if not original_entry and not improved_entry:
-            continue
-        _append_list_changes(
-            changes,
-            field_path=f"workExperience[{idx}].description",
-            field_type="description",
-            original_items=_extract_description_list(original_entry),
-            improved_items=_extract_description_list(improved_entry),
-            confidences=confidences,
-        )
-
-    # 4. Compare certifications (order changes are intentionally ignored)
-    orig_certs = _build_string_index(
-        original.get("additional", {}).get("certificationsTraining", []),
-        "additional.certificationsTraining",
-    )
-    new_certs = _build_string_index(
-        improved.get("additional", {}).get("certificationsTraining", []),
-        "additional.certificationsTraining",
-    )
-    orig_cert_keys = set(orig_certs)
-    new_cert_keys = set(new_certs)
-    for cert_key in new_cert_keys - orig_cert_keys:
-        changes.append(ResumeFieldDiff(
-            field_path="additional.certificationsTraining",
-            field_type="certification",
-            change_type="added",
-            new_value=new_certs[cert_key],
-            confidence="high"
-        ))
-
-    for cert_key in orig_cert_keys - new_cert_keys:
-        changes.append(ResumeFieldDiff(
-            field_path="additional.certificationsTraining",
-            field_type="certification",
-            change_type="removed",
-            original_value=orig_certs[cert_key],
-            confidence="medium"
-        ))
-
-    # 4b. Compare education descriptions (a single string per entry, not a list)
-    original_education = original.get("education", [])
-    improved_education = improved.get("education", [])
-    for idx in range(max(len(original_education), len(improved_education))):
-        orig_entry = original_education[idx] if idx < len(original_education) else None
-        impr_entry = improved_education[idx] if idx < len(improved_education) else None
-        orig_desc = (
-            str(orig_entry.get("description") or "").strip()
-            if isinstance(orig_entry, dict)
-            else ""
-        )
-        impr_desc = (
-            str(impr_entry.get("description") or "").strip()
-            if isinstance(impr_entry, dict)
-            else ""
-        )
-        if orig_desc == impr_desc:
-            continue
-        if orig_desc and not impr_desc:
-            change_type = "removed"
-        elif impr_desc and not orig_desc:
-            change_type = "added"
-        else:
-            change_type = "modified"
-        changes.append(ResumeFieldDiff(
-            field_path=f"education[{idx}].description",
-            field_type="education",
-            change_type=change_type,
-            original_value=orig_desc or None,
-            new_value=impr_desc or None,
-            confidence="medium",
-        ))
-
-    # 4c. Compare languages (order changes are intentionally ignored)
-    orig_langs = _build_string_index(
-        original.get("additional", {}).get("languages", []),
-        "additional.languages",
-    )
-    new_langs = _build_string_index(
-        improved.get("additional", {}).get("languages", []),
-        "additional.languages",
-    )
-    for lang_key in set(new_langs) - set(orig_langs):
-        changes.append(ResumeFieldDiff(
-            field_path="additional.languages",
-            field_type="language",
-            change_type="added",
-            new_value=new_langs[lang_key],
-            confidence="high",
-        ))
-    for lang_key in set(orig_langs) - set(new_langs):
-        changes.append(ResumeFieldDiff(
-            field_path="additional.languages",
-            field_type="language",
-            change_type="removed",
-            original_value=orig_langs[lang_key],
-            confidence="medium",
-        ))
-
-    # 4d. Compare awards (order changes are intentionally ignored)
-    orig_awards = _build_string_index(
-        original.get("additional", {}).get("awards", []),
-        "additional.awards",
-    )
-    new_awards = _build_string_index(
-        improved.get("additional", {}).get("awards", []),
-        "additional.awards",
-    )
-    for award_key in set(new_awards) - set(orig_awards):
-        changes.append(ResumeFieldDiff(
-            field_path="additional.awards",
-            field_type="award",
-            change_type="added",
-            new_value=new_awards[award_key],
-            confidence="high",
-        ))
-    for award_key in set(orig_awards) - set(new_awards):
-        changes.append(ResumeFieldDiff(
-            field_path="additional.awards",
-            field_type="award",
-            change_type="removed",
-            original_value=orig_awards[award_key],
-            confidence="medium",
-        ))
-
-    # 5. Compare added/removed/modified entries
-    # Descriptions are diffed separately; ignore them when detecting entry-level changes.
-    _append_entry_changes(
-        changes,
-        "workExperience",
-        "experience",
-        original.get("workExperience", []),
-        improved.get("workExperience", []),
-        _format_experience_entry,
-        {"description"},
-    )
-    _append_entry_changes(
-        changes,
-        "education",
-        "education",
-        original.get("education", []),
-        improved.get("education", []),
-        _format_education_entry,
-        {"description"},  # diffed separately in step 4b — avoid duplicate entry-level diffs
-    )
-    _append_entry_changes(
-        changes,
-        "personalProjects",
-        "project",
-        original.get("personalProjects", []),
-        improved.get("personalProjects", []),
-        _format_project_entry,
-    )
-
-    # 6. Build summary
-    summary = ResumeDiffSummary(
-        total_changes=len(changes),
-        skills_added=len([c for c in changes if c.field_type == "skill" and c.change_type == "added"]),
-        skills_removed=len([c for c in changes if c.field_type == "skill" and c.change_type == "removed"]),
-        descriptions_modified=len(
-            [
-                c
-                for c in changes
-                if c.field_type == "description" and c.change_type == "modified"
-            ]
-        ),
-        certifications_added=len([c for c in changes if c.field_type == "certification" and c.change_type == "added"]),
-        high_risk_changes=len([c for c in changes if c.confidence == "high"])
-    )
-
-    return summary, changes
 
 
 def generate_improvements(job_keywords: dict[str, Any]) -> list[dict[str, Any]]:

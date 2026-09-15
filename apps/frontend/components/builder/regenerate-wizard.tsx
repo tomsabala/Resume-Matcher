@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { RegenerateDialog } from './regenerate-dialog';
+import { RegenerateDialog, type RegenerateGroup } from './regenerate-dialog';
 import { RegenerateInstructionDialog } from './regenerate-instruction-dialog';
 import { RegenerateDiffPreview } from './regenerate-diff-preview';
 import type {
@@ -19,9 +19,7 @@ interface RegenerateWizardProps {
   onStepChange: (step: RegenerateWizardStep) => void;
 
   // Data from resume
-  experienceItems: RegenerateItemInput[];
-  projectItems: RegenerateItemInput[];
-  skillsItem: RegenerateItemInput | null;
+  groups: RegenerateGroup[];
 
   // Selection state
   selectedItems: RegenerateItemInput[];
@@ -61,9 +59,7 @@ interface RegenerateWizardProps {
 export const RegenerateWizard: React.FC<RegenerateWizardProps> = ({
   step,
   onStepChange,
-  experienceItems,
-  projectItems,
-  skillsItem,
+  groups,
   selectedItems,
   onSelectionChange,
   instruction,
@@ -121,9 +117,7 @@ export const RegenerateWizard: React.FC<RegenerateWizardProps> = ({
       <RegenerateDialog
         open={isSelectDialogOpen}
         onOpenChange={handleSelectDialogClose}
-        experienceItems={experienceItems}
-        projectItems={projectItems}
-        skillsItem={skillsItem}
+        groups={groups}
         selectedItems={selectedItems}
         onSelectionChange={onSelectionChange}
         onContinue={handleContinueToInstruction}

@@ -11,16 +11,26 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Briefcase, FolderKanban, Lightbulb, ChevronDown, ChevronRight } from 'lucide-react';
+import { FileText, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTranslations } from '@/lib/i18n';
 import type { RegenerateItemInput } from '@/lib/api/enrichment';
+
+/**
+ * One section's worth of regenerable content.
+ *
+ * The dialog no longer knows about "experience", "projects" and "skills": it
+ * groups by whatever sections the document actually has, using their headings.
+ */
+export interface RegenerateGroup {
+  key: string;
+  heading: string;
+  items: RegenerateItemInput[];
+}
 
 interface RegenerateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  experienceItems: RegenerateItemInput[];
-  projectItems: RegenerateItemInput[];
-  skillsItem: RegenerateItemInput | null;
+  groups: RegenerateGroup[];
   selectedItems: RegenerateItemInput[];
   onSelectionChange: (items: RegenerateItemInput[]) => void;
   onContinue: () => void;
@@ -36,31 +46,23 @@ interface RegenerateDialogProps {
 export const RegenerateDialog: React.FC<RegenerateDialogProps> = ({
   open,
   onOpenChange,
-  experienceItems,
-  projectItems,
-  skillsItem,
+  groups,
   selectedItems,
   onSelectionChange,
   onContinue,
 }) => {
   const { t } = useTranslations();
-  const [expandedSections, setExpandedSections] = React.useState<Set<string>>(
-    new Set(['experience', 'projects', 'skills'])
-  );
+  // Collapsed-by-exception: a section is expanded unless the user closed it,
+  // so a section that appears after this state was created is still visible.
+  const [collapsedGroups, setCollapsedGroups] = React.useState<string[]>([]);
 
-  const toggleSection = (section: string) => {
-    const newExpanded = new Set(expandedSections);
-    if (newExpanded.has(section)) {
-      newExpanded.delete(section);
-    } else {
-      newExpanded.add(section);
-    }
-    setExpandedSections(newExpanded);
-  };
+  const toggleGroup = (key: string) =>
+    setCollapsedGroups((collapsed) =>
+      collapsed.includes(key) ? collapsed.filter((item) => item !== key) : [...collapsed, key]
+    );
 
-  const isSelected = (item: RegenerateItemInput) => {
-    return selectedItems.some((s) => s.item_id === item.item_id);
-  };
+  const isSelected = (item: RegenerateItemInput) =>
+    selectedItems.some((s) => s.item_id === item.item_id);
 
   const toggleItem = (item: RegenerateItemInput) => {
     if (isSelected(item)) {
@@ -69,8 +71,6 @@ export const RegenerateDialog: React.FC<RegenerateDialogProps> = ({
       onSelectionChange([...selectedItems, item]);
     }
   };
-
-  const hasItems = experienceItems.length > 0 || projectItems.length > 0 || skillsItem !== null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -85,120 +85,53 @@ export const RegenerateDialog: React.FC<RegenerateDialogProps> = ({
         </DialogHeader>
 
         <div className="p-6 space-y-4 max-h-[50vh] overflow-y-auto">
-          {!hasItems && (
+          {groups.length === 0 && (
             <div className="text-center py-8 text-steel-grey font-mono text-sm">
               {t('builder.regenerate.selectDialog.noItemsAvailable')}
             </div>
           )}
 
-          {/* Experience Section */}
-          {experienceItems.length > 0 && (
-            <div className="border border-black">
-              <button
-                type="button"
-                onClick={() => toggleSection('experience')}
-                aria-expanded={expandedSections.has('experience')}
-                className="w-full p-4 flex items-center justify-between bg-background hover:bg-secondary transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Briefcase className="w-5 h-5" />
-                  <span className="font-mono text-sm uppercase tracking-wider font-medium">
-                    {t('builder.regenerate.selectDialog.experience')}
-                  </span>
-                  <span className="font-mono text-xs text-steel-grey">
-                    ({experienceItems.length})
-                  </span>
-                </div>
-                {expandedSections.has('experience') ? (
-                  <ChevronDown className="w-4 h-4" />
-                ) : (
-                  <ChevronRight className="w-4 h-4" />
-                )}
-              </button>
-              {expandedSections.has('experience') && (
-                <div className="border-t border-black">
-                  {experienceItems.map((item) => (
-                    <ItemRow
-                      key={item.item_id}
-                      item={item}
-                      isSelected={isSelected(item)}
-                      onToggle={() => toggleItem(item)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {groups.map((group) => {
+            const isExpanded = !collapsedGroups.includes(group.key);
 
-          {/* Projects Section */}
-          {projectItems.length > 0 && (
-            <div className="border border-black">
-              <button
-                type="button"
-                onClick={() => toggleSection('projects')}
-                aria-expanded={expandedSections.has('projects')}
-                className="w-full p-4 flex items-center justify-between bg-background hover:bg-secondary transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <FolderKanban className="w-5 h-5" />
-                  <span className="font-mono text-sm uppercase tracking-wider font-medium">
-                    {t('builder.regenerate.selectDialog.projects')}
-                  </span>
-                  <span className="font-mono text-xs text-steel-grey">({projectItems.length})</span>
-                </div>
-                {expandedSections.has('projects') ? (
-                  <ChevronDown className="w-4 h-4" />
-                ) : (
-                  <ChevronRight className="w-4 h-4" />
+            return (
+              <div key={group.key} className="border border-black">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.key)}
+                  aria-expanded={isExpanded}
+                  className="w-full p-4 flex items-center justify-between bg-background hover:bg-secondary transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <FileText className="w-5 h-5" />
+                    <span className="font-mono text-sm uppercase tracking-wider font-medium">
+                      {group.heading}
+                    </span>
+                    <span className="font-mono text-xs text-steel-grey">
+                      ({group.items.length})
+                    </span>
+                  </div>
+                  {isExpanded ? (
+                    <ChevronDown className="w-4 h-4" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4" />
+                  )}
+                </button>
+                {isExpanded && (
+                  <div className="border-t border-black">
+                    {group.items.map((item) => (
+                      <ItemRow
+                        key={item.item_id}
+                        item={item}
+                        isSelected={isSelected(item)}
+                        onToggle={() => toggleItem(item)}
+                      />
+                    ))}
+                  </div>
                 )}
-              </button>
-              {expandedSections.has('projects') && (
-                <div className="border-t border-black">
-                  {projectItems.map((item) => (
-                    <ItemRow
-                      key={item.item_id}
-                      item={item}
-                      isSelected={isSelected(item)}
-                      onToggle={() => toggleItem(item)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Skills Section */}
-          {skillsItem && (
-            <div className="border border-black">
-              <button
-                type="button"
-                onClick={() => toggleSection('skills')}
-                aria-expanded={expandedSections.has('skills')}
-                className="w-full p-4 flex items-center justify-between bg-background hover:bg-secondary transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Lightbulb className="w-5 h-5" />
-                  <span className="font-mono text-sm uppercase tracking-wider font-medium">
-                    {t('builder.regenerate.selectDialog.skills')}
-                  </span>
-                </div>
-                {expandedSections.has('skills') ? (
-                  <ChevronDown className="w-4 h-4" />
-                ) : (
-                  <ChevronRight className="w-4 h-4" />
-                )}
-              </button>
-              {expandedSections.has('skills') && (
-                <div className="border-t border-black">
-                  <ItemRow
-                    item={skillsItem}
-                    isSelected={isSelected(skillsItem)}
-                    onToggle={() => toggleItem(skillsItem)}
-                  />
-                </div>
-              )}
-            </div>
-          )}
+              </div>
+            );
+          })}
         </div>
 
         <DialogFooter className="p-4 bg-secondary border-t border-black flex-row justify-end gap-3">

@@ -20,17 +20,35 @@ import {
   type ResumeWizardSection,
   type ResumeWizardState,
 } from '@/lib/api';
+import type { Section } from '@/lib/types/document';
+import { sectionHeading, visibleSections } from '@/lib/utils/section-helpers';
 import { LivePreview } from './live-preview';
 import { QuestionCard } from './question-card';
 
 const MASTER_RESUME_KEY = 'master_resume_id';
-/** First section still missing content (matches the backend gap heuristic); falls
- *  back to 'skills' (its additional.* merge is the broadest catch-all). */
-function firstGapSection(data: ResumeWizardState['resume_data']): ResumeWizardSection {
-  if (!data.workExperience?.length) return 'workExperience';
-  if (!data.education?.length) return 'education';
-  if (!data.personalProjects?.length) return 'personalProjects';
-  return 'skills';
+
+function isEmptyForKind(section: Section): boolean {
+  switch (section.kind) {
+    case 'text':
+      return section.text.trim() === '';
+    case 'entries':
+      return section.entries.length === 0;
+    case 'tags':
+      return section.tags.length === 0;
+    case 'groups':
+      return section.groups.length === 0;
+  }
+}
+
+/**
+ * The first visible section with no content for its kind, addressed by key.
+ *
+ * Falls back to `review` when every section already carries content: there is
+ * no privileged catch-all section to dump an answer into any more.
+ */
+function firstGapSection(doc: ResumeWizardState['resume_data']): ResumeWizardSection {
+  const gap = visibleSections(doc).find(isEmptyForKind);
+  return gap ? `section:${gap.key}` : 'review';
 }
 
 export function ResumeWizardPage() {
@@ -73,7 +91,16 @@ export function ResumeWizardPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [draftStorageUnavailable]);
 
-  const sectionLabel = t(`resumeWizard.sections.${state.current_question.section}`);
+  // A `section:<key>` question is labelled with that section's own heading;
+  // only the three fixed bookends have translations.
+  const currentSection = state.current_question.section;
+  const sectionLabel = currentSection.startsWith('section:')
+    ? (() => {
+        const key = currentSection.slice('section:'.length);
+        const match = state.resume_data.sections.find((section) => section.key === key);
+        return match ? sectionHeading(match, t) : key.replace(/_/g, ' ');
+      })()
+    : t(`resumeWizard.sections.${currentSection}`);
 
   const runTurn = async (
     action: 'answer' | 'skip' | 'back' | 'review',
@@ -248,12 +275,12 @@ export function ResumeWizardPage() {
               onKeepAdding={handleKeepAdding}
               warnings={state.warnings}
               isComplete={state.is_complete}
-              canFinalize={Boolean(state.resume_data.personalInfo?.name?.trim())}
+              canFinalize={Boolean(state.resume_data.header.name.trim())}
             />
           )}
         </div>
 
-        <LivePreview resumeData={state.resume_data} inferredSkills={state.inferred_skills} />
+        <LivePreview doc={state.resume_data} inferredSkills={state.inferred_skills} />
       </div>
 
       <ConfirmDialog

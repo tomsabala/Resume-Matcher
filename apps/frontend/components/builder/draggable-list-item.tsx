@@ -6,7 +6,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { GripVertical } from 'lucide-react';
 
 interface DraggableListItemProps {
-  id: number;
+  id: string;
   children: React.ReactNode;
 }
 

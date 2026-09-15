@@ -1,12 +1,14 @@
 """Integration tests for the adaptive resume wizard endpoints."""
 
 import json
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from httpx import ASGITransport, AsyncClient
 
 from app.database import Database
 from app.main import app
+from app.schemas.document import Bullet, Contact, Entry, Section, SectionKind, TagGroup
 from app.schemas.resume_wizard import ResumeWizardHistoryEntry, ResumeWizardQuestion
 from app.services.resume_wizard import (
     RESUME_WIZARD_MAX_QUESTIONS,
@@ -15,31 +17,35 @@ from app.services.resume_wizard import (
 
 _AI_RESULT = {
     "resume_data": {
-        "personalInfo": {"name": "James"},
-        "summary": "",
-        "workExperience": [],
-        "education": [],
-        "personalProjects": [],
-        "additional": {
-            "technicalSkills": ["Python"],
-            "languages": [],
-            "certificationsTraining": [],
-            "awards": [],
-        },
-        "sectionMeta": [],
-        "customSections": {},
+        "schemaVersion": 2,
+        "header": {"name": "James", "headline": "", "contacts": []},
+        "sections": [
+            {
+                "key": "skills",
+                "heading": "Skills & Awards",
+                "kind": "groups",
+                "groups": [{"label": "Technical Skills", "values": ["Python"]}],
+            }
+        ],
     },
-    "next_question": {"text": "What tools do you use most?", "section": "skills"},
+    "next_question": {"text": "What tools do you use most?", "section": "section:skills"},
     "inferred_skills": ["FastAPI"],
     "is_complete": False,
 }
+
+
+def _section(payload: dict[str, Any], key: str) -> dict[str, Any]:
+    """The section with this key in a serialized wizard state."""
+    return next(
+        section for section in payload["resume_data"]["sections"] if section["key"] == key
+    )
 
 
 async def test_turn_answer_runs_ai_and_returns_next_question(isolated_db) -> None:
     transport = ASGITransport(app=app)
     state = build_initial_wizard_state()
     state.step = "question"
-    state.current_question.section = "skills"
+    state.current_question.section = "section:skills"
 
     with patch(
         "app.services.resume_wizard.complete_json",
@@ -59,7 +65,9 @@ async def test_turn_answer_runs_ai_and_returns_next_question(isolated_db) -> Non
     assert response.status_code == 200
     payload = response.json()["state"]
     assert payload["current_question"]["text"] == "What tools do you use most?"
-    assert payload["resume_data"]["additional"]["technicalSkills"] == ["Python", "FastAPI"]
+    assert _section(payload, "skills")["groups"] == [
+        {"label": "Technical Skills", "values": ["Python", "FastAPI"]}
+    ]
     assert payload["asked_count"] == 1
 
 
@@ -67,7 +75,7 @@ async def test_turn_review_needs_no_llm(isolated_db) -> None:
     transport = ASGITransport(app=app)
     state = build_initial_wizard_state()
     state.step = "question"
-    state.resume_data.personalInfo.name = "James"
+    state.resume_data.header.name = "James"
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
@@ -98,7 +106,9 @@ async def test_turn_malformed_model_envelope_is_recoverable_422(
     transport = ASGITransport(app=app)
     state = build_initial_wizard_state()
     state.step = "question"
-    state.current_question = ResumeWizardQuestion(text="Experience?", section="workExperience")
+    state.current_question = ResumeWizardQuestion(
+        text="Experience?", section="section:experience"
+    )
 
     with patch(
         "app.services.resume_wizard.complete_json",
@@ -123,9 +133,13 @@ async def test_turn_malformed_model_envelope_is_recoverable_422(
 async def test_finalize_creates_ready_master_resume(isolated_db) -> None:
     transport = ASGITransport(app=app)
     state = build_initial_wizard_state()
-    state.resume_data.personalInfo.name = "James"
-    state.resume_data.personalInfo.email = "james@example.com"
-    state.resume_data.additional.technicalSkills = ["Python"]
+    state.resume_data.header.name = "James"
+    state.resume_data.header.contacts = [
+        Contact(kind="email", value="james@example.com")
+    ]
+    state.resume_data.section("skills").groups = [
+        TagGroup(label="Technical Skills", values=["Python"])
+    ]
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
@@ -142,14 +156,72 @@ async def test_finalize_creates_ready_master_resume(isolated_db) -> None:
     assert stored is not None
     assert stored["is_master"] is True
     assert stored["content_type"] == "json"
-    assert json.loads(stored["content"])["personalInfo"]["name"] == "James"
+    content = json.loads(stored["content"])
+    assert content["schemaVersion"] == 2
+    assert content["header"]["name"] == "James"
+    assert [c["value"] for c in content["header"]["contacts"]] == ["james@example.com"]
+
+
+async def test_finalize_persists_a_user_created_section(isolated_db) -> None:
+    """A section the six-section schema never had must survive finalize."""
+    transport = ASGITransport(app=app)
+    state = build_initial_wizard_state()
+    state.resume_data.header.name = "James"
+    state.resume_data.sections.append(
+        Section(
+            key="military_service",
+            heading="Military Service",
+            kind=SectionKind.ENTRIES,
+            entries=[
+                Entry(
+                    title="Signals Officer",
+                    subtitle="Signal Corps",
+                    period="2016 - 2018",
+                    summary="Ran the comms platoon.",
+                    bullets=[Bullet(text="Led a team of eight")],
+                )
+            ],
+        )
+    )
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/resume-wizard/finalize",
+            json={"state": state.model_dump(mode="json")},
+        )
+
+    assert response.status_code == 200
+    stored = await isolated_db.get_resume(response.json()["resume_id"])
+    content = json.loads(stored["content"])
+    military = next(s for s in content["sections"] if s["key"] == "military_service")
+    assert military["heading"] == "Military Service"
+    assert military["kind"] == "entries"
+    assert military["entries"][0]["title"] == "Signals Officer"
+    assert military["entries"][0]["summary"] == "Ran the comms platoon."
+    assert military["entries"][0]["bullets"] == [
+        {"text": "Led a team of eight", "style": "bullet"}
+    ]
+
+
+async def test_finalize_requires_a_name(isolated_db) -> None:
+    transport = ASGITransport(app=app)
+    state = build_initial_wizard_state()  # header.name is still empty
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/resume-wizard/finalize",
+            json={"state": state.model_dump(mode="json")},
+        )
+
+    assert response.status_code == 422
+    assert "header.name is required" in json.dumps(response.json())
 
 
 async def test_finalize_replays_identical_wizard_master_without_duplication(
     isolated_db: Database,
 ) -> None:
     state = build_initial_wizard_state()
-    state.resume_data.personalInfo.name = "James"
+    state.resume_data.header.name = "James"
     request = {"state": state.model_dump(mode="json")}
 
     transport = ASGITransport(app=app)
@@ -167,9 +239,9 @@ async def test_finalize_rejects_different_draft_after_wizard_master_exists(
     isolated_db: Database,
 ) -> None:
     first_state = build_initial_wizard_state()
-    first_state.resume_data.personalInfo.name = "James"
+    first_state.resume_data.header.name = "James"
     changed_state = first_state.model_copy(deep=True)
-    changed_state.resume_data.summary = "A different draft"
+    changed_state.resume_data.section("summary").text = "A different draft"
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -197,7 +269,7 @@ async def test_finalize_rejects_when_master_exists(isolated_db, sample_resume) -
         processing_status="ready",
     )
     state = build_initial_wizard_state()
-    state.resume_data.personalInfo.name = "James"
+    state.resume_data.header.name = "James"
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -224,6 +296,14 @@ async def test_turn_start_returns_initial_state(isolated_db) -> None:
     assert payload["step"] == "intro"
     assert payload["current_question"]["section"] == "intro"
     assert payload["asked_count"] == 0
+    # The wizard hands the client a shaped document, not an empty blob.
+    assert [s["key"] for s in payload["resume_data"]["sections"]] == [
+        "summary",
+        "experience",
+        "education",
+        "projects",
+        "skills",
+    ]
 
 
 async def test_turn_back_restores_previous_question(isolated_db) -> None:
@@ -231,13 +311,15 @@ async def test_turn_back_restores_previous_question(isolated_db) -> None:
     state = build_initial_wizard_state()
     state.step = "question"
     state.asked_count = 1
-    state.current_question = ResumeWizardQuestion(text="Skills?", section="skills")
-    state.resume_data.additional.technicalSkills = ["Python"]
+    state.current_question = ResumeWizardQuestion(text="Skills?", section="section:skills")
+    state.resume_data.section("skills").groups = [
+        TagGroup(label="Technical Skills", values=["Python"])
+    ]
     state.history = [
         ResumeWizardHistoryEntry(
             question="Where have you worked?",
             answer="Acme",
-            section="workExperience",
+            section="section:experience",
             resume_data_before=build_initial_wizard_state().resume_data,
         )
     ]
@@ -251,20 +333,32 @@ async def test_turn_back_restores_previous_question(isolated_db) -> None:
     assert response.status_code == 200
     payload = response.json()["state"]
     assert payload["asked_count"] == 0
-    assert payload["current_question"]["section"] == "workExperience"
+    assert payload["current_question"]["section"] == "section:experience"
     # The pre-answer snapshot is restored, dropping the later skills edit.
-    assert payload["resume_data"]["additional"]["technicalSkills"] == []
+    assert _section(payload, "skills")["groups"] == []
 
 
 async def test_turn_skip_advances_without_modifying_resume_data(isolated_db) -> None:
     transport = ASGITransport(app=app)
     state = build_initial_wizard_state()
     state.step = "question"
-    state.current_question = ResumeWizardQuestion(text="Education?", section="education")
+    state.current_question = ResumeWizardQuestion(
+        text="Education?", section="section:education"
+    )
 
     skip_result = {
-        "resume_data": {"education": [{"id": 1, "institution": "MIT"}]},
-        "next_question": {"text": "What skills?", "section": "skills"},
+        "resume_data": {
+            "schemaVersion": 2,
+            "sections": [
+                {
+                    "key": "education",
+                    "heading": "Education",
+                    "kind": "entries",
+                    "entries": [{"title": "MIT"}],
+                }
+            ],
+        },
+        "next_question": {"text": "What skills?", "section": "section:skills"},
         "inferred_skills": [],
         "is_complete": False,
     }
@@ -281,8 +375,9 @@ async def test_turn_skip_advances_without_modifying_resume_data(isolated_db) -> 
 
     assert response.status_code == 200
     payload = response.json()["state"]
-    assert payload["current_question"]["section"] == "skills"
-    assert payload["resume_data"]["education"] == []  # skip must not apply the model's data
+    assert payload["current_question"]["section"] == "section:skills"
+    # skip must not apply the model's data
+    assert _section(payload, "education")["entries"] == []
     assert payload["asked_count"] == 1
 
 
@@ -290,7 +385,7 @@ async def test_turn_answer_past_cap_routes_to_review_without_llm(isolated_db) ->
     transport = ASGITransport(app=app)
     state = build_initial_wizard_state()
     state.step = "question"
-    state.current_question.section = "skills"
+    state.current_question.section = "section:skills"
     state.asked_count = RESUME_WIZARD_MAX_QUESTIONS  # at the cap
 
     with patch(

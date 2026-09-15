@@ -21,14 +21,14 @@ regressions are caught here for free.
 
 | Scorer | What it checks |
 |--------|----------------|
-| `sections_preserved(original, tailored) -> bool` | No populated top-level section or individual custom section vanishes during tailoring. |
-| `no_fabricated_employers(original, tailored) -> list[str]` | Company names in the tailored work history that were **not** in the original — i.e. invented employers. Empty list = truthful. |
+| `sections_preserved(original, tailored) -> bool` | No section that carried content vanishes (or is emptied) during tailoring. Built-in and user-authored sections are treated identically — the document has no privileged section names. |
+| `no_fabricated_entries(original, tailored) -> list[str]` | Entry identities (`"title — subtitle"`) present in the tailored document but absent from the original — i.e. invented employers, schools or projects, in any `entries` section. Empty list = truthful. |
 | `jd_keywords_present(tailored, keywords) -> float` | Fraction (0–1) of the JD's keywords that actually appear (case-insensitive) in the tailored resume. |
-| `is_valid_resume(data) -> bool` | The result validates against `ResumeData` and contains meaningful content. |
-| `personal_info_unchanged(original, tailored) -> bool` | The candidate's identity block (`personalInfo`) is byte-for-byte unchanged. |
+| `is_valid_resume(data) -> bool` | The result validates against `ResumeDocument` (strictly — unknown fields are rejected) and contains meaningful content. |
+| `header_unchanged(original, tailored) -> bool` | The candidate's identity (`header`: name, headline, contacts) is unchanged apart from structural ids. |
 
 Their tests live in [`test_scorers.py`](./test_scorers.py) and prove **each
-scorer fires on a known-bad input** (drop a section → `False`, invent a company
+scorer fires on a known-bad input** (empty a section → `False`, invent an entry
 → it's returned, change the name → `False`, …). That's the anti-theater proof
 that the scorers detect real violations rather than always saying "OK".
 
@@ -72,7 +72,7 @@ Golden fixtures live in [`golden/cases.py`](./golden/cases.py) as the
 ```python
 {
     "name": "short_id",
-    "original": { ... },          # master resume (ResumeData-compatible)
+    "original": { ... },          # master resume (a v2 `ResumeDocument`)
     "job_description": "…",        # the target JD text
     "jd_keywords": ["…", "…"],     # all target keywords
     "grounded_keywords": ["…"],  # source-supported positive-fixture targets
@@ -83,7 +83,7 @@ Golden fixtures live in [`golden/cases.py`](./golden/cases.py) as the
 
 Guidelines:
 
-- Keep `original` and `tailored_good` **valid against `ResumeData`** (so
+- Keep `original` and `tailored_good` **valid against `ResumeDocument`** (so
   `is_valid_resume` stays meaningful) and make sure every `grounded_keywords` entry appears in `tailored_good` and is supported by the original. `jd_keywords` remains the complete target list; unsupported requirements need not appear in a truthful positive fixture.
 - Make `tailored_bad` violate at least one invariant on purpose — drop a
   section, invent an employer, or rewrite the name — so the scorer tests keep

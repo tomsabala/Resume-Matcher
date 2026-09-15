@@ -104,6 +104,28 @@
     "errors": {
       "loadFailed": "Impossible de charger les CV. Veuillez réessayer.",
       "deleteFailed": "Impossible de supprimer le CV. Votre CV actuel reste disponible."
+    },
+    "selection": {
+      "count": "{count} sélectionnés",
+      "compare": "Comparer",
+      "clear": "Effacer",
+      "hint": "Sélectionnez exactement deux CV à comparer",
+      "selectResume": "Sélectionner {title}"
+    },
+    "manage": {
+      "rename": "Renommer",
+      "renameResume": "Renommer {title}",
+      "deleteResume": "Supprimer {title}",
+      "renameTitle": "Renommer le CV",
+      "renameDescription": "Le nom affiché sur le tableau de bord. Le CV lui-même n'est pas modifié.",
+      "nameLabel": "Nom du CV",
+      "namePlaceholder": "ex. Ingénieur backend — Acme",
+      "nameRequired": "Saisissez un nom",
+      "renameFailed": "Impossible de renommer ce CV. Veuillez réessayer.",
+      "deleteTitle": "Supprimer le CV",
+      "deleteDescription": "« {title} » et son historique seront définitivement supprimés.",
+      "deleteMasterDescription": "« {title} » est votre CV principal. Le supprimer efface son historique ; les CV personnalisés sont conservés.",
+      "deleteFailed": "Impossible de supprimer ce CV. Veuillez réessayer."
     }
   },
   "builder": {
@@ -134,62 +156,14 @@
       "leave": "Aller au tableau de bord",
       "stay": "Continuer l'édition"
     },
-    "personalInfo": "Informations personnelles",
-    "summary": "Résumé",
-    "experience": "Expérience",
-    "education": "Formation",
-    "skills": "Compétences",
-    "projects": "Projets",
-    "certifications": "Certifications",
-    "languages": "Langues",
-    "awards": "Récompenses",
     "addSection": "Ajouter une section",
-    "removeSection": "Supprimer la section",
     "saveChanges": "Enregistrer les modifications",
     "discardChanges": "Ignorer les modifications",
-    "placeholders": {
-      "summary": "Décrivez brièvement votre parcours professionnel..."
-    },
     "contentStats": {
       "wordsChars": "{wordCount} mots / {charCount} caractères"
     },
-    "additionalForm": {
-      "instructions": "Saisissez les éléments séparés par des sauts de ligne (appuyez sur Entrée pour chaque élément).",
-      "placeholders": {
-        "technicalSkills": "React\nTypeScript\nNode.js",
-        "languages": "Français\nAnglais",
-        "certifications": "AWS Solution Architect\nGoogle Analytics",
-        "awards": "Employé du mois\nVainqueur de hackathon"
-      }
-    },
-    "customSections": {
-      "dialogTitle": "Ajouter une section personnalisée",
-      "dialogDescription": "Créez une nouvelle section pour votre CV avec un nom et un type personnalisés.",
-      "sectionNameLabel": "Nom de la section",
-      "sectionNamePlaceholder": "ex. Publications, Bénévolat, Certifications",
-      "sectionTypeLabel": "Type de section",
-      "addCustomSectionButton": "Ajouter une section personnalisée",
-      "sectionTypes": {
-        "textBlockLabel": "Bloc de texte",
-        "textBlockDescription": "Zone de texte unique (comme Résumé)",
-        "itemListLabel": "Liste d'entrées",
-        "itemListDescription": "Plusieurs entrées avec détails (comme Expérience)",
-        "stringListLabel": "Liste de compétences",
-        "stringListDescription": "Liste simple d'éléments (comme Compétences)"
-      },
-      "contentLabel": "Contenu",
-      "contentPlaceholder": "Saisissez le contenu pour {name}...",
-      "defaultTextPlaceholder": "Saisissez le contenu...",
-      "entryLabel": "Entrée",
-      "addEntryLabel": "Ajouter une entrée",
-      "itemsLabel": "Éléments",
-      "itemsPlaceholder": "Saisissez les éléments, un par ligne",
-      "unknownSectionType": "Type de section inconnu : {type}",
-      "unknownDefaultSection": "Section par défaut inconnue : {section}"
-    },
     "sectionHeader": {
       "renameSection": "Renommer la section",
-      "customTag": "Personnalisée",
       "hiddenFromPdfTag": "Masquée du PDF",
       "hideSection": "Masquer la section",
       "showSection": "Afficher la section",
@@ -197,14 +171,19 @@
       "moveDown": "Déplacer vers le bas",
       "deleteSection": "Supprimer la section",
       "deleteTitle": "Supprimer la section",
-      "deleteDescription": "Êtes-vous sûr de vouloir supprimer \"{name}\" ? Cette action est irréversible."
+      "deleteDescription": "Êtes-vous sûr de vouloir supprimer \"{name}\" ? Cette action est irréversible.",
+      "sidebarTag": "Colonne latérale",
+      "moveToSide": "Déplacer vers la colonne latérale",
+      "moveToMain": "Déplacer vers la colonne principale"
     },
     "previewTabs": {
       "resume": "CV",
       "coverLetter": "LETTRE DE MOTIVATION",
       "outreach": "MESSAGE DE CONTACT",
       "jdMatch": "CORRESPONDANCE FP",
-      "interviewPrep": "PRÉPARATION ENTRETIEN"
+      "interviewPrep": "PRÉPARATION ENTRETIEN",
+      "history": "Historique",
+      "latex": "LaTeX"
     },
     "footer": {
       "moduleLabel": "Module Créateur de CV",
@@ -236,9 +215,6 @@
       "selectDialog": {
         "title": "Sélectionner les éléments à régénérer",
         "subtitle": "Choisissez les parties de votre CV que vous souhaitez améliorer",
-        "experience": "Expérience professionnelle",
-        "projects": "Projets",
-        "skills": "Compétences techniques",
         "noItemsSelected": "Veuillez sélectionner au moins un élément",
         "noItemsAvailable": "Aucun élément disponible à régénérer. Ajoutez d'abord une expérience, des projets ou des compétences.",
         "itemCount": {
@@ -266,8 +242,6 @@
         "changesCount": "{count} éléments modifiés",
         "rejectButton": "Rejeter et régénérer",
         "acceptButton": "Accepter les modifications",
-        "originalLabel": "Original",
-        "newLabel": "Nouveau",
         "noContent": "Aucun contenu",
         "applying": "Application...",
         "loading": "Génération du contenu amélioré...",
@@ -309,80 +283,6 @@
         "keywordsExtracted": "{count} mots-clés extraits",
         "matchesFound": "{count} correspondances trouvées",
         "matchRateLabel": "Taux de correspondance :"
-      }
-    },
-    "genericItemForm": {
-      "itemLabel": "Élément",
-      "addItemLabel": "Ajouter {label}",
-      "fields": {
-        "title": "Titre",
-        "organization": "Organisation",
-        "location": "Lieu",
-        "years": "Années",
-        "descriptionPoints": "Points de description"
-      },
-      "actions": {
-        "addPoint": "Ajouter un point",
-        "togglePointStyle": "Basculer la puce"
-      },
-      "placeholders": {
-        "title": "Titre",
-        "organization": "Organisation",
-        "location": "Lieu",
-        "years": "Janv. 2020 - Présent",
-        "description": "Décrivez votre contribution..."
-      },
-      "noEntries": "// AUCUNE ENTRÉE {label}",
-      "addFirstItem": "Ajouter le premier {label}"
-    },
-    "forms": {
-      "experience": {
-        "addJob": "Ajouter un emploi",
-        "addFirstJob": "Ajouter le premier emploi",
-        "fields": {
-          "jobTitle": "Intitulé du poste",
-          "company": "Entreprise"
-        },
-        "placeholders": {
-          "jobTitle": "Développeur senior",
-          "company": "Tech Corp",
-          "location": "Télétravail / Ville",
-          "years": "Janv. 2020 - Présent",
-          "description": "Décrivez votre réalisation..."
-        }
-      },
-      "education": {
-        "addSchool": "Ajouter un établissement",
-        "addFirstSchool": "Ajouter le premier établissement",
-        "fields": {
-          "institution": "Établissement",
-          "degree": "Diplôme",
-          "description": "Description",
-          "descriptionOptional": "Description (optionnelle)"
-        },
-        "placeholders": {
-          "institution": "Nom de l'université",
-          "degree": "Licence en sciences",
-          "years": "Août 2016 - Mai 2020",
-          "description": "Informations complémentaires..."
-        }
-      },
-      "projects": {
-        "addProject": "Ajouter un projet",
-        "addFirstProject": "Ajouter le premier projet",
-        "fields": {
-          "projectName": "Nom du projet",
-          "role": "Rôle",
-          "website": "Site web"
-        },
-        "placeholders": {
-          "projectName": "Resume Matcher",
-          "role": "Créateur",
-          "years": "Mars 2023",
-          "github": "github.com/utilisateur/projet",
-          "website": "https://demo-projet.com",
-          "description": "Détail du projet..."
-        }
       }
     },
     "formatting": {
@@ -462,18 +362,6 @@
       "compactHint": "Le mode compact resserre l'espacement et l'interligne. Les marges et la taille de police de base restent littérales.",
       "resetDefaults": "Rétablir les valeurs par défaut"
     },
-    "personalInfoForm": {
-      "placeholders": {
-        "name": "Jean Dupont",
-        "title": "Ingénieur logiciel",
-        "email": "jean@example.com",
-        "phone": "+33 6 00 00 00 00",
-        "location": "Ville, Pays",
-        "website": "portfolio.com",
-        "linkedin": "linkedin.com/in/jean",
-        "github": "github.com/jean"
-      }
-    },
     "leftPanel": {
       "editorPanel": "Panneau d'édition",
       "coverLetterEditor": "Éditeur de lettre de motivation",
@@ -506,6 +394,124 @@
       "description": "Vos dernières modifications n’ont pu être ni synchronisées avec le serveur ni enregistrées dans ce navigateur. Les quitter maintenant peut les perdre.",
       "leave": "Quitter quand même",
       "stay": "Continuer la modification"
+    },
+    "header": {
+      "title": "En-tête",
+      "fields": {
+        "name": "Nom complet",
+        "headline": "Accroche",
+        "contacts": "Contacts",
+        "contactLabel": "Libellé du contact",
+        "contactValue": "Valeur du contact",
+        "contactUrl": "URL du contact"
+      },
+      "placeholders": {
+        "name": "Jean Dupont",
+        "headline": "Ingénieur logiciel",
+        "contactLabel": "E-mail",
+        "contactValue": "jean@exemple.com",
+        "contactUrl": "https://exemple.com"
+      },
+      "addContact": "Ajouter un contact",
+      "removeContact": "Supprimer le contact",
+      "noContacts": "// AUCUN CONTACT",
+      "contactKinds": {
+        "email": "E-mail",
+        "phone": "Téléphone",
+        "website": "Site web",
+        "github": "GitHub",
+        "linkedin": "LinkedIn",
+        "location": "Localisation",
+        "other": "Autre"
+      }
+    },
+    "sectionForms": {
+      "text": {
+        "label": "Contenu",
+        "placeholder": "Rédigez cette section..."
+      },
+      "tags": {
+        "label": "Éléments",
+        "instructions": "Saisissez les éléments séparés par des retours à la ligne (Entrée pour chacun).",
+        "placeholder": "React\nTypeScript\nNode.js"
+      },
+      "entries": {
+        "addEntry": "Ajouter une entrée",
+        "addFirstEntry": "Ajouter la première entrée",
+        "noEntries": "// AUCUNE ENTRÉE",
+        "removeEntry": "Supprimer l’entrée",
+        "fields": {
+          "title": "Intitulé",
+          "subtitle": "Organisation",
+          "meta": "Lieu",
+          "period": "Période",
+          "summary": "Résumé",
+          "links": "Liens",
+          "bullets": "Puces"
+        },
+        "placeholders": {
+          "title": "Développeur senior",
+          "subtitle": "Tech Corp",
+          "meta": "Télétravail / Ville",
+          "period": "Janv. 2020 - Présent",
+          "summary": "Un paragraphe de contexte...",
+          "bullet": "Décrivez votre réalisation...",
+          "linkUrl": "https://github.com/utilisateur/projet"
+        },
+        "actions": {
+          "addBullet": "Ajouter une puce",
+          "toggleBulletStyle": "Basculer la puce",
+          "removeBullet": "Supprimer cette ligne",
+          "addLink": "Ajouter un lien",
+          "removeLink": "Supprimer le lien"
+        }
+      },
+      "groups": {
+        "addGroup": "Ajouter un groupe",
+        "addFirstGroup": "Ajouter le premier groupe",
+        "noGroups": "// AUCUN GROUPE",
+        "removeGroup": "Supprimer le groupe",
+        "instructions": "Saisissez les valeurs séparées par des retours à la ligne (Entrée pour chacune).",
+        "fields": {
+          "label": "Libellé du groupe",
+          "values": "Valeurs"
+        },
+        "placeholders": {
+          "label": "Langues",
+          "values": "Anglais\nFrançais"
+        }
+      },
+      "linkKinds": {
+        "github": "GitHub",
+        "website": "Site web",
+        "linkedin": "LinkedIn",
+        "other": "Autre"
+      },
+      "kinds": {
+        "text": {
+          "label": "Bloc de texte",
+          "description": "Un bloc de prose, comme un résumé"
+        },
+        "entries": {
+          "label": "Liste d’entrées",
+          "description": "Des lignes avec dates et puces, comme l’expérience"
+        },
+        "tags": {
+          "label": "Liste d’étiquettes",
+          "description": "Une liste simple d’éléments courts, comme les compétences"
+        },
+        "groups": {
+          "label": "Groupes nommés",
+          "description": "Des groupes de valeurs nommés, comme les langues"
+        }
+      }
+    },
+    "addSectionDialog": {
+      "title": "Ajouter une section",
+      "description": "Nommez la section et choisissez la forme de son contenu.",
+      "headingLabel": "Titre de la section",
+      "headingPlaceholder": "ex. : Publications, Bénévolat, Certifications",
+      "kindLabel": "Forme du contenu"
     }
   },
   "enrichment": {
@@ -520,8 +526,8 @@
     },
     "questionProgress": "Question {current} sur {total}",
     "itemType": {
-      "experience": "Expérience",
-      "project": "Projet"
+      "entry": "Entrée",
+      "values": "Liste"
     },
     "shortcutHint": "Appuyez sur Maj+Entrée pour un saut de ligne, Cmd/Ctrl+Entrée pour continuer",
     "preview": {
@@ -595,25 +601,10 @@
     "diffModal": {
       "title": "Vérifier les résultats de la personnalisation IA",
       "subtitle": "Veuillez examiner attentivement les modifications pour vous assurer qu'aucune information erronée n'a été ajoutée",
-      "summary": "Résumé des modifications",
-      "skillsAdded": "Compétences ajoutées",
-      "skillsRemoved": "Compétences supprimées",
-      "descriptionsModified": "Descriptions modifiées",
-      "certificationsAdded": "Certifications ajoutées",
-      "highRiskChanges": "Modifications à risque élevé",
-      "warningTitle": "{count} ajout(s) à risque élevé détecté(s)",
-      "warningMessage": "Veuillez confirmer que ces ajouts existent dans votre CV original ou sont reflétés dans vos descriptions",
-      "summaryChanges": "Modifications du résumé",
-      "skillChanges": "Modifications des compétences",
-      "descriptionChanges": "Modifications des descriptions d'expérience",
-      "experienceChanges": "Modifications de l'expérience",
-      "educationChanges": "Modifications de la formation",
-      "projectChanges": "Modifications des projets",
-      "certificationChanges": "Modifications des certifications",
-      "languageChanges": "Modifications des langues",
-      "awardChanges": "Modifications des récompenses",
       "rejectButton": "Rejeter et régénérer",
-      "confirmButton": "Confirmer et enregistrer"
+      "confirmButton": "Confirmer et enregistrer",
+      "acceptingCount": "{count} modifications sur {total} seront enregistrées",
+      "noSelection": "Rien n'est sélectionné : choisissez au moins une modification à enregistrer."
     },
     "regenerateDialog": {
       "title": "Régénérer le CV personnalisé ?",
@@ -954,12 +945,6 @@
     "sections": {
       "intro": "Démarrage",
       "contact": "Coordonnées",
-      "summary": "Résumé professionnel",
-      "workExperience": "Expérience professionnelle",
-      "internships": "Stages",
-      "education": "Formation",
-      "personalProjects": "Projets",
-      "skills": "Compétences",
       "review": "Vérification"
     },
     "actions": {
@@ -979,9 +964,6 @@
       "label": "Brouillon en direct",
       "empty": "Votre CV apparaît ici au fur et à mesure de vos réponses.",
       "unnamed": "CV sans titre",
-      "experience": "Expérience",
-      "education": "Formation",
-      "projects": "Projets",
       "skills": "Compétences"
     },
     "errors": {
@@ -1113,6 +1095,145 @@
       "projectFollowUps": "Questions de suivi sur les projets",
       "skillGaps": "Écarts de compétences",
       "talkingPoints": "Arguments clés"
+    }
+  },
+  "workspaces": {
+    "switcherLabel": "Espace de travail",
+    "loading": "Chargement...",
+    "new": "Nouvel espace",
+    "newTitle": "Nouvel espace de travail",
+    "newDescription": "Chaque espace de travail possède ses propres CV, offres et cartes de suivi.",
+    "nameLabel": "Nom de l'espace",
+    "namePlaceholder": "ex. Tom, Lior, Tom — Hébreu",
+    "nameRequired": "Saisissez un nom d'espace",
+    "create": "Créer",
+    "createFailed": "Échec de la création de l'espace de travail",
+    "manageLabel": "Gérer {name}",
+    "manageTitle": "Paramètres de l'espace",
+    "manageDescription": "Renommez cet espace, choisissez la langue de son contenu ou supprimez-le.",
+    "languageLabel": "Langue du contenu",
+    "makeDefault": "Définir par défaut",
+    "isDefault": "Espace par défaut",
+    "updateFailed": "Échec de la mise à jour de l'espace",
+    "deleteFailed": "Échec de la suppression de l'espace",
+    "deleteTitle": "Supprimer l'espace",
+    "deleteDescription": "« {name} » et tous ses CV, offres et cartes seront définitivement supprimés."
+  },
+  "versions": {
+    "title": "Historique des versions",
+    "empty": "Aucune version pour l'instant. Enregistrer une modification en crée une.",
+    "loadFailed": "Échec du chargement de l'historique",
+    "loadMore": "Charger les plus anciennes",
+    "current": "Actuelle",
+    "pinned": "Épinglée",
+    "pin": "Épingler",
+    "unpin": "Désépingler",
+    "compare": "Comparer",
+    "restore": "Restaurer",
+    "delete": "Supprimer",
+    "labelPlaceholder": "Nommer cette version",
+    "restoreConfirmTitle": "Restaurer cette version ?",
+    "restoreConfirmBody": "Votre contenu actuel reste dans l'historique : vous pourrez annuler.",
+    "restored": "Version restaurée",
+    "restoreFailed": "Échec de la restauration",
+    "deleteFailed": "Échec de la suppression",
+    "origin": {
+      "import": "Import",
+      "manual": "Modification",
+      "ai_tailor": "Adaptation IA",
+      "ai_enrich": "Enrichissement IA",
+      "wizard": "Assistant",
+      "restore": "Restauration",
+      "tex_edit": "Édition LaTeX"
+    }
+  },
+  "diff": {
+    "headerSection": "En-tête",
+    "untitledSection": "Section sans titre",
+    "noChanges": "Aucune différence",
+    "rowCount": "Lignes : {count}",
+    "acceptRow": "Accepter la modification à {path}",
+    "selectAll": "Tout sélectionner",
+    "clearAll": "Tout désélectionner",
+    "selectedCount": "{count} sur {total} acceptés",
+    "showUnchangedRows": "{count} lignes inchangées",
+    "hideUnchangedRows": "Masquer {count} lignes inchangées",
+    "baseLabel": "Base",
+    "headLabel": "Nouvelle",
+    "view": {
+      "unified": "Unifié",
+      "split": "Côte à côte"
+    },
+    "status": {
+      "added": "Ajouté",
+      "removed": "Supprimé",
+      "modified": "Modifié",
+      "moved": "Déplacé",
+      "unchanged": "Inchangé"
+    },
+    "sectionStatus": {
+      "added": "Ajoutée",
+      "removed": "Supprimée",
+      "renamed": "Renommée",
+      "modified": "Modifiée",
+      "moved": "Déplacée",
+      "unchanged": "Inchangée"
+    },
+    "stats": {
+      "totalChanges": "Total des modifications",
+      "sections_added": "Sections ajoutées",
+      "sections_removed": "Sections supprimées",
+      "sections_renamed": "Sections renommées",
+      "sections_moved": "Sections déplacées",
+      "entries_added": "Entrées ajoutées",
+      "entries_removed": "Entrées supprimées",
+      "entries_modified": "Entrées modifiées",
+      "entries_moved": "Entrées déplacées",
+      "bullets_added": "Puces ajoutées",
+      "bullets_removed": "Puces supprimées",
+      "bullets_modified": "Puces modifiées",
+      "tags_added": "Étiquettes ajoutées",
+      "tags_removed": "Étiquettes supprimées"
+    }
+  },
+  "compare": {
+    "title": "Comparer",
+    "subtitle": "Deux documents, côte à côte",
+    "loading": "Chargement de la comparaison...",
+    "invalidRefs": "Ce lien de comparaison est incomplet. Choisissez deux documents à comparer.",
+    "loadFailed": "Échec du chargement de la comparaison",
+    "resumeRef": "CV {id}",
+    "versionRef": "Version {id}",
+    "back": "Retour au tableau de bord"
+  },
+  "latex": {
+    "title": "Source LaTeX",
+    "template": "Modèle",
+    "templates": {
+      "tex-classic": "Classique",
+      "tex-compact": "Compact"
+    },
+    "state": {
+      "generated": "Généré",
+      "edited": "Modifié"
+    },
+    "overrideNotice": "Vous modifiez directement le LaTeX. Les changements du document ne mettent plus à jour cette source tant que vous ne la réinitialisez pas.",
+    "noEngine": "Aucun moteur LaTeX sur ce serveur. Téléchargez le .tex et compilez-le localement.",
+    "sourceLabel": "Source LaTeX",
+    "lineCount": "{count} lignes",
+    "downloadTex": "Télécharger .tex",
+    "downloadPdf": "Télécharger le PDF",
+    "save": "Enregistrer la source",
+    "saving": "Enregistrement...",
+    "compiling": "Compilation...",
+    "reset": "Réinitialiser au généré",
+    "resetConfirmTitle": "Abandonner vos modifications LaTeX ?",
+    "resetConfirmBody": "La source redevient générée à partir du document. Votre version modifiée reste dans l'historique des versions.",
+    "errors": {
+      "load": "Échec du chargement de la source LaTeX",
+      "save": "Échec de l’enregistrement de la source LaTeX",
+      "reset": "Échec de la réinitialisation de la source LaTeX",
+      "compile": "Échec de la compilation LaTeX"
     }
   }
 }

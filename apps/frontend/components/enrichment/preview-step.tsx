@@ -67,16 +67,14 @@ interface EnhancementCardProps {
 
 function EnhancementCard({ enhancement }: EnhancementCardProps) {
   const { t } = useTranslations();
-  const itemTypeLabel =
-    enhancement.item_type === 'experience'
-      ? t('enrichment.itemType.experience')
-      : t('enrichment.itemType.project');
+  // Sections are user-named, so the label is the section's own heading.
+  const itemTypeLabel = enhancement.section_heading || t('enrichment.itemType.entry');
 
   return (
     <div className="border-2 border-black bg-white shadow-sw-default">
       {/* Card header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-black bg-paper-tint">
-        {enhancement.item_type === 'experience' ? (
+        {enhancement.item_type === 'entry' ? (
           <Briefcase className="w-4 h-4" />
         ) : (
           <FolderKanban className="w-4 h-4" />

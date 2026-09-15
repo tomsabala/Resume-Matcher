@@ -55,9 +55,11 @@ See the [hosted review corrections](architecture/hosted-review-corrections.md) f
 
 | Doc                                                            | Purpose                                                  |
 | -------------------------------------------------------------- | -------------------------------------------------------- |
-| [custom-sections](features/custom-sections.md)                 | Dynamic sections                                         |
+| [custom-sections](features/custom-sections.md)                 | The resume document: section kinds, keys, headings, visibility, column |
+| [document-diff](features/document-diff.md)                     | The one diff engine: pairing rules, `POST /diff`, partial accept |
 | [resume-templates](features/resume-templates.md)               | Template types and controls                              |
 | [adding-resume-templates](features/adding-resume-templates.md) | How to add a new template                                |
+| [latex-export](features/latex-export.md)                       | LaTeX render target: `.tex` generation, hand-edit override, compile |
 | [enrichment](features/enrichment.md)                           | AI enrichment flow                                       |
 | [jd-match](features/jd-match.md)                               | Job description matching                                 |
 | [preview-confirmation](features/preview-confirmation.md)       | Durable preview identity, atomic confirmation and replay |
@@ -103,4 +105,4 @@ apps/
 
 **Frontend changes:** `frontend-architecture` → portable [`swiss-design-system`](../portable/swiss-design-system/README.md) → portable [`nextjs-performance`](../portable/nextjs-performance/README.md) → `coding-standards`
 
-**Template/PDF changes:** `pdf-template-guide` → `template-system`
+**Template/PDF changes:** `pdf-template-guide` → `template-system` (Chromium HTML target); `latex-export` for the LaTeX target

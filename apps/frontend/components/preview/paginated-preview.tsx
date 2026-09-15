@@ -3,7 +3,8 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { ZoomIn, ZoomOut, Eye, EyeOff, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import Resume, { type ResumeData } from '@/components/dashboard/resume-component';
+import Resume from '@/components/dashboard/resume-component';
+import type { ResumeDocument } from '@/lib/types/document';
 import { type TemplateSettings } from '@/lib/types/template-settings';
 import { PageContainer } from './page-container';
 import { usePagination } from './use-pagination';
@@ -12,7 +13,7 @@ import { useTranslations } from '@/lib/i18n';
 import { useLanguage } from '@/lib/context/language-context';
 
 interface PaginatedPreviewProps {
-  resumeData: ResumeData;
+  doc: ResumeDocument;
   settings: TemplateSettings;
 }
 
@@ -24,7 +25,7 @@ const ZOOM_STEP = 0.1;
  * PaginatedPreview shows a WYSIWYG preview of the resume with actual page dimensions,
  * margin guides, and automatic pagination.
  */
-export function PaginatedPreview({ resumeData, settings }: PaginatedPreviewProps) {
+export function PaginatedPreview({ doc, settings }: PaginatedPreviewProps) {
   const { t } = useTranslations();
   // Orders the CJK font fallback so the preview matches the generated PDF.
   const { contentLanguage } = useLanguage();
@@ -37,36 +38,6 @@ export function PaginatedPreview({ resumeData, settings }: PaginatedPreviewProps
     ...settings,
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
   };
-
-  const additionalSectionLabels = React.useMemo(
-    () => ({
-      technicalSkills: t('resume.additionalLabels.technicalSkills'),
-      languages: t('resume.additionalLabels.languages'),
-      certifications: t('resume.additionalLabels.certifications'),
-      awards: t('resume.additionalLabels.awards'),
-    }),
-    [t]
-  );
-  const sectionHeadings = React.useMemo(
-    () => ({
-      summary: t('resume.sections.summary'),
-      experience: t('resume.sections.experience'),
-      education: t('resume.sections.education'),
-      projects: t('resume.sections.projects'),
-      certifications: t('resume.sections.certifications'),
-      skills: t('resume.sections.skillsOnly'),
-      languages: t('resume.sections.languages'),
-      awards: t('resume.sections.awards'),
-      links: t('resume.sections.links'),
-    }),
-    [t]
-  );
-  const fallbackLabels = React.useMemo(
-    () => ({
-      name: t('resume.defaults.name'),
-    }),
-    [t]
-  );
 
   const { pages, isCalculating } = usePagination({
     pageSize: settings.pageSize,
@@ -181,13 +152,12 @@ export function PaginatedPreview({ resumeData, settings }: PaginatedPreviewProps
           aria-hidden="true"
         >
           <Resume
-            resumeData={resumeData}
+            doc={doc}
             template={settings.template}
             settings={resumeSettings}
             locale={contentLanguage}
-            additionalSectionLabels={additionalSectionLabels}
-            sectionHeadings={sectionHeadings}
-            fallbackLabels={fallbackLabels}
+            translate={t}
+            fallbackName={t('resume.defaults.name')}
           />
         </div>
 
@@ -215,13 +185,12 @@ export function PaginatedPreview({ resumeData, settings }: PaginatedPreviewProps
                 contentEnd={page.contentEnd}
               >
                 <Resume
-                  resumeData={resumeData}
+                  doc={doc}
                   template={settings.template}
                   settings={resumeSettings}
                   locale={contentLanguage}
-                  additionalSectionLabels={additionalSectionLabels}
-                  sectionHeadings={sectionHeadings}
-                  fallbackLabels={fallbackLabels}
+                  translate={t}
+                  fallbackName={t('resume.defaults.name')}
                 />
               </PageContainer>
             </React.Fragment>

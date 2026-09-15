@@ -2,58 +2,11 @@ import type {
   ImprovedResult,
   InterviewPrepData,
 } from '@/components/common/resume_previewer_context';
-import type { ResumeData } from '@/components/dashboard/resume-component';
+import type { ResumeDocument } from '@/lib/types/document';
 import { type TemplateSettings } from '@/lib/types/template-settings';
 import { type Locale } from '@/i18n/config';
 import { clearResumeWizardCompletion } from '@/lib/utils/resume-wizard-storage';
 import { API_BASE, DEFAULT_TIMEOUT_MS, apiPost, apiPatch, apiDelete, apiFetch } from './client';
-
-// Matches backend schemas/models.py ResumeData
-interface ProcessedResume {
-  personalInfo?: {
-    name?: string;
-    title?: string;
-    email?: string;
-    phone?: string;
-    location?: string;
-    website?: string | null;
-    linkedin?: string | null;
-    github?: string | null;
-  };
-  summary?: string;
-  workExperience?: Array<{
-    id: number;
-    title?: string;
-    company?: string;
-    location?: string | null;
-    years?: string;
-    description?: string[];
-    descriptionStyles?: ('bullet' | 'plain')[];
-  }>;
-  education?: Array<{
-    id: number;
-    institution?: string;
-    degree?: string;
-    years?: string;
-    description?: string | null;
-  }>;
-  personalProjects?: Array<{
-    id: number;
-    name?: string;
-    role?: string;
-    years?: string;
-    github?: string | null;
-    website?: string | null;
-    description?: string[];
-    descriptionStyles?: ('bullet' | 'plain')[];
-  }>;
-  additional?: {
-    technicalSkills?: string[];
-    languages?: string[];
-    certificationsTraining?: string[];
-    awards?: string[];
-  };
-}
 
 interface ResumeResponse {
   request_id: string;
@@ -66,7 +19,7 @@ interface ResumeResponse {
       created_at: string;
       processing_status: 'pending' | 'processing' | 'ready' | 'failed';
     };
-    processed_resume: ProcessedResume | null;
+    processed_resume: ResumeDocument | null;
     cover_letter?: string | null;
     outreach_message?: string | null;
     interview_prep?: InterviewPrepData | null;
@@ -88,11 +41,16 @@ interface ImproveResumeConfirmRequest {
   resume_id: string;
   job_id: string;
   preview_id?: string | null;
-  improved_data: ResumeData;
+  improved_data: ResumeDocument;
   improvements: Array<{
     suggestion: string;
     lineNumber?: number | null;
   }>;
+  /**
+   * Diff-row paths the user ticked. `null` (the default) accepts the whole
+   * preview; an array takes only those content leaves.
+   */
+  accepted_paths?: string[] | null;
 }
 
 function normalizeResumeId(resumeId: string): string {
@@ -214,7 +172,7 @@ export async function fetchResumeList(includeMaster = false): Promise<ResumeList
 
 export async function updateResume(
   resumeId: string,
-  resumeData: ProcessedResume
+  resumeData: ResumeDocument
 ): Promise<ResumeResponse['data']> {
   const res = await apiPatch(`/resumes/${encodeURIComponent(resumeId)}`, resumeData);
   if (!res.ok) {

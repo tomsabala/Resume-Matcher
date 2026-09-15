@@ -3,12 +3,22 @@
  */
 
 import { apiFetch, apiPost } from './client';
+import type { DiffRow } from './diff';
 
-// Types matching backend schemas
+// Types matching backend schemas (apps/backend/app/schemas/enrichment.py).
+//
+// `item_id` addresses content by stable id, never by position:
+//   entry      -> `<section.key>:<entry.id>`
+//   value list -> `<section.key>:#tags` | `<section.key>:#group:<index>`
+// `item_type` says what the content *is*; which section holds it is the
+// user's choice, so section names are never a category.
+export type EnrichmentItemType = 'entry' | 'values';
 
 export interface EnrichmentItem {
   item_id: string;
-  item_type: 'experience' | 'project';
+  item_type: EnrichmentItemType;
+  /** The owning section's heading — what the user called it. */
+  section_heading?: string;
   title: string;
   subtitle?: string;
   current_description: string[];
@@ -35,7 +45,8 @@ export interface AnswerInput {
 
 export interface EnhancedDescription {
   item_id: string;
-  item_type: 'experience' | 'project';
+  item_type: EnrichmentItemType;
+  section_heading?: string;
   title: string;
   original_description: string[];
   enhanced_description: string[];
@@ -43,7 +54,8 @@ export interface EnhancedDescription {
 
 export interface EnhancementItemError {
   item_id: string;
-  item_type: 'experience' | 'project';
+  item_type: EnrichmentItemType;
+  section_heading?: string;
   title: string;
   subtitle?: string | null;
   message: string;
@@ -117,7 +129,7 @@ export async function applyEnhancements(
 
 export interface RegenerateItemInput {
   item_id: string;
-  item_type: 'experience' | 'project' | 'skills';
+  item_type: EnrichmentItemType;
   title: string;
   subtitle?: string;
   current_content: string[];
@@ -132,17 +144,23 @@ export interface RegenerateRequest {
 
 export interface RegeneratedItem {
   item_id: string;
-  item_type: 'experience' | 'project' | 'skills';
+  item_type: EnrichmentItemType;
   title: string;
   subtitle?: string;
   original_content: string[];
   new_content: string[];
+  /**
+   * Server-computed comparison of `original_content` against `new_content`,
+   * word-level spans included — the rows the shared diff surface renders.
+   * Paths are `<item_id>[<line>]`.
+   */
+  rows: DiffRow[];
   diff_summary: string;
 }
 
 export interface RegenerateItemError {
   item_id: string;
-  item_type: 'experience' | 'project' | 'skills';
+  item_type: EnrichmentItemType;
   title: string;
   subtitle?: string;
   message: string;

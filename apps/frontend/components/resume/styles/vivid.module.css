@@ -17,6 +17,21 @@
   align-items: start;
 }
 
+/*
+ * Entry/bullet/tag voice for both columns: accent bullet markers, small-caps
+ * tertiary subtitles and middot-separated tags. The section-kind renderers
+ * read these; they never know which template they are inside.
+ */
+.mainColumn,
+.sidebarColumn {
+  --resume-bullet-color: var(--resume-accent-primary);
+  --resume-bullet-weight: 700;
+  --resume-subtitle-variant: small-caps;
+  --resume-subtitle-tracking: 0.02em;
+  --resume-subtitle-color: var(--resume-text-tertiary);
+  --resume-tag-separator: '\00a0•\00a0';
+}
+
 .mainColumn {
   display: flex;
   flex-direction: column;
@@ -24,6 +39,7 @@
   padding-right: 0.875rem;
   min-width: 0;
   overflow: hidden;
+  --resume-text-scale: 0.92;
 }
 
 .sidebarColumn {
@@ -34,6 +50,7 @@
   min-width: 0;
   overflow: hidden;
   overflow-wrap: anywhere;
+  --resume-text-scale: 0.88;
 }
 
 /* Two-tone name */
@@ -108,41 +125,11 @@
   page-break-after: avoid;
 }
 
-.arrow {
-  color: var(--resume-accent-primary);
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.entryCompany {
-  font-weight: 700;
-  color: var(--resume-text-primary);
-}
-
-.entrySep {
-  color: var(--resume-text-tertiary);
-  padding: 0 0.4em;
-}
-
-.entryRole {
-  font-variant: small-caps;
-  letter-spacing: 0.02em;
-  color: var(--resume-text-tertiary);
-}
-
-.entryMeta {
-  font-family: var(--resume-font-mono);
-  font-size: calc(var(--font-size-base) * 0.72);
-  font-weight: 700;
-  color: var(--resume-text-tertiary);
-}
-
 @media print {
   .nameFirst,
   .nameRest,
   .sectionTitle,
-  .sectionTitleSm,
-  .arrow {
+  .sectionTitleSm {
     color: var(--resume-accent-primary) !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;

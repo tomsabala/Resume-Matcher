@@ -14,31 +14,37 @@ from app.routers import enrichment
 from tests.integration.test_storage_busy_writes import fast_busy_database  # noqa: F401
 
 
+def _section(document: dict[str, Any], key: str) -> dict[str, Any]:
+    return next(s for s in document["sections"] if s["key"] == key)
+
+
 def _apply_request(
     resume_id: str,
     source: dict[str, Any],
     operation: str,
 ) -> tuple[str, dict[str, Any] | list[dict[str, Any]]]:
     """Build a valid public request that changes one existing experience."""
-    experience = source["workExperience"][0]
-    item = {
-        "item_id": "exp_0",
-        "item_type": "experience",
-        "title": experience["title"],
-        "subtitle": experience["company"],
-    }
+    entry = _section(source, "experience")["entries"][0]
+    bullets = [bullet["text"] for bullet in entry["bullets"]]
     if operation == "apply":
         payload: dict[str, Any] | list[dict[str, Any]] = {
             "enhancements": [{
-                **item,
-                "original_description": experience["description"],
+                "item_id": f"experience:{entry['id']}",
+                "item_type": "entry",
+                "section_heading": "Experience",
+                "title": entry["title"],
+                "subtitle": entry["subtitle"],
+                "original_description": bullets,
                 "enhanced_description": ["Built a reliable service"],
             }],
         }
     else:
         payload = [{
-            **item,
-            "original_content": experience["description"],
+            "item_id": f"experience:{entry['id']}",
+            "item_type": "entry",
+            "title": entry["title"],
+            "subtitle": entry["subtitle"],
+            "original_content": bullets,
             "new_content": ["Built a reliable service"],
             "diff_summary": "Synthetic regeneration",
         }]
@@ -78,10 +84,10 @@ async def test_enrichment_write_contention_returns_503_and_retry_commits(
         assert retried.json()["updated_items"] == 1
 
     expected = copy.deepcopy(sample_resume)
-    descriptions = expected["workExperience"][0]["description"]
-    expected["workExperience"][0]["description"] = (
-        descriptions + ["Built a reliable service"]
-        if operation == "apply" else ["Built a reliable service"]
+    added = {"text": "Built a reliable service", "style": "bullet"}
+    entry = _section(expected, "experience")["entries"][0]
+    entry["bullets"] = (
+        entry["bullets"] + [added] if operation == "apply" else [added]
     )
     stored = await database.get_resume(source["resume_id"])
     assert stored is not None and stored["processed_data"] == expected
@@ -101,7 +107,7 @@ async def test_other_enrichment_write_failure_remains_generic_500(
     )
     monkeypatch.setattr(
         isolated_db,
-        "update_resume",
+        "commit_resume_version",
         AsyncMock(side_effect=RuntimeError("synthetic private persistence detail")),
     )
     url, payload = _apply_request(source["resume_id"], sample_resume, operation)
@@ -136,6 +142,7 @@ async def test_enhance_preview_does_not_write_under_sqlite_contention(
         "complete_json",
         AsyncMock(return_value={"additional_bullets": ["Built a reliable service"]}),
     )
+    item_id = f"experience:{_section(sample_resume, 'experience')['entries'][0]['id']}"
     async with AsyncClient(
         transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://test",
@@ -145,7 +152,7 @@ async def test_enhance_preview_does_not_write_under_sqlite_contention(
             response = await client.post("/api/v1/enrichment/enhance", json={
                 "resume_id": source["resume_id"],
                 "answers": [{
-                    "item_id": "exp_0",
+                    "item_id": item_id,
                     "question_id": "q-exp",
                     "answer": "Built a reliable service",
                 }],

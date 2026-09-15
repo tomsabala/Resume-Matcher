@@ -184,11 +184,14 @@ except Exception as e:
 Prompt instructions are only the first layer of the resume truthfulness contract.
 Every AI-authored whole-resume result passes through
 `app.services.resume_preservation.finalize_ai_resume` before it can be previewed
-or saved. The finalizer matches entries by their nonzero ID, then by stable
-section-specific identity fields. It restores omitted entries, protected
-identity and date fields, and row styles from the matched source entry. It also
-removes extra narrative rows and new numeric claims that have no source
-evidence.
+or saved. The finalizer rebuilds the source document section by section, pairing
+each candidate entry with its source by the stable `Entry.id` and falling back
+to entry identity — `(title, subtitle)`, one rule for every section rather
+than a per-section field table. It restores omitted entries, the
+protected identity fields (`id`, `title`, `subtitle`, `meta`, `period`,
+`links`), dates, and each row's `Bullet.style` from the matched source row, so
+a rewrite can never silently turn a bullet into a paragraph. It also removes
+extra narrative rows and new numeric claims that have no source evidence.
 
 Legitimate rephrasing remains editable. A substantial narrative rewrite with
 weak source overlap is returned from preview with a stable
@@ -199,8 +202,9 @@ is part of the source evidence.
 
 Technical skills are the bounded exception: required or preferred JD skills
 may be added only after the existing skill-target and master-alignment checks
-admit them. Original skill-list items are always retained. Other additional
-lists do not accept AI-invented entries.
+admit them. Original skill-list items are always retained. Other short-value
+lists (a `tags` section, a `groups` label's `values`) do not accept AI-invented
+entries.
 
 Confirmation validates section and entry preservation again before persistence.
 Warnings expose stable codes and field paths; provider and calculation exception

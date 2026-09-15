@@ -2,6 +2,17 @@
 
 > **Template types and extensive formatting controls.**
 
+## Render Targets
+
+These templates and controls belong to the **Chromium HTML** PDF target
+(`GET /api/v1/resumes/{id}/pdf`). A second, independent target renders the
+same document as real LaTeX (`tex-classic`, `tex-compact`) and compiles it
+with a TeX engine — different templates, no CSS, its own small settings
+surface: [latex-export.md](latex-export.md).
+
+> The HTML template id `latex` below is **not** the LaTeX export. It is a
+> web layout styled to resemble LaTeX output, rendered by Chromium.
+
 ## Template Types
 
 | Template | Description |
@@ -10,7 +21,7 @@
 | `swiss-two-column` | 65%/35% split with experience in main column, skills in sidebar |
 | `modern` | Single-column with colorful accent headers and customizable theme colors |
 | `modern-two-column` | Two-column layout combining modern accents with space-efficient design |
-| `latex` | Classic serif single-column with Title-Case ruled headers and company-first entries (LaTeX-style). Single-typeface — driven by the Header Font control |
+| `latex` | Classic serif single-column with Title-Case ruled headers and company-first entries (LaTeX-*looking* HTML — unrelated to the [LaTeX export](latex-export.md)). Single-typeface — driven by the Header Font control |
 | `clean` | Minimal sans single-column with large understated gray UPPERCASE headers and single-line entries. Single-typeface — driven by the Body Font control |
 | `vivid` | Colorful two-column (Awesome-CV lineage): two-tone accent name, monospace contact with circular icons, accent small-caps headers, accent arrow bullets. Supports the Accent Color control |
 
@@ -34,14 +45,21 @@
 
 | File | Purpose |
 |------|---------|
+| `apps/frontend/lib/types/document.ts` | The resume document contract (`Section`, `SectionKind`, `Entry`, `Bullet`) every template consumes |
+| `apps/frontend/components/resume/template-props.ts` | `ResumeTemplateProps` — the identical props every template takes |
+| `apps/frontend/components/resume/section-kinds/` | `SECTION_KIND_RENDERERS` + `SectionBlock`: one renderer per `SectionKind` |
+| `apps/frontend/lib/utils/section-helpers.ts` | `visibleSections`, `sectionHeading` |
 | `apps/frontend/lib/types/template-settings.ts` | Type definitions, defaults, CSS variable mapping |
 | `apps/frontend/components/resume/styles/_tokens.css` | Global design tokens (colors) |
 | `apps/frontend/components/resume/styles/_base.module.css` | Shared typography and layout styles |
 | `apps/frontend/components/builder/formatting-controls.tsx` | UI controls for template settings |
-| `apps/frontend/components/resume/resume-single-column.tsx` | Single column template |
-| `apps/frontend/components/resume/resume-two-column.tsx` | Two column template |
-| `apps/frontend/components/resume/resume-modern.tsx` | Modern single column template |
-| `apps/frontend/components/resume/resume-modern-two-column.tsx` | Modern two column template |
+| `apps/frontend/components/resume/resume-single-column.tsx` | `swiss-single` |
+| `apps/frontend/components/resume/resume-two-column.tsx` | `swiss-two-column` |
+| `apps/frontend/components/resume/resume-modern.tsx` | `modern` |
+| `apps/frontend/components/resume/resume-modern-two-column.tsx` | `modern-two-column` |
+| `apps/frontend/components/resume/resume-latex.tsx` | `latex` |
+| `apps/frontend/components/resume/resume-clean.tsx` | `clean` |
+| `apps/frontend/components/resume/resume-vivid.tsx` | `vivid` |
 | `apps/backend/app/routers/resumes.py` | PDF generation endpoint with accentColor support |
 
 ## CSS Variables
@@ -72,68 +90,73 @@ Formatting controls include an "Effective Output" summary that reflects compact-
 
 ---
 
-## Description Styles (`descriptionStyles`)
+## What a Template Consumes
 
-Each description row can render **with** a bullet marker or as a **plain**
-paragraph — used for sub-headings or continuation lines inside an entry.
+Every template takes the same props (`components/resume/template-props.ts`):
+a `ResumeDocument`, plus `showContactIcons` and a `fallbackName` for an empty
+`header.name`. Template settings arrive as CSS variables, not props.
+
+A template owns typography and layout only. It never enumerates sections:
+
+- **Order** is `doc.sections` order — templates map `visibleSections(doc)`.
+- **Heading** is `section.heading`, rendered verbatim by `SectionBlock` (the
+  caller has already resolved any `headingI18nKey` through `sectionHeading`).
+- **Shape** is `section.kind`, dispatched through `SECTION_KIND_RENDERERS`.
+- **Column** is `section.column`: a two-column template partitions on
+  `section.column === 'side'`, so any section can live in either column. A
+  single-column template ignores the field.
+
+So a section whose key no component has ever heard of renders in all seven
+templates with no code change. See
+[adding-resume-templates.md](adding-resume-templates.md).
+
+---
+
+## Bullet Styles (`Bullet.style`)
+
+Each bullet row under an entry renders **with** a bullet marker or as a
+**plain** paragraph — used for sub-headings or continuation lines inside an
+entry.
 
 ### Shape
 
-`descriptionStyles` is a positional array parallel to `description`:
+The style is a property of the bullet, not of a parallel array:
 
 ```jsonc
 {
-  "description":       ["Led the platform migration", "Rebuilt the ingest tier"],
-  "descriptionStyles": ["plain",                      "bullet"]
+  "bullets": [
+    { "text": "Led the platform migration", "style": "plain" },
+    { "text": "Rebuilt the ingest tier", "style": "bullet" }
+  ]
 }
 ```
 
-`descriptionStyles[i]` describes `description[i]`. Values: `"bullet"` | `"plain"`.
+`style` is `"bullet"` (default) or `"plain"`. Because it travels with its own
+text, filtering, reordering, appending or deleting rows cannot desync a marker
+onto its neighbour — there is no alignment invariant to maintain and nothing to
+enforce in the editor, the client normalizer, the server schema or the prompts.
 
-### The alignment invariant
-
-**The two arrays must stay index-aligned.** Anything that adds, removes, filters
-or reorders `description` rows must apply the identical operation to
-`descriptionStyles`. A desync is silent — it does not error, it just moves every
-later row's marker onto its neighbour.
-
-Enforced in three places:
-
-| Layer | File | Behaviour |
-|---|---|---|
-| Editor | `apps/frontend/components/builder/forms/{experience,projects,generic-item}-form.tsx` | `alignDescriptionStyles()` before every splice |
-| Client normalize | `apps/frontend/lib/utils/resume-normalization.ts` | filters both arrays in lockstep |
-| Server | `apps/backend/app/schemas/models.py` `_align_description_styles` | truncates/pads by index, defaults to `"bullet"` |
-
-The server aligns **by index**, so it cannot detect a desync — it can only
-guarantee length. Correctness has to be preserved upstream.
-
-### Models that carry it
-
-`Experience`, `Project`, `CustomSectionItem` (`apps/backend/app/schemas/models.py`). Rides
-inside the existing `processed_data` JSON column — **no migration needed**.
-
-`Education.description` is a scalar `str | None`, so it has no styles array.
-
-### Prompts that must preserve it
-
-Four prompts instruct the model to keep the arrays aligned:
-
-- `apps/backend/app/prompts/templates.py` — the three improve variants
-- `apps/backend/app/prompts/refinement.py` — `KEYWORD_INJECTION_PROMPT`
-
-A prompt is **not** a guarantee for positional metadata. `inject_keywords` is
-the last writer on the improve path, so `apps/backend/app/services/refiner.py::_preserve_description_styles()`
-restores the field locally after it — matching the defence-in-depth pattern
-already used for dates, skills, `personalInfo` and custom sections.
+`style` is in the AI's blocked-field list, so a tailoring change can rewrite a
+bullet's `text` but never restyle it. `apply_diffs` appends new bullets as
+`{"text": …, "style": "bullet"}`. `refiner._restore_bullet_styles` restores
+styles after keyword injection — the last writer on the improve path — matching
+the defence-in-depth pattern used for dates, skills and the header.
 
 ### Rendering
 
-All seven templates render rows through
-`apps/frontend/components/resume/description-list.tsx`, which omits the marker span when the
-style is `"plain"`. The marker is `aria-hidden="true"`. The JD-match preview
-(`apps/frontend/components/builder/highlighted-resume-view.tsx`) applies the same rule so the
-builder does not contradict the PDF.
+All seven templates render bullets through the single `entries` renderer,
+`apps/frontend/components/resume/section-kinds/entries-section.tsx`, which omits
+the marker span (and its indent) when the style is `"plain"`. The marker is
+`aria-hidden="true"`. The JD-match preview
+(`apps/frontend/components/builder/highlighted-resume-view.tsx`) reads the same
+`bullet.style` and applies the same rule, so the builder cannot contradict the
+PDF.
 
-Coverage: `apps/frontend/tests/template-description-styles.test.tsx` asserts marker presence
-per template; `apps/frontend/tests/resume-normalization.test.ts` pins the lockstep filter.
+The LaTeX target follows the same rule from the other side:
+`apps/backend/app/latex/templates/_document.tex.j2` emits `\item[]` for a
+`"plain"` bullet and `\item` otherwise, so both render targets agree.
+
+Coverage: `apps/frontend/tests/section-registry.test.tsx` runs every template
+over one document and asserts per-kind content, the plain/bullet marker rule and
+hidden-section exclusion; `apps/frontend/tests/template-registration.test.ts`
+pins the template registry (all seven ids, unique, with their font presets).

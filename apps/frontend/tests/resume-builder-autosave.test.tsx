@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import React from 'react';
+import type { ResumeDocument } from '@/lib/types/document';
+import { sampleDocument, withSummary } from './fixtures/document';
 
 /**
  * Regression tests for the autosave orchestration in resume-builder.tsx.
@@ -56,8 +58,24 @@ vi.mock('@/components/common/resume_previewer_context', () => ({
 // test exercises the effect orchestration rather than the whole editor tree.
 vi.mock('@/components/preview', () => ({ PaginatedPreview: () => null }));
 vi.mock('@/components/builder/resume-form', () => ({
-  ResumeForm: ({ onUpdate }: { onUpdate: (d: Record<string, unknown>) => void }) => (
-    <button data-testid="edit" onClick={() => onUpdate({ summary: `edit-${Date.now()}` })}>
+  ResumeForm: ({
+    doc,
+    onUpdate,
+  }: {
+    doc: ResumeDocument;
+    onUpdate: (doc: ResumeDocument) => void;
+  }) => (
+    <button
+      data-testid="edit"
+      onClick={() =>
+        onUpdate({
+          ...doc,
+          sections: doc.sections.map((section) =>
+            section.key === 'summary' ? { ...section, text: `edit-${Date.now()}` } : section
+          ),
+        })
+      }
+    >
       edit
     </button>
   ),
@@ -75,14 +93,7 @@ vi.mock('@/hooks/use-regenerate-wizard', () => ({
   useRegenerateWizard: () => ({ step: 'idle', reset: vi.fn() }),
 }));
 
-const REAL_RESUME = {
-  personalInfo: { name: 'Ada Lovelace', email: 'ada@example.com' },
-  summary: 'Real summary from the server',
-  workExperience: [],
-  education: [],
-  personalProjects: [],
-  additional: {},
-};
+const REAL_RESUME = sampleDocument();
 
 const importBuilder = async () =>
   (await import('@/components/builder/resume-builder')).ResumeBuilder;
@@ -189,7 +200,7 @@ describe('resume builder autosave', () => {
       JSON.stringify({
         resumeId: 'res-1',
         updatedAt: Date.now() - 86_400_000,
-        data: { ...REAL_RESUME, summary: 'STALE DRAFT from Monday' },
+        data: withSummary(REAL_RESUME, 'STALE DRAFT from Monday'),
       })
     );
     fetchResume.mockRejectedValue(new Error('backend restarting'));
@@ -253,7 +264,7 @@ describe('resume builder autosave', () => {
     // A pre-upgrade draft for a *new, unsaved* resume.
     localStorage.setItem(
       'resume_builder_draft',
-      JSON.stringify({ ...REAL_RESUME, summary: 'unsaved new resume from the old release' })
+      JSON.stringify(withSummary(REAL_RESUME, 'unsaved new resume from the old release'))
     );
     fetchResume.mockResolvedValue({ processed_resume: REAL_RESUME, parent_id: null, title: 'r' });
 

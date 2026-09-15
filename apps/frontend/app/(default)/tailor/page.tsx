@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useResumePreview } from '@/components/common/resume_previewer_context';
 import type { ImprovedResult } from '@/components/common/resume_previewer_context';
-import type { ResumeData } from '@/components/dashboard/resume-component';
+import type { ResumeDocument } from '@/lib/types/document';
 import {
   uploadJobDescriptions,
   previewImproveResume,
@@ -17,6 +17,7 @@ import { fetchPromptConfig, type PromptOption } from '@/lib/api/config';
 import { getPreviewErrorMessage } from '@/lib/utils/preview-error';
 import { Dropdown } from '@/components/ui/dropdown';
 import { useStatusCache } from '@/lib/context/status-cache';
+import { useWorkspace } from '@/lib/context/workspace-context';
 import { Loader2, ArrowLeft, AlertTriangle, Settings } from 'lucide-react';
 import { useTranslations } from '@/lib/i18n';
 import { DiffPreviewModal } from '@/components/tailor/diff-preview-modal';
@@ -26,6 +27,7 @@ import { useOperationOwner } from '@/hooks/use-operation-owner';
 
 export default function TailorPage() {
   const { t } = useTranslations();
+  const { revision } = useWorkspace();
   const { begin, isCurrent, invalidate } = useOperationOwner('tailor');
   const confirmedResponses = useRef(new WeakMap<ImprovedResult, ImprovedResult>());
   const countedResumes = useRef(new Set<string>());
@@ -85,6 +87,9 @@ export default function TailorPage() {
   // Check if LLM is configured
   const isLlmConfigured = !statusLoading && systemStatus?.llm_configured;
 
+  // Re-resolved when the header switcher changes workspace: the provider drops
+  // the workspace-bound master id, so the page returns to the dashboard rather
+  // than tailoring against a resume from the previous workspace.
   useEffect(() => {
     const storedId = localStorage.getItem('master_resume_id');
     if (!storedId) {
@@ -92,7 +97,7 @@ export default function TailorPage() {
     } else {
       setMasterResumeId(storedId);
     }
-  }, [router]);
+  }, [router, revision]);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,7 +131,7 @@ export default function TailorPage() {
     if (e.key === 'Enter') e.stopPropagation();
   };
 
-  const buildConfirmPayload = (result: ImprovedResult) => {
+  const buildConfirmPayload = (result: ImprovedResult, acceptedPaths: string[] | null) => {
     if (!masterResumeId) {
       throw new Error('Master resume ID is missing.');
     }
@@ -146,23 +151,28 @@ export default function TailorPage() {
       resume_id: masterResumeId,
       job_id: result.data.job_id,
       preview_id: result.data.preview_id ?? null,
-      improved_data: resumePreview as ResumeData,
+      improved_data: resumePreview as ResumeDocument,
       improvements:
         result.data.improvements?.map((item) => ({
           suggestion: item.suggestion,
           lineNumber: typeof item.lineNumber === 'number' ? item.lineNumber : null,
         })) ?? [],
+      accepted_paths: acceptedPaths,
     };
   };
 
-  const confirmAndNavigate = async (result: ImprovedResult, token: number) => {
+  const confirmAndNavigate = async (
+    result: ImprovedResult,
+    token: number,
+    acceptedPaths: string[] | null
+  ) => {
     let confirmed = confirmedResponses.current.get(result);
     if (!confirmed) {
       const expiresAt = Date.parse(result.data.preview_expires_at ?? '');
       if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
         throw new Error('Preview expired');
       }
-      confirmed = await confirmImproveResume(buildConfirmPayload(result));
+      confirmed = await confirmImproveResume(buildConfirmPayload(result, acceptedPaths));
       // Acknowledgement is durable even if a later client effect fails.
       confirmedResponses.current.set(result, confirmed);
     }
@@ -216,7 +226,7 @@ export default function TailorPage() {
       const result = await previewImproveResume(resumeId, jobId, selectedPromptId);
       if (!isCurrent(token)) return;
 
-      if (!result?.data?.diff_summary || !result?.data?.detailed_changes) {
+      if (!result?.data?.diff) {
         console.warn('Diff data missing for tailor preview; requesting user confirmation.');
         setDiffConfirmError(null);
         setPendingResult(null);
@@ -264,7 +274,7 @@ export default function TailorPage() {
   };
 
   // User confirms changes
-  const handleConfirmChanges = async () => {
+  const handleConfirmChanges = async (acceptedPaths: string[] | null) => {
     if (!pendingResult || confirmationBusy.current) return;
     const token = begin();
     if (token === null) return;
@@ -275,7 +285,7 @@ export default function TailorPage() {
     setDiffConfirmError(null);
 
     try {
-      await confirmAndNavigate(pendingResult, token);
+      await confirmAndNavigate(pendingResult, token, acceptedPaths);
       if (!isCurrent(token)) return;
       setShowDiffModal(false);
       setPendingResult(null);
@@ -334,7 +344,7 @@ export default function TailorPage() {
     setError(null);
     setMissingDiffError(null);
     try {
-      await confirmAndNavigate(missingDiffResult, token);
+      await confirmAndNavigate(missingDiffResult, token, null);
       if (!isCurrent(token)) return;
       handleCloseMissingDiffDialog();
     } catch (err) {
@@ -522,8 +532,7 @@ export default function TailorPage() {
           onClose={handleCloseDiffModal}
           onReject={handleRejectChanges}
           onConfirm={handleConfirmChanges}
-          diffSummary={pendingResult?.data?.diff_summary}
-          detailedChanges={pendingResult?.data?.detailed_changes}
+          diff={pendingResult?.data?.diff ?? null}
           errorMessage={diffConfirmError ?? undefined}
         />
       )}

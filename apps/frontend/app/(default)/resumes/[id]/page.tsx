@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useMemo, useState, useRef, useLayoutEffect } from 'react';
+import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import Resume, { ResumeData } from '@/components/dashboard/resume-component';
+import Resume from '@/components/dashboard/resume-component';
 import {
   fetchResume,
   downloadResumePdf,
@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { EnrichmentModal } from '@/components/enrichment/enrichment-modal';
 import { useTranslations } from '@/lib/i18n';
-import { withLocalizedDefaultSections } from '@/lib/utils/section-helpers';
+import type { ResumeDocument } from '@/lib/types/document';
 import { useLanguage } from '@/lib/context/language-context';
 import { downloadBlobAsFile, openUrlInNewTab, sanitizeFilename } from '@/lib/utils/download';
 import { useOperationOwner } from '@/hooks/use-operation-owner';
@@ -43,7 +43,7 @@ export default function ResumeViewerPage() {
   const params = useParams();
   const router = useRouter();
   const { decrementResumes, setHasMasterResume } = useStatusCache();
-  const [resumeData, setResumeData] = useState<ResumeData | null>(null);
+  const [doc, setDoc] = useState<ResumeDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null);
@@ -73,11 +73,6 @@ export default function ResumeViewerPage() {
   const { begin: beginRename, isCurrent: isCurrentRename } = useOperationOwner(resumeId);
   const { begin: beginDownload, isCurrent: isCurrentDownload } = useOperationOwner(resumeId);
   const { begin: beginDelete, isCurrent: isCurrentDelete } = useOperationOwner(resumeId);
-
-  const localizedResumeData = useMemo(() => {
-    if (!resumeData) return null;
-    return withLocalizedDefaultSections(resumeData, t);
-  }, [resumeData, t]);
 
   useEffect(() => {
     if (!resumeId) return;
@@ -113,7 +108,7 @@ export default function ResumeViewerPage() {
 
         // Prioritize processed_resume if available (structured JSON)
         if (data.processed_resume) {
-          setResumeData(data.processed_resume as ResumeData);
+          setDoc(data.processed_resume);
           setError(null);
         } else if (status === 'failed') {
           setError(translationsRef.current('resumeViewer.errors.processingFailed'));
@@ -123,7 +118,7 @@ export default function ResumeViewerPage() {
           // Try to parse raw_resume content as JSON (for tailored resumes stored as JSON)
           try {
             const parsed = JSON.parse(data.raw_resume.content);
-            setResumeData(parsed as ResumeData);
+            setDoc(parsed as ResumeDocument);
           } catch {
             setError(translationsRef.current('resumeViewer.errors.notProcessedYet'));
           }
@@ -226,14 +221,14 @@ export default function ResumeViewerPage() {
   };
 
   // Reload resume data after enrichment
-  const reloadResumeData = async (): Promise<boolean> => {
+  const reloadDocument = async (): Promise<boolean> => {
     const token = beginResumeLoad();
     if (token === null) return false;
     try {
       const data = await fetchResume(resumeId);
       if (!isCurrentResumeLoad(token)) return false;
       if (!data.processed_resume) throw new Error('Refreshed resume has no processed data');
-      setResumeData(data.processed_resume as ResumeData);
+      setDoc(data.processed_resume);
       setError(null);
       return true;
     } catch (err) {
@@ -244,7 +239,7 @@ export default function ResumeViewerPage() {
   };
 
   const handleEnrichmentComplete = async (): Promise<boolean> => {
-    const refreshed = await reloadResumeData();
+    const refreshed = await reloadDocument();
     if (refreshed) setShowEnrichmentModal(false);
     return refreshed;
   };
@@ -380,7 +375,7 @@ export default function ResumeViewerPage() {
     );
   }
 
-  if (error || !resumeData) {
+  if (error || !doc) {
     const isProcessing = processingStatus === 'processing';
     const isFailed = processingStatus === 'failed';
 
@@ -514,27 +509,7 @@ export default function ResumeViewerPage() {
         {/* Resume Viewer */}
         <div className="flex justify-center pb-4">
           <div className="resume-print w-full max-w-[250mm] shadow-sw-lg border-2 border-black bg-white">
-            <Resume
-              resumeData={localizedResumeData || resumeData}
-              additionalSectionLabels={{
-                technicalSkills: t('resume.additionalLabels.technicalSkills'),
-                languages: t('resume.additionalLabels.languages'),
-                certifications: t('resume.additionalLabels.certifications'),
-                awards: t('resume.additionalLabels.awards'),
-              }}
-              sectionHeadings={{
-                summary: t('resume.sections.summary'),
-                experience: t('resume.sections.experience'),
-                education: t('resume.sections.education'),
-                projects: t('resume.sections.projects'),
-                certifications: t('resume.sections.certifications'),
-                skills: t('resume.sections.skillsOnly'),
-                languages: t('resume.sections.languages'),
-                awards: t('resume.sections.awards'),
-                links: t('resume.sections.links'),
-              }}
-              fallbackLabels={{ name: t('resume.defaults.name') }}
-            />
+            <Resume doc={doc} translate={t} fallbackName={t('resume.defaults.name')} />
           </div>
         </div>
 

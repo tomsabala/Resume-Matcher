@@ -1,54 +1,87 @@
-"""Service helpers for the adaptive resume wizard."""
+"""Service helpers for the adaptive resume wizard.
 
-import copy
+The wizard is driven by the document itself: which questions exist, which
+section a turn targets and how an answer is merged all come from the document's
+sections and their ``kind``. Nothing here knows a built-in section list.
+"""
+
 import json
 import re
-from collections import Counter, deque
-from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    ValidationError,
+    field_validator,
+)
 
 from app.config_cache import get_content_language
 from app.llm import _scrub_secrets, complete_json
 from app.prompts.resume_wizard import RESUME_WIZARD_TURN_PROMPT
+from app.prompts.schema import describe_document_schema
 from app.prompts.templates import get_language_name
-from app.schemas.models import (
-    Education,
-    Experience,
-    Project,
-    ResumeData,
-    normalize_resume_data,
+from app.schemas.document import (
+    Bullet,
+    Contact,
+    Entry,
+    EntryLink,
+    Header,
+    ResumeDocument,
+    Section,
+    SectionKind,
+    TagGroup,
+    slugify_key,
 )
 from app.schemas.resume_wizard import (
+    FIXED_WIZARD_SECTIONS,
     ResumeWizardHistoryEntry,
     ResumeWizardProgress,
     ResumeWizardQuestion,
     ResumeWizardState,
+    section_token,
+    token_section_key,
 )
 from app.services.improver import _sanitize_user_input
-from app.services.resume_wizard_copy import wizard_copy
+from app.services.resume_wizard_copy import (
+    section_empty_warning,
+    section_question,
+    wizard_copy,
+)
 
 RESUME_WIZARD_MAX_QUESTIONS = 15
 _PROGRESS_BASELINE = 8
+_MAX_QUESTION_CHARS = 2000
 
-_VALID_SECTIONS = {
-    "intro",
-    "contact",
-    "summary",
-    "workExperience",
-    "internships",
-    "education",
-    "personalProjects",
-    "skills",
-    "review",
-}
+# The scaffold a fresh draft starts from, so the wizard has something to ask
+# about. Headings are data like any other section's; the translation keys are the
+# existing built-in ones, so a finalized wizard resume localizes exactly like a
+# migrated one. The model may add further sections at any time.
+_STARTER_SECTIONS: tuple[tuple[str, str, str, SectionKind, str], ...] = (
+    ("summary", "Summary", "resume.sections.summary", SectionKind.TEXT, "main"),
+    (
+        "experience",
+        "Experience",
+        "resume.sections.experience",
+        SectionKind.ENTRIES,
+        "main",
+    ),
+    ("education", "Education", "resume.sections.education", SectionKind.ENTRIES, "main"),
+    ("projects", "Projects", "resume.sections.projects", SectionKind.ENTRIES, "main"),
+    (
+        "skills",
+        "Skills & Awards",
+        "resume.sections.skills",
+        SectionKind.GROUPS,
+        "side",
+    ),
+)
 
-
-class _IdentifiedEntry(Protocol):
-    """List entry carrying the stable identity shared with the wizard model."""
-
-    id: int
+_CONTACT_KINDS = frozenset(
+    {"email", "phone", "website", "github", "linkedin", "location", "other"}
+)
 
 
 class _ResumeWizardAIEnvelope(BaseModel):
@@ -71,6 +104,7 @@ class _ResumeWizardAIEnvelope(BaseModel):
     def _default_null_completion(cls, value: Any) -> Any:
         return False if value is None else value
 
+
 # The keyword ("my name", "name") may be lower- or upper-cased, but the captured
 # name must start uppercase — so we case the keyword explicitly with [Mm]/[Nn]
 # instead of re.IGNORECASE (which would let the [A-Z] capture match lowercase
@@ -82,14 +116,56 @@ _INTRO_NAME_PATTERNS = (
 )
 
 
-def section_prompt(section: str, language: str = "en") -> str:
-    """Deterministic fallback question text for a section."""
-    return wizard_copy(language, section if section in _VALID_SECTIONS else "next")
+def build_starter_document() -> ResumeDocument:
+    """The empty-but-shaped document a new wizard draft starts from."""
+    return ResumeDocument(
+        sections=[
+            Section(
+                key=key,
+                heading=heading,
+                headingI18nKey=i18n_key,
+                kind=kind,
+                column=column,  # type: ignore[arg-type]
+            )
+            for key, heading, i18n_key, kind, column in _STARTER_SECTIONS
+        ]
+    )
 
 
-def valid_section(section: str) -> str:
-    """Clamp an LLM-provided section to a known value (defaults to review)."""
-    return section if section in _VALID_SECTIONS else "review"
+def section_is_empty(section: Section) -> bool:
+    """True when a section has no content for its kind yet."""
+    if section.kind is SectionKind.TEXT:
+        return not section.text.strip()
+    if section.kind is SectionKind.ENTRIES:
+        return not section.entries
+    if section.kind is SectionKind.TAGS:
+        return not section.tags
+    return not any(group.values for group in section.groups)
+
+
+def section_prompt(section: str, language: str = "en", heading: str = "") -> str:
+    """Deterministic fallback question text for a wizard target."""
+    if section in FIXED_WIZARD_SECTIONS:
+        return wizard_copy(language, section)
+    if heading.strip():
+        return section_question(language, heading.strip())
+    return wizard_copy(language, "next")
+
+
+def valid_section(section: str, doc: ResumeDocument) -> str:
+    """Clamp a target to a fixed step or a section this document has."""
+    if section in FIXED_WIZARD_SECTIONS:
+        return section
+    key = token_section_key(section)
+    if key and doc.section(key) is not None:
+        return section
+    return "review"
+
+
+def section_heading(doc: ResumeDocument, target: str) -> str:
+    """The heading of the section a target token addresses ("" for steps)."""
+    section = doc.section(token_section_key(target))
+    return section.heading if section is not None else ""
 
 
 def build_initial_wizard_state() -> ResumeWizardState:
@@ -97,7 +173,7 @@ def build_initial_wizard_state() -> ResumeWizardState:
     language = get_content_language()
     return ResumeWizardState(
         step="intro",
-        resume_data=ResumeData(),
+        resume_data=build_starter_document(),
         current_question=ResumeWizardQuestion(
             text=section_prompt("intro", language), section="intro"
         ),
@@ -115,7 +191,7 @@ def extract_intro_name(answer: str) -> str:
 
 
 def merge_unique_skills(existing: list[str], inferred: list[str]) -> list[str]:
-    """Merge skills while preserving first-seen casing and order."""
+    """Merge short values while preserving first-seen casing and order."""
     merged: list[str] = []
     seen: set[str] = set()
     for item in [*existing, *inferred]:
@@ -127,29 +203,18 @@ def merge_unique_skills(existing: list[str], inferred: list[str]) -> list[str]:
     return merged
 
 
-def build_review_warnings(data: ResumeData, language: str = "en") -> list[str]:
+def build_review_warnings(doc: ResumeDocument, language: str = "en") -> list[str]:
     """Deterministic, gentle notes about useful resume facts that are missing."""
     warnings: list[str] = []
-    info = data.personalInfo
     # Name is the one HARD requirement for finalize (the request 422s without it),
     # so surface it at review rather than letting the user hit a generic failure.
-    if not info.name.strip():
+    if not doc.header.name.strip():
         warnings.append(wizard_copy(language, "warning_name"))
-    contact = [
-        info.email,
-        info.phone,
-        info.linkedin or "",
-        info.github or "",
-        info.website or "",
-    ]
-    if not any(value.strip() for value in contact):
+    if not any(contact.value.strip() for contact in doc.header.contacts):
         warnings.append(wizard_copy(language, "warning_contact"))
-    if not data.workExperience and not data.personalProjects:
-        warnings.append(wizard_copy(language, "warning_experience"))
-    if not data.education:
-        warnings.append(wizard_copy(language, "warning_education"))
-    if not data.additional.technicalSkills:
-        warnings.append(wizard_copy(language, "warning_skills"))
+    for section in doc.sections:
+        if section.visible and section_is_empty(section):
+            warnings.append(section_empty_warning(language, section.heading))
     return warnings
 
 
@@ -162,235 +227,422 @@ def compute_progress(asked_count: int, is_complete: bool) -> ResumeWizardProgres
     return ResumeWizardProgress(current=min(asked_count, total), total=total)
 
 
-def normalize_wizard_resume_data(data: dict[str, Any]) -> dict[str, Any]:
-    """Normalize wizard resume data through the shared resume schema."""
-    normalized = normalize_resume_data(copy.deepcopy(data))
-    return ResumeData.model_validate(normalized).model_dump()
+# ---------------------------------------------------------------------------
+# Tolerant coercion of the model's document
+# ---------------------------------------------------------------------------
 
 
-def _next_gap_section(data: ResumeData) -> str:
-    """Pick the next obviously-empty section, else review."""
-    if not data.workExperience:
-        return "workExperience"
-    if not data.education:
-        return "education"
-    if not data.personalProjects:
-        return "personalProjects"
-    if not data.additional.technicalSkills:
-        return "skills"
-    return "review"
+def _text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
-def _merge_entries[T: _IdentifiedEntry](
-    existing: list[T],
-    updated: list[T],
-    key: Callable[[T], tuple[str, ...]],
-    raw_updated: object,
-) -> list[T]:
-    """Merge echoed entries by stable id, appending entries declared as new.
+def _short_values(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
-    A partial model reply (e.g. it echoes only the role the user just described
-    instead of the full list) must NOT erase earlier entries. So: existing
-    entries the model omits are kept, entries retaining a known positive id are
-    replaced in place, and entries without a known id are appended. The content
-    signature remains only as compatibility for echoes that genuinely omit ids.
-    Raw field presence must survive schema defaults because an explicit ``id: 0``
-    is add intent even when a new entry shares the same content signature.
+
+def _coerce_bullets(value: Any) -> list[Bullet]:
+    bullets: list[Bullet] = []
+    if not isinstance(value, list):
+        return bullets
+    for item in value:
+        if isinstance(item, str):
+            text, style = item.strip(), "bullet"
+        elif isinstance(item, dict):
+            text = _text(item.get("text"))
+            style = "plain" if item.get("style") == "plain" else "bullet"
+        else:
+            continue
+        if text:
+            bullets.append(Bullet(text=text, style=style))  # type: ignore[arg-type]
+    return bullets
+
+
+def _coerce_links(value: Any) -> list[EntryLink]:
+    links: list[EntryLink] = []
+    if not isinstance(value, list):
+        return links
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        url = _text(item.get("url"))
+        if not url:
+            continue
+        kind = _text(item.get("kind"))
+        links.append(
+            EntryLink(
+                kind=kind if kind in {"github", "website", "linkedin"} else "other",  # type: ignore[arg-type]
+                url=url,
+            )
+        )
+    return links
+
+
+def _coerce_entries(value: Any) -> list[Entry]:
+    entries: list[Entry] = []
+    if not isinstance(value, list):
+        return entries
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        fields: dict[str, Any] = {
+            "title": _text(item.get("title")),
+            "subtitle": _text(item.get("subtitle")),
+            "meta": _text(item.get("meta")),
+            "period": _text(item.get("period")),
+            "links": _coerce_links(item.get("links")),
+            "summary": _text(item.get("summary")),
+            "bullets": _coerce_bullets(item.get("bullets")),
+        }
+        # An omitted id is add intent: the model cannot invent a stable one, so
+        # the default factory allocates it.
+        entry_id = _text(item.get("id"))
+        if entry_id:
+            fields["id"] = entry_id
+        entries.append(Entry(**fields))
+    return entries
+
+
+def _coerce_groups(value: Any) -> list[TagGroup]:
+    groups: list[TagGroup] = []
+    if not isinstance(value, list):
+        return groups
+    for item in value:
+        if isinstance(item, dict):
+            groups.append(
+                TagGroup(
+                    label=_text(item.get("label")),
+                    values=_short_values(item.get("values")),
+                )
+            )
+    return groups
+
+
+def _coerce_contacts(value: Any) -> list[Contact]:
+    contacts: list[Contact] = []
+    if not isinstance(value, list):
+        return contacts
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        contact_value = _text(item.get("value"))
+        if not contact_value:
+            continue
+        kind = _text(item.get("kind"))
+        contacts.append(
+            Contact(
+                kind=kind if kind in _CONTACT_KINDS else "other",  # type: ignore[arg-type]
+                label=_text(item.get("label")),
+                value=contact_value,
+                url=_text(item.get("url")),
+            )
+        )
+    return contacts
+
+
+def _coerce_kind(value: Any, raw: dict[str, Any]) -> SectionKind:
+    kind = _text(value).lower()
+    if kind in {member.value for member in SectionKind}:
+        return SectionKind(kind)
+    # No usable kind: infer it from whichever content field carries data.
+    if isinstance(raw.get("entries"), list) and raw["entries"]:
+        return SectionKind.ENTRIES
+    if isinstance(raw.get("groups"), list) and raw["groups"]:
+        return SectionKind.GROUPS
+    if isinstance(raw.get("tags"), list) and raw["tags"]:
+        return SectionKind.TAGS
+    return SectionKind.TEXT
+
+
+def _coerce_section(raw: dict[str, Any]) -> Section | None:
+    heading = _text(raw.get("heading"))
+    key = _text(raw.get("key")).lower()
+    if not key and not heading:
+        return None
+    kind = _coerce_kind(raw.get("kind"), raw)
+    return Section(
+        key=slugify_key(key or heading),
+        heading=heading or key.replace("_", " ").title(),
+        kind=kind,
+        visible=raw.get("visible") is not False,
+        column="side" if _text(raw.get("column")) == "side" else "main",
+        text=_text(raw.get("text")),
+        entries=_coerce_entries(raw.get("entries")),
+        tags=_short_values(raw.get("tags")),
+        groups=_coerce_groups(raw.get("groups")),
+    )
+
+
+def normalize_wizard_document(raw: dict[str, Any]) -> ResumeDocument:
+    """Read the model's document tolerantly.
+
+    The contract forbids extra fields, so a strict validation would turn any
+    model sloppiness into a failed turn. This keeps the fields the contract
+    defines, coerces loose shapes (a bare bullet string, a missing ``kind``) and
+    drops the rest. Ids the model did not echo are allocated by the schema, and
+    ``headingI18nKey`` is never taken from the model — a translation key is not
+    the model's to invent.
     """
-    result = list(existing)
-    id_index: dict[int, int] = {}
-    signature_positions: dict[tuple[str, ...], deque[int]] = {}
-    for position, item in enumerate(result):
-        if item.id > 0:
-            id_index.setdefault(item.id, position)
-        signature_positions.setdefault(key(item), deque()).append(position)
-    raw_items = raw_updated if isinstance(raw_updated, list) else []
-    unidentified_full_echo = (
+    header_raw = raw.get("header")
+    header_raw = header_raw if isinstance(header_raw, dict) else {}
+    sections: list[Section] = []
+    taken: set[str] = set()
+    for item in raw.get("sections") or []:
+        if not isinstance(item, dict):
+            continue
+        section = _coerce_section(item)
+        if section is None or section.key in taken:
+            continue
+        taken.add(section.key)
+        sections.append(section)
+    return ResumeDocument(
+        header=Header(
+            name=_text(header_raw.get("name")),
+            headline=_text(header_raw.get("headline")),
+            contacts=_coerce_contacts(header_raw.get("contacts")),
+        ),
+        sections=sections,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Merging one turn into the draft
+# ---------------------------------------------------------------------------
+
+
+def _entry_signature(entry: Entry) -> tuple[str, str, str]:
+    return (
+        entry.title.casefold(),
+        entry.subtitle.casefold(),
+        entry.period.casefold(),
+    )
+
+
+def _merge_entries(existing: list[Entry], updated: list[Entry]) -> list[Entry]:
+    """Merge echoed entries by stable id, appending the ones declared as new.
+
+    A partial reply (the model echoes only the role the user just described)
+    must never erase earlier entries. Entries echoing a known id replace that
+    entry in place; an unknown id means the model did not echo one, so a unique
+    content-signature match still counts as an edit and anything else is new.
+    """
+    known_ids = {entry.id for entry in existing}
+    # A same-length echo where no id is recognisable is a full positional echo:
+    # matching by signature alone would duplicate every entry whose identity
+    # fields the user just corrected. Ambiguous for a single entry, where a
+    # genuinely new entry looks identical, so only trust it for longer lists.
+    if (
         len(existing) > 1
         and len(updated) == len(existing)
-        and all(
-            isinstance(raw_item, dict)
-            and ("id" not in raw_item or raw_item.get("id") == 0)
-            for raw_item in raw_items
-        )
-        and Counter(key(item) for item in updated)
-        == Counter(key(item) for item in existing)
-    )
-    for item_index, item in enumerate(updated):
-        raw_item = raw_items[item_index] if item_index < len(raw_items) else None
-        has_explicit_id = isinstance(raw_item, dict) and "id" in raw_item
-        position = id_index.pop(item.id, None) if item.id > 0 else None
-        if unidentified_full_echo:
-            position = signature_positions[key(item)][0]
-        elif position is None and item.id <= 0 and not has_explicit_id:
-            candidates = signature_positions.get(key(item), deque())
-            if len(candidates) == 1:
-                position = candidates[0]
-        if position is not None:
-            previous_key = key(result[position])
-            candidates = signature_positions.get(previous_key)
-            if candidates is not None:
-                try:
-                    candidates.remove(position)
-                except ValueError:
-                    pass
-                if not candidates:
-                    signature_positions.pop(previous_key)
-            item.id = result[position].id
-            result[position] = item
-            continue
+        and all(entry.id not in known_ids for entry in updated)
+    ):
+        for old, new in zip(existing, updated):
+            new.id = old.id
+        return list(updated)
 
-        # A positive id unknown to the current draft is not stable identity.
-        # Treat it as add intent and let the allocator choose a collision-free id.
-        item.id = 0
-        result.append(item)
-        if has_explicit_id:
-            signature_positions.setdefault(key(item), deque()).append(len(result) - 1)
+    result = list(existing)
+    position_by_id = {entry.id: index for index, entry in enumerate(result)}
+    positions_by_signature: dict[tuple[str, str, str], list[int]] = {}
+    for index, entry in enumerate(result):
+        positions_by_signature.setdefault(_entry_signature(entry), []).append(index)
+
+    for entry in updated:
+        position = position_by_id.pop(entry.id, None)
+        if position is None:
+            candidates = positions_by_signature.get(_entry_signature(entry), [])
+            position = candidates[0] if len(candidates) == 1 else None
+        if position is None:
+            result.append(entry)
+            continue
+        previous = positions_by_signature.get(_entry_signature(result[position]))
+        if previous is not None and position in previous:
+            previous.remove(position)
+        entry.id = result[position].id
+        result[position] = entry
     return result
 
 
-def _experience_key(item: Experience) -> tuple[str, ...]:
-    return (
-        item.title.strip().casefold(),
-        item.company.strip().casefold(),
-        item.years.strip().casefold(),
+def _merge_groups(existing: list[TagGroup], updated: list[TagGroup]) -> list[TagGroup]:
+    """Union group values by label, keeping existing labels and order."""
+    result = [group.model_copy(deep=True) for group in existing]
+    position_by_label = {
+        group.label.casefold(): index for index, group in enumerate(result)
+    }
+    for group in updated:
+        if not group.values:
+            continue
+        position = position_by_label.get(group.label.casefold())
+        if position is None:
+            result.append(
+                TagGroup(label=group.label, values=merge_unique_skills([], group.values))
+            )
+            position_by_label[group.label.casefold()] = len(result) - 1
+            continue
+        result[position].values = merge_unique_skills(
+            result[position].values, group.values
+        )
+    return result
+
+
+def _merge_header(target: Header, updated: Header) -> None:
+    """Fill header fields the model supplied, never blanking existing ones."""
+    if updated.name:
+        target.name = updated.name
+    if updated.headline:
+        target.headline = updated.headline
+    for contact in updated.contacts:
+        same_kind = next(
+            (
+                existing
+                for existing in target.contacts
+                if existing.kind == contact.kind and contact.kind != "other"
+            ),
+            None,
+        )
+        if same_kind is not None:
+            same_kind.label = contact.label or same_kind.label
+            same_kind.value = contact.value
+            same_kind.url = contact.url or same_kind.url
+            continue
+        if any(
+            existing.value.casefold() == contact.value.casefold()
+            for existing in target.contacts
+        ):
+            continue
+        target.contacts.append(contact)
+
+
+def _merge_section_content(
+    target: Section, updated: Section, inferred_skills: list[str]
+) -> None:
+    """Merge the model's content into one section, dispatching on its kind."""
+    if target.kind is SectionKind.TEXT:
+        if updated.text:
+            target.text = updated.text
+        return
+    if target.kind is SectionKind.ENTRIES:
+        if updated.entries:
+            target.entries = _merge_entries(target.entries, updated.entries)
+        return
+    if target.kind is SectionKind.TAGS:
+        target.tags = merge_unique_skills(
+            target.tags, [*updated.tags, *inferred_skills]
+        )
+        return
+    target.groups = _merge_groups(target.groups, updated.groups)
+    if not inferred_skills:
+        return
+    # Inferred skills belong with the group the model just wrote to; failing
+    # that, the first existing group, or a new unlabelled one.
+    label = updated.groups[0].label.casefold() if updated.groups else None
+    position = next(
+        (
+            index
+            for index, group in enumerate(target.groups)
+            if group.label.casefold() == label
+        ),
+        0 if target.groups else None,
+    )
+    if position is None:
+        target.groups.append(TagGroup(values=merge_unique_skills([], inferred_skills)))
+        return
+    target.groups[position].values = merge_unique_skills(
+        target.groups[position].values, inferred_skills
     )
 
 
-def _education_key(item: Education) -> tuple[str, ...]:
-    return (
-        item.institution.strip().casefold(),
-        item.degree.strip().casefold(),
-        item.years.strip().casefold(),
-    )
-
-
-def _project_key(item: Project) -> tuple[str, ...]:
-    return (item.name.strip().casefold(), item.years.strip().casefold())
-
-
-def _merge_section(
+def _merge_turn(
     *,
-    existing: ResumeData,
-    updated: ResumeData,
-    raw_updated: dict[str, Any],
+    existing: ResumeDocument,
+    updated: ResumeDocument,
     section: str,
     inferred_skills: list[str],
-) -> ResumeData:
-    """Merge LLM output ONLY into the active section, never clobbering the rest."""
+) -> ResumeDocument:
+    """Merge model output ONLY into the active target, never clobbering the rest."""
     merged = existing.model_copy(deep=True)
 
     if section in {"intro", "contact"}:
-        if isinstance(raw_updated.get("personalInfo"), dict):
-            for field in ("name", "title", "email", "phone", "location"):
-                new_val = getattr(updated.personalInfo, field)
-                if isinstance(new_val, str) and new_val.strip():
-                    setattr(merged.personalInfo, field, new_val)
-            for field in ("website", "linkedin", "github"):
-                new_val = getattr(updated.personalInfo, field)
-                if new_val:
-                    setattr(merged.personalInfo, field, new_val)
-        return merged
+        _merge_header(merged.header, updated.header)
+    else:
+        key = token_section_key(section)
+        target = merged.section(key)
+        source = updated.section(key)
+        if target is not None and source is not None:
+            _merge_section_content(target, source, inferred_skills)
 
-    if section == "summary":
-        if "summary" in raw_updated and updated.summary.strip():
-            merged.summary = updated.summary
-        return merged
-
-    if section in {"workExperience", "internships"}:
-        if "workExperience" in raw_updated:
-            merged.workExperience = _merge_entries(
-                merged.workExperience,
-                updated.workExperience,
-                _experience_key,
-                raw_updated.get("workExperience"),
-            )
-        return merged
-
-    if section == "education":
-        if "education" in raw_updated:
-            merged.education = _merge_entries(
-                merged.education,
-                updated.education,
-                _education_key,
-                raw_updated.get("education"),
-            )
-        return merged
-
-    if section == "personalProjects":
-        if "personalProjects" in raw_updated:
-            merged.personalProjects = _merge_entries(
-                merged.personalProjects,
-                updated.personalProjects,
-                _project_key,
-                raw_updated.get("personalProjects"),
-            )
-        return merged
-
-    if section == "skills":
-        raw_additional = raw_updated.get("additional")
-        if isinstance(raw_additional, dict):
-            if "technicalSkills" in raw_additional:
-                merged.additional.technicalSkills = merge_unique_skills(
-                    merged.additional.technicalSkills,
-                    updated.additional.technicalSkills,
-                )
-            if "languages" in raw_additional:
-                merged.additional.languages = merge_unique_skills(
-                    merged.additional.languages, updated.additional.languages
-                )
-            if "certificationsTraining" in raw_additional:
-                merged.additional.certificationsTraining = merge_unique_skills(
-                    merged.additional.certificationsTraining,
-                    updated.additional.certificationsTraining,
-                )
-            if "awards" in raw_additional:
-                merged.additional.awards = merge_unique_skills(
-                    merged.additional.awards, updated.additional.awards
-                )
-        merged.additional.technicalSkills = merge_unique_skills(
-            merged.additional.technicalSkills, inferred_skills
-        )
-        return merged
-
-    # Unknown / review section: never mutate resume_data.
+    # A section the model introduced is how the user's own sections come into
+    # existence: append it, content and all. Existing sections stay untouched.
+    known = {item.key for item in merged.sections}
+    for candidate in updated.sections:
+        if candidate.key in known or section_is_empty(candidate):
+            continue
+        known.add(candidate.key)
+        merged.sections.append(candidate)
     return merged
 
 
-def _assign_entry_ids(data: ResumeData) -> None:
-    """Preserve stable positive ids and allocate ids only for new entries.
+# ---------------------------------------------------------------------------
+# Turn orchestration
+# ---------------------------------------------------------------------------
 
-    Downstream consumers use ids for React keys and builder updates. An id echoed
-    from the current draft must therefore survive corrections; omitted, invalid,
-    or duplicate ids receive monotonically increasing replacements.
-    """
-    for entries in (data.workExperience, data.education, data.personalProjects):
-        next_id = max((item.id for item in entries if item.id > 0), default=0) + 1
-        used: set[int] = set()
-        for item in entries:
-            if item.id > 0 and item.id not in used:
-                used.add(item.id)
-                continue
-            while next_id in used:
-                next_id += 1
-            item.id = next_id
-            used.add(item.id)
-            next_id += 1
+
+def _next_gap_section(doc: ResumeDocument) -> str:
+    """Pick the next obviously-empty target, else review."""
+    if not doc.header.name.strip():
+        return "intro"
+    if not doc.header.contacts:
+        return "contact"
+    for section in doc.sections:
+        if section.visible and section_is_empty(section):
+            return section_token(section.key)
+    return "review"
+
+
+def _fallback_question(doc: ResumeDocument, language: str) -> ResumeWizardQuestion:
+    gap = _next_gap_section(doc)
+    return ResumeWizardQuestion(
+        text=section_prompt(gap, language, section_heading(doc, gap)), section=gap
+    )
 
 
 def _next_question(
     candidate: dict[str, Any] | None,
-    data: ResumeData,
+    doc: ResumeDocument,
     language: str,
 ) -> ResumeWizardQuestion:
-    """Use the model's next_question, or fall back to the next empty section."""
+    """Use the model's next_question, or fall back to the next empty target."""
     if isinstance(candidate, dict):
         text = candidate.get("text")
         section = candidate.get("section")
         if isinstance(text, str) and text.strip() and isinstance(section, str):
-            return ResumeWizardQuestion(text=text.strip(), section=valid_section(section))
-    gap = _next_gap_section(data)
-    return ResumeWizardQuestion(text=section_prompt(gap, language), section=gap)
+            return ResumeWizardQuestion(
+                text=text.strip()[:_MAX_QUESTION_CHARS],
+                section=valid_section(section, doc),
+            )
+    return _fallback_question(doc, language)
+
+
+def _section_tokens(doc: ResumeDocument) -> str:
+    tokens = [*FIXED_WIZARD_SECTIONS, *(section_token(s.key) for s in doc.sections)]
+    return ", ".join(tokens)
+
+
+def _describe_target(doc: ResumeDocument, section: str) -> str:
+    """The LLM-facing description of what this turn is allowed to change."""
+    if section == "intro":
+        return 'the header: "name" and "headline" (and sections the answer clearly starts)'
+    if section == "contact":
+        return 'the header "contacts" list'
+    if section == "review":
+        return "the review step - do NOT change resume_data"
+    target = doc.section(token_section_key(section))
+    if target is None:
+        return "the review step - do NOT change resume_data"
+    return (
+        f'the section with key "{target.key}" (token "{section}", '
+        f'heading "{target.heading}", kind {target.kind.value})'
+    )
 
 
 async def run_ai_turn(
@@ -402,7 +654,8 @@ async def run_ai_turn(
     """Run one adaptive AI turn (answer or skip) and validate the result."""
     section = state.current_question.section
     language = get_content_language()
-    resume_json = json.dumps(state.resume_data.model_dump(mode="json"), ensure_ascii=False)
+    document = state.resume_data
+    resume_json = json.dumps(document.model_dump(mode="json"), ensure_ascii=False)
     prompt_answer = (
         "(The user skipped this question. Do NOT modify resume_data. "
         "Ask the next most useful question for a different section.)"
@@ -413,7 +666,9 @@ async def run_ai_turn(
     )
     prompt = RESUME_WIZARD_TURN_PROMPT.format(
         output_language=get_language_name(language),
-        current_section=section,
+        current_target=_describe_target(document, section),
+        document_schema=describe_document_schema(document),
+        section_tokens=_section_tokens(document),
         resume_json=resume_json,
         answer_text=prompt_answer,
     )
@@ -423,29 +678,22 @@ async def run_ai_turn(
     except ValidationError as error:
         raise ValueError("Resume wizard received an invalid response.") from error
 
-    raw_resume = envelope.resume_data
     inferred = envelope.inferred_skills
 
     if skip:
-        data = state.resume_data.model_copy(deep=True)
+        data = document.model_copy(deep=True)
     else:
-        updated = ResumeData.model_validate(normalize_wizard_resume_data(raw_resume))
-        data = _merge_section(
-            existing=state.resume_data,
-            updated=updated,
-            raw_updated=raw_resume,
+        data = _merge_turn(
+            existing=document,
+            updated=normalize_wizard_document(envelope.resume_data),
             section=section,
             inferred_skills=inferred,
         )
 
-    if section == "intro" and not data.personalInfo.name.strip():
+    if section == "intro" and not data.header.name.strip():
         fallback = extract_intro_name(answer_text)
         if fallback:
-            data.personalInfo.name = fallback
-
-    # Entries from the LLM default to id=0; give them unique ids so the preview
-    # keys and the builder's id-based logic work on a finalized wizard resume.
-    _assign_entry_ids(data)
+            data.header.name = fallback
 
     asked_count = state.asked_count + 1
     # `is_complete` is a SUGGESTION to surface "Review & finish" — the step stays
@@ -458,7 +706,7 @@ async def run_ai_turn(
             question=state.current_question.text,
             answer="" if skip else answer_text,
             section=section,
-            resume_data_before=state.resume_data,
+            resume_data_before=document,
         )
     )
 

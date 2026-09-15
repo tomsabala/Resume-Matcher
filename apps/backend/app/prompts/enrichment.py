@@ -1,11 +1,21 @@
 """LLM prompt templates for AI-powered resume enrichment."""
 
-ANALYZE_RESUME_PROMPT = """You are a professional resume analyst. Analyze this resume to identify items in Experience and Projects sections that have weak, vague, or incomplete descriptions.
+ANALYZE_RESUME_PROMPT = """You are a professional resume analyst. Analyze this resume to identify items with weak, vague, or incomplete descriptions, across EVERY section that has entries.
 
 IMPORTANT: Generate ALL output text (questions, placeholders, summaries, weakness reasons) in {output_language}.
 
 RESUME DATA (JSON):
 {resume_json}
+
+HOW THE RESUME IS SHAPED:
+- The document has an ordered "sections" list. Every section has a "key", a "heading" and a "kind" (text, entries, tags or groups); the kind decides which content field it uses.
+- An "entries" section holds items with "title", "subtitle", "meta", "period", a "summary" paragraph and a list of "bullets" (each bullet is "text" plus "style").
+- A "tags" section holds one flat list of short values; a "groups" section holds labelled lists of short values.
+
+ITEM IDS - COPY THEM, NEVER INVENT THEM:
+- An entry: "item_id" is the section's "key", a colon, then that entry's "id" exactly as it appears in the JSON above (for example "experience:3f1c9ab24d7e4c0fa1b2c3d4e5f60718"), and "item_type" is "entry".
+- A flat value list: "item_id" is the section's "key" plus ":#tags" for a "tags" section, or plus ":#group:" and the 0-based index of the group for a "groups" section (for example "skills:#group:0"), and "item_type" is "values".
+- Never derive an id from a heading, from an entry's position in the array, or from a name you made up. An "item_id" that was not copied from the JSON cannot be resolved and the item is discarded.
 
 WEAK DESCRIPTION INDICATORS:
 1. Generic phrases: "responsible for", "worked on", "helped with", "assisted in", "involved in"
@@ -21,19 +31,20 @@ GOOD DESCRIPTION EXAMPLES (for reference):
 - "Architected payment processing system handling $2M monthly transactions"
 
 TASK:
-1. Review each Experience and Project item's description bullets
-2. Identify items that would benefit from more detail
-3. Generate a MAXIMUM of 6 questions total across ALL items (not per item)
-4. Prioritize the most impactful questions that will yield the best improvements
-5. If multiple items need enhancement, distribute questions wisely (e.g., 2-3 per item)
-6. Questions should help extract: metrics, technologies, scope, impact, and specific contributions
+1. Review every entry of every "entries" section - experience and projects, but also any other section the candidate has (military service, publications, volunteer work, research...)
+2. Judge an entry on its "summary" paragraph and its "bullets" together
+3. Identify items that would benefit from more detail
+4. Generate a MAXIMUM of 6 questions total across ALL items (not per item)
+5. Prioritize the most impactful questions that will yield the best improvements
+6. If multiple items need enhancement, distribute questions wisely (e.g., 2-3 per item)
+7. Questions should help extract: metrics, technologies, scope, impact, and specific contributions
 
 OUTPUT FORMAT (JSON only, no other text):
 {{
   "items_to_enrich": [
     {{
-      "item_id": "exp_0",
-      "item_type": "experience",
+      "item_id": "experience:<the entry id copied from the JSON>",
+      "item_type": "entry",
       "title": "Software Engineer",
       "subtitle": "Company Name",
       "current_description": ["bullet 1", "bullet 2"],
@@ -43,25 +54,25 @@ OUTPUT FORMAT (JSON only, no other text):
   "questions": [
     {{
       "question_id": "q_0",
-      "item_id": "exp_0",
+      "item_id": "experience:<the entry id copied from the JSON>",
       "question": "What specific metrics improved as a result of your work? (e.g., performance gains, cost savings, user growth)",
       "placeholder": "e.g., Reduced API response time by 40%, saved $50K annually"
     }},
     {{
       "question_id": "q_1",
-      "item_id": "exp_0",
+      "item_id": "experience:<the entry id copied from the JSON>",
       "question": "What technologies, frameworks, or tools did you use in this role?",
       "placeholder": "e.g., Python, FastAPI, PostgreSQL, Redis, AWS Lambda"
     }},
     {{
       "question_id": "q_2",
-      "item_id": "exp_0",
+      "item_id": "experience:<the entry id copied from the JSON>",
       "question": "What was the scale of your work? (team size, users served, data volume)",
       "placeholder": "e.g., Team of 5, serving 100K users, processing 1M requests/day"
     }},
     {{
       "question_id": "q_3",
-      "item_id": "exp_0",
+      "item_id": "projects:<the entry id copied from the JSON>",
       "question": "What was your specific contribution or ownership in this project?",
       "placeholder": "e.g., Designed the architecture, led the implementation, mentored 2 junior devs"
     }}
@@ -73,10 +84,11 @@ IMPORTANT RULES:
 - MAXIMUM 6 QUESTIONS TOTAL - this is a hard limit, never exceed it
 - Only include items that genuinely need improvement
 - If the resume is already strong, return empty arrays with a positive summary
-- Use "exp_0", "exp_1" for experience items (based on array index)
-- Use "proj_0", "proj_1" for project items (based on array index)
+- Every "item_id" is copied from the resume JSON exactly as described above; "item_type" is exactly "entry" or "values"
+- "current_description" is the item's existing bullet texts, or its existing values for a value list
 - Generate unique question IDs: "q_0", "q_1", "q_2", etc. (max q_5)
-- Questions should be specific to the role/project context
+- Every question's "item_id" must match an item in "items_to_enrich"
+- Questions should be specific to the item's own context and its section's subject
 - Keep questions conversational but professional
 - Placeholder text should give concrete examples
 - Prioritize quality over quantity - ask the most impactful questions first"""
@@ -172,11 +184,11 @@ RULES:
 - Use past tense for past roles, present tense for current"""
 
 
-REGENERATE_SKILLS_PROMPT = """You are a professional resume writer. Rewrite the technical skills section based on user feedback.
+REGENERATE_SKILLS_PROMPT = """You are a professional resume writer. Rewrite one list of short values from a resume section (skills, tools, languages, certifications, awards, interests...) based on user feedback.
 
 IMPORTANT: Generate ALL output text in {output_language}.
 
-CURRENT SKILLS:
+CURRENT VALUES:
 {current_skills}
 
 USER'S FEEDBACK:
@@ -189,7 +201,7 @@ OUTPUT FORMAT (JSON only):
 }}
 
 RULES:
-- Keep skills concise and industry-standard
-- Group similar technologies if appropriate
-- Prioritize most relevant skills based on feedback
-- Only include skills that already exist in CURRENT SKILLS or are explicitly provided in USER'S FEEDBACK"""
+- Keep each value concise and in the list's own subject area - do not turn a languages or awards list into a technical skills list
+- Keep values industry-standard, and group similar ones only if the list already reads that way
+- Prioritize the most relevant values based on feedback
+- Only include values that already exist in CURRENT VALUES or are explicitly provided in USER'S FEEDBACK"""

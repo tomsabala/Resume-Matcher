@@ -1,51 +1,8 @@
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-
-export interface PersonalInfo {
-  name: string;
-  title?: string;
-  email: string;
-  phone: string;
-  location: string;
-  website?: string;
-  linkedin?: string;
-  github?: string;
-}
-
-export interface ExperienceEntry {
-  id: number;
-  title: string;
-  company: string;
-  location?: string;
-  years?: string;
-  description: string[];
-  descriptionStyles?: ('bullet' | 'plain')[];
-}
-
-export interface EducationEntry {
-  id: number;
-  institution: string;
-  degree: string;
-  years?: string;
-  description?: string;
-}
-
-export interface ProjectEntry {
-  id: number;
-  name: string;
-  role?: string;
-  years?: string;
-  description: string[];
-  descriptionStyles?: ('bullet' | 'plain')[];
-}
-
-export interface AdditionalInfo {
-  technicalSkills: string[];
-  languages: string[];
-  certificationsTraining: string[];
-  awards: string[];
-}
+import type { ResumeDocument } from '@/lib/types/document';
+import type { DocumentDiff } from '@/lib/api/diff';
 
 export interface ATSSubScores {
   keyword_match: number;
@@ -59,42 +16,6 @@ export interface ATSScore {
   missing_keywords: string[];
   injectable_keywords: string[];
   recommendations: string[];
-}
-
-export interface ResumeDiffSummary {
-  total_changes: number;
-  skills_added: number;
-  skills_removed: number;
-  descriptions_modified: number;
-  certifications_added: number;
-  high_risk_changes: number;
-}
-
-export interface ResumeFieldDiff {
-  field_path: string;
-  field_type:
-    | 'skill'
-    | 'description'
-    | 'summary'
-    | 'certification'
-    | 'experience'
-    | 'education'
-    | 'project'
-    | 'language'
-    | 'award';
-  change_type: 'added' | 'removed' | 'modified';
-  original_value?: string;
-  new_value?: string;
-  confidence: 'low' | 'medium' | 'high';
-}
-
-export interface ResumePreview {
-  personalInfo: PersonalInfo;
-  summary?: string;
-  workExperience: ExperienceEntry[];
-  education: EducationEntry[];
-  personalProjects: ProjectEntry[];
-  additional: AdditionalInfo;
 }
 
 export interface InterviewPrepQuestion {
@@ -123,7 +44,7 @@ export interface Data {
   preview_expires_at?: string | null;
   resume_id: string | null;
   job_id: string;
-  resume_preview: ResumePreview;
+  resume_preview: ResumeDocument;
   details?: string;
   commentary?: string;
   improvements?: {
@@ -137,8 +58,8 @@ export interface Data {
   cover_letter?: string;
   outreach_message?: string;
   interview_prep?: InterviewPrepData | null;
-  diff_summary?: ResumeDiffSummary;
-  detailed_changes?: ResumeFieldDiff[];
+  /** Structured comparison of the source resume against this proposal. */
+  diff?: DocumentDiff | null;
   ats_score?: ATSScore;
 }
 

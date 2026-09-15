@@ -27,12 +27,43 @@ class Base(DeclarativeBase):
     """Declarative base shared by every table."""
 
 
+class Workspace(Base):
+    """A named owner profile scoping resumes, jobs and tracker applications.
+
+    Single-user product: a workspace is a profile ("Tom", "Lior — Hebrew"),
+    not a tenant. Exactly one row carries ``is_default``; it is the fallback
+    for requests that arrive without an ``X-Workspace-Id`` header (notably the
+    Playwright print route, which Chromium fetches without app headers).
+    """
+
+    __tablename__ = "workspaces"
+
+    workspace_id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    slug: Mapped[str] = mapped_column(String)
+    content_language: Mapped[str] = mapped_column(String, default="en")
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
+    updated_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
+
+    __table_args__ = (
+        Index("ux_workspaces_slug", "slug", unique=True),
+        Index(
+            "ux_workspaces_single_default",
+            "is_default",
+            unique=True,
+            sqlite_where=text("is_default = 1"),
+        ),
+    )
+
+
 class Resume(Base):
     """A resume document (master or tailored)."""
 
     __tablename__ = "resumes"
 
     resume_id: Mapped[str] = mapped_column(String, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String, default="")
     content: Mapped[str] = mapped_column(Text)
     content_type: Mapped[str] = mapped_column(String, default="md")
     filename: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -49,20 +80,60 @@ class Resume(Base):
     # omitted entirely when None. The facade reproduces that by only emitting
     # the key when this column is non-null.
     original_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Newest row in ``resume_versions`` for this resume. Denormalised so the
+    # hot read path never has to sort the history.
+    head_version_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Hand-edited LaTeX. NULL means "generate from the document"; once set,
+    # the .tex endpoints serve this verbatim and the document stops driving
+    # the LaTeX output until the user clears it.
+    tex_source: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
     updated_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
 
     __table_args__ = (
-        # At most one master resume. Partial unique index enforces the invariant
-        # at the storage layer; the facade serializes compound designation
-        # changes with a SQLite writer transaction.
+        # At most one master resume *per workspace*. Partial unique index
+        # enforces the invariant at the storage layer; the facade serializes
+        # compound designation changes with a SQLite writer transaction.
         Index(
-            "ux_resumes_single_master",
+            "ux_resumes_workspace_master",
+            "workspace_id",
             "is_master",
             unique=True,
             sqlite_where=text("is_master = 1"),
         ),
+        Index("ix_resumes_workspace", "workspace_id"),
     )
+
+
+class ResumeVersion(Base):
+    """One immutable snapshot of a resume's content.
+
+    Append-only: a restore writes a *new* row whose ``document`` is the
+    restored one, so history is never rewound. Rows are content-hash deduped
+    and consecutive builder autosaves coalesce (see
+    ``Database.commit_resume_version``).
+    """
+
+    __tablename__ = "resume_versions"
+    __table_args__ = (
+        Index("ix_versions_resume_created", "resume_id", "created_at"),
+        Index("ix_versions_workspace", "workspace_id"),
+    )
+
+    version_id: Mapped[str] = mapped_column(String, primary_key=True)
+    resume_id: Mapped[str] = mapped_column(String)
+    workspace_id: Mapped[str] = mapped_column(String)
+    parent_version_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # sha256 of the canonical JSON of ``document``.
+    content_hash: Mapped[str] = mapped_column(String)
+    document: Mapped[dict[str, Any]] = mapped_column(JSON)
+    tex_source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tex_source_mode: Mapped[str] = mapped_column(String, default="generated")
+    label: Mapped[str | None] = mapped_column(String, nullable=True)
+    origin: Mapped[str] = mapped_column(String)
+    origin_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
 
 
 class Job(Base):
@@ -76,8 +147,10 @@ class Job(Base):
     """
 
     __tablename__ = "jobs"
+    __table_args__ = (Index("ix_jobs_workspace", "workspace_id"),)
 
     job_id: Mapped[str] = mapped_column(String, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String, default="")
     content: Mapped[str] = mapped_column(Text)
     resume_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
@@ -129,9 +202,11 @@ class Application(Base):
         # Concurrency-safe dedupe: a card is unique per (job, applied resume).
         # The app-level select-then-insert relies on this to collapse races.
         UniqueConstraint("job_id", "resume_id", name="uq_application_job_resume"),
+        Index("ix_applications_workspace", "workspace_id"),
     )
 
     application_id: Mapped[str] = mapped_column(String, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String, default="")
     job_id: Mapped[str] = mapped_column(String, index=True)
     # The applied/tailored resume shown in the modal and opened by "Edit".
     resume_id: Mapped[str] = mapped_column(String, index=True)

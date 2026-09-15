@@ -8,7 +8,6 @@ import { GripVertical } from 'lucide-react';
 interface DraggableSectionWrapperProps {
   id: string;
   children: React.ReactNode;
-  disabled?: boolean;
 }
 
 /**
@@ -24,11 +23,9 @@ interface DraggableSectionWrapperProps {
 export const DraggableSectionWrapper: React.FC<DraggableSectionWrapperProps> = ({
   id,
   children,
-  disabled = false,
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
-    disabled,
   });
 
   const style = {
@@ -40,19 +37,17 @@ export const DraggableSectionWrapper: React.FC<DraggableSectionWrapperProps> = (
   return (
     <div ref={setNodeRef} style={style} className="relative">
       {/* Drag Handle */}
-      {!disabled && (
-        <div
-          {...attributes}
-          {...listeners}
-          className="absolute left-0 top-0 h-full w-4 flex items-start justify-center cursor-grab active:cursor-grabbing z-10"
-          title="Drag to reorder"
-        >
-          <GripVertical className="w-4 h-4 text-steel-grey hover:text-ink-soft transition-colors" />
-        </div>
-      )}
+      <div
+        {...attributes}
+        {...listeners}
+        className="absolute left-0 top-0 h-full w-4 flex items-start justify-center cursor-grab active:cursor-grabbing z-10"
+        title="Drag to reorder"
+      >
+        <GripVertical className="w-4 h-4 text-steel-grey hover:text-ink-soft transition-colors" />
+      </div>
 
       {/* Section Content - add left padding to make room for drag handle */}
-      <div className={!disabled ? 'pl-4' : ''}>{children}</div>
+      <div className="pl-4">{children}</div>
     </div>
   );
 };

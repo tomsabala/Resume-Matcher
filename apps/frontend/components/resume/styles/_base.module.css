@@ -49,16 +49,10 @@
   color: var(--resume-text-tertiary);
 }
 
-.resume-meta-sm {
-  font-family: var(--resume-font-mono);
-  font-size: calc(var(--font-size-base) * 0.75);
-  color: var(--resume-text-tertiary);
-}
-
 /* Date formatting - ensures dates never wrap and stay right-aligned */
 .resume-date {
   font-family: var(--resume-font-mono);
-  font-size: calc(var(--font-size-base) * 0.75);
+  font-size: calc(var(--font-size-base) * var(--resume-text-scale, 1) * 0.75);
   color: var(--resume-text-tertiary);
   white-space: nowrap;
   flex-shrink: 0;
@@ -67,82 +61,33 @@
 
 .resume-text {
   font-family: var(--body-font);
-}
-
-.resume-text-sm {
-  font-family: var(--body-font);
-  font-size: calc(var(--font-size-base) * 0.92);
-}
-
-.resume-text-xs {
-  font-family: var(--body-font);
-  font-size: calc(var(--font-size-base) * 0.82);
+  font-size: calc(var(--font-size-base) * var(--resume-text-scale, 1));
 }
 
 .resume-item-title {
   font-family: var(--body-font);
-  font-size: var(--font-size-base);
+  font-size: calc(var(--font-size-base) * var(--resume-text-scale, 1));
   font-weight: 700;
   color: var(--resume-text-primary);
 }
 
-.resume-item-title-sm {
-  font-family: var(--body-font);
-  font-size: calc(var(--font-size-base) * 0.9);
-  font-weight: 700;
-  color: var(--resume-text-primary);
-}
-
+/*
+ * Entry subtitles carry a template's entry voice: the `--resume-subtitle-*`
+ * custom properties let a template restyle them without the section-kind
+ * renderers knowing which template they are inside.
+ */
 .resume-item-subtitle {
   font-family: var(--body-font);
-  font-size: calc(var(--font-size-base) * 0.95);
-  font-weight: 600;
-  color: var(--resume-text-secondary);
-}
-
-.resume-item-subtitle-sm {
-  font-family: var(--body-font);
-  font-size: calc(var(--font-size-base) * 0.88);
-  font-weight: 600;
-  color: var(--resume-text-secondary);
-}
-
-.resume-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--item-gap);
-}
-
-.resume-stack-tight {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--item-gap) * 0.6);
-}
-
-.resume-row {
-  margin-bottom: var(--item-gap);
+  font-size: calc(var(--font-size-base) * var(--resume-text-scale, 1) * 0.95);
+  font-weight: var(--resume-subtitle-weight, 600);
+  font-style: var(--resume-subtitle-style, normal);
+  font-variant: var(--resume-subtitle-variant, normal);
+  letter-spacing: var(--resume-subtitle-tracking, normal);
+  color: var(--resume-subtitle-color, var(--resume-text-secondary));
 }
 
 .resume-row-tight {
   margin-bottom: calc(var(--item-gap) * 0.6);
-}
-
-.resume-list {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--item-gap) * 0.75);
-}
-
-.resume-skill-pill {
-  font-family: var(--resume-font-mono);
-  font-size: calc(var(--font-size-base) * 0.75);
-  padding: 0.125rem 0.375rem;
-  background-color: var(--resume-accent-bg);
-  color: var(--resume-text-body);
-  border: 1px solid var(--resume-border-secondary);
-  border-radius: 4px;
-  max-width: 100%;
-  overflow-wrap: anywhere;
 }
 
 /* Link pill - styled clickable link with icon support */
@@ -266,13 +211,6 @@
 
 .text-muted {
   color: var(--resume-text-tertiary);
-}
-
-/* Text wrapping for narrow columns (sidebar) */
-.sidebar-text-wrap {
-  word-break: break-word;
-  overflow-wrap: break-word;
-  hyphens: auto;
 }
 
 @media print {

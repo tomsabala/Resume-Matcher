@@ -42,7 +42,8 @@ from pdfminer.psparser import PSKeyword, literal_name
 from app.llm import complete_json, get_llm_config, get_model_name, get_safe_max_tokens
 from app.prompts import PARSE_RESUME_PROMPT
 from app.prompts.templates import RESUME_SCHEMA_EXAMPLE
-from app.schemas import ResumeData
+from app.schemas.document import ResumeDocument, SectionKind, migrate_document
+from app.services.document_walk import entries_of, sections_of
 
 logger = logging.getLogger(__name__)
 
@@ -533,25 +534,16 @@ def restore_dates_from_markdown(
     used: set[int] = set()
     patched = 0
     entry_count = sum(
-        sum(isinstance(entry, dict) for entry in parsed_data.get(section, []))
-        for section in ("workExperience", "education", "personalProjects")
-        if isinstance(parsed_data.get(section), list)
+        len(section.get("entries", []))
+        for section in sections_of(parsed_data)
+        if isinstance(section.get("entries"), list)
     )
-    custom_data = parsed_data.get("customSections")
-    if isinstance(custom_data, dict):
-        entry_count += sum(
-            len(section.get("items", []))
-            for section in custom_data.values()
-            if isinstance(section, dict)
-            and section.get("sectionType") == "itemList"
-            and isinstance(section.get("items"), list)
-        )
 
     def restore_entry(entry: Any, identity_fields: tuple[str, ...]) -> None:
         nonlocal patched
         if not isinstance(entry, dict):
             return
-        years = entry.get("years", "")
+        years = entry.get("period", "")
         if not isinstance(years, str) or not years or _MONTH_RE.search(years):
             return
         key = date_key(years)
@@ -603,28 +595,15 @@ def restore_dates_from_markdown(
         if selected is None:
             logger.info("Date restoration left ambiguous value unchanged: %s", years)
             return
-        entry["years"] = occurrences[selected][1]
+        entry["period"] = occurrences[selected][1]
         used.add(selected)
         patched += 1
 
-    for section_key, identity_fields in (
-        ("workExperience", ("company", "title")),
-        ("education", ("institution", "degree")),
-        ("personalProjects", ("name", "role")),
-    ):
-        for entry in parsed_data.get(section_key, []):
-            restore_entry(entry, identity_fields)
-
-    custom = parsed_data.get("customSections", {})
-    if isinstance(custom, dict):
-        for section in custom.values():
-            if (
-                not isinstance(section, dict)
-                or section.get("sectionType") != "itemList"
-            ):
-                continue
-            for item in section.get("items", []):
-                restore_entry(item, ("title", "subtitle"))
+    # Identity is (title, subtitle) for every kind of entry, so one pass over
+    # the document covers every section the user has, built-in or not.
+    for section in sections_of(parsed_data):
+        for entry in entries_of(section):
+            restore_entry(entry, ("title", "subtitle"))
 
     if patched:
         logger.info("Restored months in %d date fields from raw markdown", patched)
@@ -632,95 +611,49 @@ def restore_dates_from_markdown(
     return parsed_data
 
 
-_NON_CONTENT_RESUME_KEYS = frozenset(
-    {
-        "id",
-        "sectionType",
-        "descriptionStyles",
-        "isDefault",
-        "isVisible",
-        "order",
-        "key",
-        "displayName",
-    }
-)
-# Depth guard against self-referential or pathological LLM output.  Recursion
-# starts at depth 0 on a *top-level section value*, so the deepest user-visible
-# value the real ``ResumeData`` schema can produce sits at depth 5:
-#
-#   customSections(0) -> CustomSection(1) -> items(2) -> CustomSectionItem(3)
-#       -> description(4) -> bullet string(5)
-#
-# Every other content section is shallower: workExperience / personalProjects
-# bottom out at depth 3 (list -> Experience -> description -> bullet),
-# education and additional at depth 2, personalInfo at depth 1, summary at
-# depth 0.  Values are still inspected at depth 9 (the cut-off is ``>= 10``),
-# so the limit leaves four full levels of headroom over the schema maximum.
-# Nothing that validates as ``ResumeData`` can be misjudged empty here;
-# anything deeper is malformed LLM output rather than a resume.  Raise this
-# only if the schema itself grows deeper -- see the boundary tests in
-# tests/unit/test_parser.py::TestMeaningfulResumeContent.
-_MAX_RESUME_CONTENT_RECURSION = 10
-
-
-def _has_meaningful_resume_value(
-    value: Any,
-    *,
-    depth: int = 0,
-    filter_structural_keys: bool = True,
-) -> bool:
-    """Return whether a value contains non-structural, user-visible text.
-
-    Custom-section identifiers are dictionary keys rather than schema fields,
-    so their values are checked without filtering the identifier itself.  Once
-    inside a section, normal structural-key filtering resumes.
-    """
-    if depth >= _MAX_RESUME_CONTENT_RECURSION:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, list):
-        return any(
-            _has_meaningful_resume_value(item, depth=depth + 1) for item in value
-        )
-    if isinstance(value, dict):
-        return any(
-            (not filter_structural_keys or key not in _NON_CONTENT_RESUME_KEYS)
-            and _has_meaningful_resume_value(item, depth=depth + 1)
-            for key, item in value.items()
-        )
-    return False
-
-
 def has_meaningful_resume_content(resume_data: Any) -> bool:
-    """Return whether parsed resume data contains any user-facing content.
+    """Return whether a parsed document contains any user-facing content.
 
-    ``ResumeData`` intentionally defaults most fields to empty strings/lists.
-    That is useful for the builder, but it also means an LLM response such as
-    ``{}`` validates successfully.  Treating that response as a parsed resume
-    produces a blank PDF and makes every downstream tailoring request operate
-    on empty data.
+    Every field of :class:`ResumeDocument` defaults to empty, so ``{}`` and
+    ``{"schemaVersion": 2, "sections": []}`` both validate. Treating such a
+    response as a parsed resume produces a blank PDF and makes every
+    downstream tailoring request operate on empty data.
+
+    Content means: a header with a name/headline/contact, or a section with
+    something in the field its kind actually uses. Structural fields (ids,
+    keys, kinds, styles) never count — an empty document full of section
+    scaffolding is still empty.
     """
-
-    if not isinstance(resume_data, dict):
+    if not isinstance(resume_data, (dict, ResumeDocument)):
         return False
 
-    content_sections = (
-        "personalInfo",
-        "summary",
-        "workExperience",
-        "education",
-        "personalProjects",
-        "additional",
-        "customSections",
-    )
-    return any(
-        _has_meaningful_resume_value(
-            resume_data.get(section),
-            filter_structural_keys=section != "customSections",
-        )
-        for section in content_sections
-    )
+    document = migrate_document(resume_data)
+    header = document.header
+    if header.name.strip() or header.headline.strip():
+        return True
+    if any(contact.value.strip() or contact.label.strip() for contact in header.contacts):
+        return True
+
+    for section in document.sections:
+        if section.kind is SectionKind.TEXT and section.text.strip():
+            return True
+        if section.kind is SectionKind.TAGS and any(
+            value.strip() for value in section.tags
+        ):
+            return True
+        if section.kind is SectionKind.GROUPS and any(
+            value.strip() for group in section.groups for value in group.values
+        ):
+            return True
+        if section.kind is SectionKind.ENTRIES and any(
+            entry.title.strip()
+            or entry.subtitle.strip()
+            or entry.summary.strip()
+            or any(bullet.text.strip() for bullet in entry.bullets)
+            for entry in section.entries
+        ):
+            return True
+    return False
 
 
 def _parse_document_sync(content: bytes, filename: str) -> str:
@@ -753,7 +686,7 @@ def _parse_document_sync(content: bytes, filename: str) -> str:
 
 def _validate_parsed_resume(result: dict[str, Any]) -> dict[str, Any]:
     """Validate that parsed output is a schema-valid, non-empty resume."""
-    parsed_data = ResumeData.model_validate(result).model_dump()
+    parsed_data = ResumeDocument.model_validate(result).model_dump(mode="json")
     if not has_meaningful_resume_content(parsed_data):
         raise ValueError("LLM returned an empty structured resume.")
     return parsed_data

@@ -2,6 +2,14 @@
 
 > PDF rendering and template editing for resumes and cover letters.
 
+> **Scope.** This document covers the **Chromium HTML** PDF target. There is a
+> second, independent target that renders the same resume document as real
+> LaTeX and compiles it with a TeX engine (`GET /resumes/{id}/tex/pdf`,
+> templates `tex-classic`/`tex-compact`) — see
+> [latex-export.md](../features/latex-export.md). The `latex` template id
+> below belongs to *this* Chromium path: it is an HTML layout that resembles
+> LaTeX output, not the LaTeX export.
+
 ## Rendering Flow
 
 ```
@@ -68,7 +76,7 @@ retains explicit ownership; it does not claim the browser was physically stopped
 
 | Param | Default | Range |
 |-------|---------|-------|
-| template | swiss-single | swiss-single, swiss-two-column |
+| template | swiss-single | swiss-single, swiss-two-column, modern, modern-two-column, latex, clean, vivid |
 | pageSize | A4 | A4, LETTER |
 | marginTop/Bottom/Left/Right | 10 | 5-25mm |
 | sectionSpacing | 3 | 1-5 |
@@ -98,25 +106,38 @@ In `globals.css`, whitelist print classes or PDFs will be blank:
 ```
 components/resume/
 ├── index.ts                    # Template exports
-├── resume-single-column.tsx    # Full-width vertical
-└── resume-two-column.tsx       # 65% main + 35% sidebar
+├── template-props.ts           # ResumeTemplateProps
+├── resume-single-column.tsx    # swiss-single — full-width vertical
+├── resume-two-column.tsx       # swiss-two-column — 65% main + 35% sidebar
+├── resume-modern.tsx           # modern
+├── resume-modern-two-column.tsx
+├── resume-latex.tsx            # latex — LaTeX-looking HTML, not the LaTeX export
+├── resume-clean.tsx            # clean
+├── resume-vivid.tsx            # vivid
+└── section-kinds/              # shared per-kind renderers + SectionBlock
 ```
 
 ## Adding New Templates
 
-1. Create `components/resume/resume-{name}.tsx`
-2. Export from `components/resume/index.ts`
-3. Add to template selector in `formatting-controls.tsx`
-4. Add thumbnail preview
+See [adding-resume-templates.md](../features/adding-resume-templates.md). The
+print route also validates the template id: add it to `parseTemplate` in
+`app/print/resumes/[id]/page.tsx` or the PDF silently falls back to
+`swiss-single`.
 
 ## Template Props
 
 ```typescript
-interface TemplateProps {
-  resumeData: ResumeData;
-  settings: TemplateSettings;
+interface ResumeTemplateProps {
+  doc: ResumeDocument;
+  showContactIcons?: boolean;
+  fallbackName?: string; // placeholder for an empty header.name, already localized
 }
 ```
+
+Template settings reach the template as CSS variables on the wrapper
+(`settingsToCssVars`), not as a prop. The template renders `doc.header` itself
+and maps `visibleSections(doc)` through `SectionBlock`, which dispatches on
+`section.kind` — it never enumerates sections.
 
 ## CSS Classes
 

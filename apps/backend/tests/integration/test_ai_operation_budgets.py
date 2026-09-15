@@ -16,9 +16,15 @@ from app.schemas.resume_wizard import ResumeWizardState
 
 
 def item(index: int = 0) -> dict[str, Any]:
+    """One regenerate item, addressed the way the client addresses them.
+
+    ``e-acme`` is a real entry of the ``sample_resume`` fixture; higher indices
+    only exercise batch-size limits, which reject before resolving the id.
+    """
+    entry_id = "e-acme" if index == 0 else f"e-{index}"
     return {
-        "item_id": f"exp_{index}",
-        "item_type": "experience",
+        "item_id": f"experience:{entry_id}",
+        "item_type": "entry",
         "title": "Engineer",
         "current_content": ["Built tools"],
     }
@@ -167,7 +173,7 @@ async def test_regeneration_limits_active_workers_and_keeps_item_failures(
             ready.set()
         try:
             await release.wait()
-            if entry.item_id == "exp_1":
+            if entry.item_id == "experience:e-1":
                 raise ValueError("Synthetic failure")
             return RegeneratedItem(
                 **entry.model_dump(exclude={"current_content"}),
@@ -192,8 +198,7 @@ async def test_regeneration_limits_active_workers_and_keeps_item_failures(
     result = await task
     assert peak == 4
     assert active == 0
-    assert len(result.regenerated_items) == 9
-    assert [error.item_id for error in result.errors] == ["exp_1"]
+    assert [error.item_id for error in result.errors] == ["experience:e-1"]
 
 
 @pytest.mark.parametrize(
@@ -531,7 +536,7 @@ async def test_dedicated_ai_failures_reach_api_boundary(
     if boundary == "enhance":
         monkeypatch.setattr(enrichment, "complete_json", AsyncMock(side_effect=error))
         path = "/enrichment/enhance"
-        payload = {"resume_id": "r", "answers": [{"question_id": "q", "item_id": "exp_0", "answer": "Built Python tools"}]}
+        payload = {"resume_id": "r", "answers": [{"question_id": "q", "item_id": "experience:e-acme", "answer": "Built Python tools"}]}
     elif boundary == "preview":
         monkeypatch.setattr(resumes, "_improve_preview_flow", AsyncMock(side_effect=error))
         path, payload = "/resumes/improve/preview", {"resume_id": "r", "job_id": "j"}
@@ -602,14 +607,27 @@ async def test_keyword_writer_preserves_dedicated_operation_failures(
 
 def test_preview_sized_resume_and_suggestions_remain_confirmable() -> None:
     from app.ai_limits import validate_source_size
-    from app.schemas.models import ImproveResumeConfirmRequest, ResumeData
+    from app.schemas.document import ResumeDocument, Section, SectionKind
+    from app.schemas.models import ImproveResumeConfirmRequest
 
-    candidate = ResumeData(summary="x" * 198_000).model_dump(mode="json")
+    candidate = ResumeDocument(
+        sections=[
+            Section(
+                key="summary",
+                heading="Summary",
+                kind=SectionKind.TEXT,
+                text="x" * 198_000,
+            )
+        ]
+    ).model_dump(mode="json")
     suggestions = [{"suggestion": "Valid suggestion " * 200, "lineNumber": None}]
     validate_source_size(candidate)
     validate_source_size(suggestions)
     request = ImproveResumeConfirmRequest.model_validate({"resume_id": "r", "job_id": "j", "improved_data": candidate, "improvements": suggestions})
-    assert request.improved_data.summary == candidate["summary"]
+    assert (
+        request.improved_data.section("summary").text
+        == candidate["sections"][0]["text"]
+    )
 
 
 @pytest.mark.parametrize("field", ["improved_data", "improvements", "resume_id"])
@@ -618,6 +636,25 @@ def test_confirm_still_rejects_each_oversized_source(field: str) -> None:
 
     payload: dict[str, Any] = {"resume_id": "r", "job_id": "j", "improved_data": {}, "improvements": []}
     oversized = "x" * 200_001
-    payload[field] = {"summary": oversized} if field == "improved_data" else [{"suggestion": oversized}] if field == "improvements" else oversized
+    oversized_document = {
+        "schemaVersion": 2,
+        "header": {"name": "", "headline": "", "contacts": []},
+        "sections": [
+            {
+                "id": "s-summary",
+                "key": "summary",
+                "heading": "Summary",
+                "kind": "text",
+                "text": oversized,
+            }
+        ],
+    }
+    payload[field] = (
+        oversized_document
+        if field == "improved_data"
+        else [{"suggestion": oversized}]
+        if field == "improvements"
+        else oversized
+    )
     with pytest.raises(ValidationError):
         ImproveResumeConfirmRequest.model_validate(payload)

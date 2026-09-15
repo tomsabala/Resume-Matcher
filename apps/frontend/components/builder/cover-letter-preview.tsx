@@ -3,23 +3,13 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { useTranslations } from '@/lib/i18n';
-
-export interface CoverLetterPersonalInfo {
-  name?: string;
-  title?: string;
-  email?: string;
-  phone?: string;
-  location?: string;
-  website?: string;
-  linkedin?: string;
-  github?: string;
-}
+import type { Header } from '@/lib/types/document';
 
 export interface CoverLetterPreviewProps {
   /** Cover letter content */
   content: string;
-  /** Personal info for header */
-  personalInfo: CoverLetterPersonalInfo;
+  /** Document header: the letterhead name and contact strip */
+  header: Header;
   /** Page size for styling */
   pageSize?: 'A4' | 'LETTER';
   /** Additional class names */
@@ -28,7 +18,7 @@ export interface CoverLetterPreviewProps {
 
 export function CoverLetterPreview({
   content,
-  personalInfo,
+  header,
   pageSize = 'A4',
   className,
 }: CoverLetterPreviewProps) {
@@ -58,16 +48,15 @@ export function CoverLetterPreview({
           maxWidth: pageSize === 'A4' ? '210mm' : '8.5in',
         }}
       >
-        {/* Header - Personal Info */}
         <header className="mb-8 border-b-2 border-black pb-4">
           <h1 className="font-serif text-2xl font-bold tracking-tight">
-            {personalInfo.name || t('coverLetter.preview.defaultName')}
+            {header.name || t('coverLetter.preview.defaultName')}
           </h1>
           <div className="mt-2 font-mono text-xs text-ink-soft flex flex-wrap gap-x-4 gap-y-1">
-            {personalInfo.email && <span>{personalInfo.email}</span>}
-            {personalInfo.phone && <span>{personalInfo.phone}</span>}
-            {personalInfo.location && <span>{personalInfo.location}</span>}
-            {personalInfo.linkedin && <span>{personalInfo.linkedin}</span>}
+            {header.contacts.map((contact) => {
+              const text = contact.value || contact.label;
+              return text ? <span key={contact.id}>{text}</span> : null;
+            })}
           </div>
         </header>
 

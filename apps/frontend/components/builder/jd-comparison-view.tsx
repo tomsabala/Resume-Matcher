@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo } from 'react';
-import { type ResumeData } from '@/components/dashboard/resume-component';
+import type { ResumeDocument } from '@/lib/types/document';
+import { visibleSections } from '@/lib/utils/section-helpers';
 import { extractKeywords, calculateMatchStats } from '@/lib/utils/keyword-matcher';
 import { JDDisplay } from './jd-display';
 import { HighlightedResumeView } from './highlighted-resume-view';
@@ -10,7 +11,7 @@ import { useTranslations } from '@/lib/i18n';
 
 interface JDComparisonViewProps {
   jobDescription: string;
-  resumeData: ResumeData;
+  doc: ResumeDocument;
 }
 
 /**
@@ -18,43 +19,32 @@ interface JDComparisonViewProps {
  * Left: JD (read-only)
  * Right: Resume with matching keywords highlighted
  */
-export function JDComparisonView({ jobDescription, resumeData }: JDComparisonViewProps) {
+export function JDComparisonView({ jobDescription, doc }: JDComparisonViewProps) {
   const { t } = useTranslations();
 
   // Extract keywords from JD
   const keywords = useMemo(() => extractKeywords(jobDescription), [jobDescription]);
 
-  // Build full resume text for stats calculation
+  // Build full resume text for stats calculation. Every visible section
+  // contributes, whatever its kind — the stats must describe the document the
+  // user is actually sending.
   const resumeText = useMemo(() => {
-    const parts: string[] = [];
-
-    if (resumeData.summary) parts.push(resumeData.summary);
-
-    resumeData.workExperience?.forEach((exp) => {
-      if (exp.title) parts.push(exp.title);
-      if (exp.company) parts.push(exp.company);
-      exp.description?.forEach((d) => parts.push(d));
-    });
-
-    resumeData.education?.forEach((edu) => {
-      if (edu.degree) parts.push(edu.degree);
-      if (edu.institution) parts.push(edu.institution);
-    });
-
-    resumeData.personalProjects?.forEach((proj) => {
-      if (proj.name) parts.push(proj.name);
-      if (proj.role) parts.push(proj.role);
-      proj.description?.forEach((d) => parts.push(d));
-    });
-
-    if (resumeData.additional) {
-      resumeData.additional.technicalSkills?.forEach((s) => parts.push(s));
-      resumeData.additional.languages?.forEach((l) => parts.push(l));
-      resumeData.additional.certificationsTraining?.forEach((c) => parts.push(c));
-    }
-
-    return parts.join(' ');
-  }, [resumeData]);
+    return visibleSections(doc)
+      .flatMap((section) => [
+        section.text,
+        ...section.tags,
+        ...section.groups.flatMap((group) => [group.label, ...group.values]),
+        ...section.entries.flatMap((entry) => [
+          entry.title,
+          entry.subtitle,
+          entry.meta,
+          entry.summary,
+          ...entry.bullets.map((bullet) => bullet.text),
+        ]),
+      ])
+      .filter((part) => part.trim() !== '')
+      .join(' ');
+  }, [doc]);
 
   // Calculate match statistics
   const stats = useMemo(() => calculateMatchStats(resumeText, keywords), [resumeText, keywords]);
@@ -104,7 +94,7 @@ export function JDComparisonView({ jobDescription, resumeData }: JDComparisonVie
 
         {/* Right: Resume with highlights */}
         <div className="overflow-hidden">
-          <HighlightedResumeView resumeData={resumeData} keywords={keywords} />
+          <HighlightedResumeView doc={doc} keywords={keywords} />
         </div>
       </div>
     </div>

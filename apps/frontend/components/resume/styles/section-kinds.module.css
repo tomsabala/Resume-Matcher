@@ -1,0 +1,113 @@
+@import './_tokens.css';
+
+/*
+  Section-kind renderers (text / entries / tags / groups).
+
+  The DOM is identical in every template — section shapes are data, so a
+  renderer never knows which template it is inside. Templates re-flavour the
+  shared markup through the custom properties below:
+
+    --resume-text-scale     multiplies the shared type sizes (two-column
+                            templates run denser than single-column ones)
+    --resume-bullet-color   bullet marker colour
+    --resume-bullet-weight  bullet marker weight
+    --resume-tag-gap        column gap between tags (pill templates)
+    --resume-tag-separator  text between tags (default ", "; pills set "")
+    --resume-tag-border-width / --resume-tag-bg / --resume-tag-padding /
+    --resume-tag-radius     turn plain tags into pills
+*/
+
+/* --- entries ------------------------------------------------------------- */
+
+.entryLinks {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.entrySummary {
+  font-family: var(--body-font);
+  font-size: calc(var(--font-size-base) * var(--resume-text-scale, 1) * 0.92);
+  margin-bottom: calc(var(--item-gap) * 0.6);
+}
+
+/* --- bullets ------------------------------------------------------------- */
+
+.bullets {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--item-gap) * 0.75);
+  font-family: var(--body-font);
+  font-size: calc(var(--font-size-base) * var(--resume-text-scale, 1) * 0.92);
+}
+
+.bulletRow {
+  display: flex;
+  margin-left: 1rem;
+}
+
+.plainRow {
+  display: flex;
+}
+
+.marker {
+  margin-right: 0.375rem;
+  flex-shrink: 0;
+  color: var(--resume-bullet-color, inherit);
+  font-weight: var(--resume-bullet-weight, inherit);
+}
+
+/* --- tags --------------------------------------------------------------- */
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--item-gap) * 0.6) var(--resume-tag-gap, 0);
+  font-family: var(--body-font);
+  font-size: calc(var(--font-size-base) * var(--resume-text-scale, 1) * 0.92);
+}
+
+.tag {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border: var(--resume-tag-border-width, 0) solid var(--resume-border-secondary);
+  border-radius: var(--resume-tag-radius, 0);
+  background-color: var(--resume-tag-bg, transparent);
+  padding: var(--resume-tag-padding, 0);
+}
+
+/*
+ * Separator lives inside the tag box, so pill templates blank it out. The
+ * trailing space is a non-breaking space: a plain one collapses at the end of
+ * generated content.
+ */
+.tag:not(:last-child)::after {
+  content: var(--resume-tag-separator, ',\00a0');
+  color: var(--resume-text-tertiary);
+}
+
+/* --- groups ------------------------------------------------------------- */
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--item-gap);
+  font-family: var(--body-font);
+  font-size: calc(var(--font-size-base) * var(--resume-text-scale, 1) * 0.92);
+}
+
+.group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.groupLabel {
+  font-weight: 700;
+  flex-shrink: 0;
+  color: var(--resume-text-primary);
+}
+
+.groupValues {
+  min-width: 0;
+}

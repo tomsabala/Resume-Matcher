@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, cleanup } from '@testing-library/react';
 import React from 'react';
-import type { ResumeData } from '@/components/dashboard/resume-component';
+import type { ResumeDocument } from '@/lib/types/document';
+import { sampleDocument, withSummary } from './fixtures/document';
 import {
   readResumeWizardCompletion,
   readResumeWizardDraft,
@@ -14,7 +15,7 @@ const fetchResume = vi.fn();
 const updateResume = vi.fn();
 
 let currentSearch = 'id=res-1';
-let improvedData: { data: { resume_id: string; resume_preview: ResumeData } } | null = null;
+let improvedData: { data: { resume_id: string; resume_preview: ResumeDocument } } | null = null;
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(currentSearch),
@@ -58,23 +59,33 @@ vi.mock('@/components/common/resume_previewer_context', () => ({
 vi.mock('@/components/preview', () => ({ PaginatedPreview: () => null }));
 vi.mock('@/components/builder/resume-form', () => ({
   ResumeForm: ({
-    resumeData,
+    doc,
     onUpdate,
   }: {
-    resumeData: ResumeData;
-    onUpdate: (data: ResumeData) => void;
-  }) => (
-    <div>
-      <output data-testid="name">{resumeData.personalInfo?.name}</output>
-      <output data-testid="summary">{resumeData.summary}</output>
-      <button
-        data-testid="edit"
-        onClick={() => onUpdate({ ...resumeData, summary: `edit-${Date.now()}` })}
-      >
-        edit
-      </button>
-    </div>
-  ),
+    doc: ResumeDocument;
+    onUpdate: (doc: ResumeDocument) => void;
+  }) => {
+    const summary = doc.sections.find((section) => section.key === 'summary');
+    return (
+      <div>
+        <output data-testid="name">{doc.header.name}</output>
+        <output data-testid="summary">{summary?.text ?? ''}</output>
+        <button
+          data-testid="edit"
+          onClick={() =>
+            onUpdate({
+              ...doc,
+              sections: doc.sections.map((section) =>
+                section.key === 'summary' ? { ...section, text: `edit-${Date.now()}` } : section
+              ),
+            })
+          }
+        >
+          edit
+        </button>
+      </div>
+    );
+  },
 }));
 vi.mock('@/components/builder/formatting-controls', () => ({ FormattingControls: () => null }));
 vi.mock('@/components/builder/cover-letter-editor', () => ({ CoverLetterEditor: () => null }));
@@ -89,14 +100,8 @@ vi.mock('@/hooks/use-regenerate-wizard', () => ({
   useRegenerateWizard: () => ({ step: 'idle', reset: vi.fn() }),
 }));
 
-const REAL_RESUME = {
-  personalInfo: { name: 'Ada Lovelace', email: 'ada@example.com' },
-  summary: 'Real summary from the server',
-  workExperience: [],
-  education: [],
-  personalProjects: [],
-  additional: {},
-};
+const REAL_SUMMARY = 'Real summary from the server';
+const REAL_RESUME = sampleDocument({ summary: REAL_SUMMARY });
 
 const importBuilder = async () =>
   (await import('@/components/builder/resume-builder')).ResumeBuilder;
@@ -128,11 +133,10 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-const BOB = {
-  ...REAL_RESUME,
-  personalInfo: { name: 'Bob', email: 'bob@example.com' },
+const BOB = sampleDocument({
+  header: { name: 'Bob', headline: 'Engineer', contacts: [] },
   summary: 'Bob server baseline',
-};
+});
 const tick = async (ms = 0) => {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
@@ -148,7 +152,7 @@ const save = async () => {
     screen.getByRole('button', { name: 'builder.autoSave.saveNow' }).click();
   });
 };
-const setDraft = (id: string, data: ResumeData) =>
+const setDraft = (id: string, data: ResumeDocument) =>
   localStorage.setItem(
     `resume_builder_draft:${id}`,
     JSON.stringify({ resumeId: id, updatedAt: Date.now(), data })
@@ -161,7 +165,7 @@ describe('builder document ownership', () => {
       'resume_builder_draft:new',
       JSON.stringify({
         resumeId: null,
-        data: { ...REAL_RESUME, summary: 'discarded draft' },
+        data: withSummary(REAL_RESUME, 'discarded draft'),
         updatedAt: Date.now(),
       })
     );
@@ -186,7 +190,7 @@ describe('builder document ownership', () => {
       JSON.stringify({
         resumeId: null,
         updatedAt: Date.now(),
-        data: { ...REAL_RESUME, summary: 'unsaved new draft' },
+        data: withSummary(REAL_RESUME, 'unsaved new draft'),
       })
     );
     const Builder = await importBuilder();
@@ -215,10 +219,10 @@ describe('builder document ownership', () => {
       fetchResume.mockImplementation((id: string) =>
         Promise.resolve({ processed_resume: id === 'res-1' ? REAL_RESUME : BOB })
       );
-      const pending = deferred<{ processed_resume: ResumeData }>();
+      const pending = deferred<{ processed_resume: ResumeDocument }>();
       updateResume
         .mockReturnValueOnce(pending.promise)
-        .mockImplementation((_id: string, data: ResumeData) =>
+        .mockImplementation((_id: string, data: ResumeDocument) =>
           Promise.resolve({ processed_resume: data })
         );
       const Builder = await importBuilder();
@@ -247,7 +251,7 @@ describe('builder document ownership', () => {
       await save();
       expect(updateResume).toHaveBeenLastCalledWith(
         'res-2',
-        expect.objectContaining({ personalInfo: BOB.personalInfo })
+        expect.objectContaining({ header: BOB.header })
       );
     }
   );
@@ -268,13 +272,13 @@ describe('builder document ownership', () => {
     await save();
     expect(updateResume).toHaveBeenLastCalledWith(
       'res-2',
-      expect.objectContaining({ personalInfo: BOB.personalInfo })
+      expect.objectContaining({ header: BOB.header })
     );
   });
 
   it('keeps a same-document edit dirty when an earlier save completes', async () => {
     fetchResume.mockResolvedValue({ processed_resume: REAL_RESUME });
-    const pending = deferred<{ processed_resume: ResumeData }>();
+    const pending = deferred<{ processed_resume: ResumeDocument }>();
     updateResume.mockReturnValueOnce(pending.promise);
     const Builder = await importBuilder();
     render(<Builder />);
@@ -297,7 +301,7 @@ describe('builder document ownership', () => {
     fetchResume.mockImplementation((id: string) =>
       Promise.resolve({ processed_resume: id === 'res-1' ? REAL_RESUME : BOB })
     );
-    const pending = deferred<{ processed_resume: ResumeData }>();
+    const pending = deferred<{ processed_resume: ResumeDocument }>();
     updateResume.mockReturnValueOnce(pending.promise);
     const Builder = await importBuilder();
     const view = render(<Builder />);
@@ -309,7 +313,7 @@ describe('builder document ownership', () => {
     view.rerender(<Builder />);
     await tick();
     // A later browser session's draft must not be removed by the abandoned save.
-    const newer = { ...REAL_RESUME, summary: 'newer draft while away' };
+    const newer = withSummary(REAL_RESUME, 'newer draft while away');
     setDraft('res-1', newer);
     currentSearch = 'id=res-1';
     view.rerender(<Builder />);
@@ -320,7 +324,7 @@ describe('builder document ownership', () => {
     await act(async () => {
       pending.resolve({ processed_resume: payload });
     });
-    expect(localStorage.getItem('resume_builder_draft:res-1')).toContain(newer.summary);
+    expect(localStorage.getItem('resume_builder_draft:res-1')).toContain('newer draft while away');
   });
 });
 
@@ -347,7 +351,7 @@ describe.each([false, true])(
     ])(
       'blocks writes for a %s response and retains a recoverable draft',
       async (_label, response) => {
-        setDraft('res-1', { ...REAL_RESUME, summary: 'stale draft' });
+        setDraft('res-1', withSummary(REAL_RESUME, 'stale draft'));
         fetchResume.mockResolvedValue(response);
         if (withContext)
           improvedData = { data: { resume_id: 'another-resume', resume_preview: BOB } };
@@ -364,27 +368,31 @@ describe.each([false, true])(
     it.each(['processed', 'raw JSON'])(
       'requires consent before saving a draft over usable %s',
       async (kind) => {
-        setDraft('res-1', { ...REAL_RESUME, summary: 'approved recovered draft' });
+        setDraft('res-1', withSummary(REAL_RESUME, 'approved recovered draft'));
         fetchResume.mockResolvedValue(
           kind === 'processed'
             ? { processed_resume: REAL_RESUME }
             : { processed_resume: null, raw_resume: { content: JSON.stringify(REAL_RESUME) } }
         );
-        updateResume.mockImplementation((_id: string, data: ResumeData) =>
+        updateResume.mockImplementation((_id: string, data: ResumeDocument) =>
           Promise.resolve({ processed_resume: data })
         );
         const Builder = await importBuilder();
         render(<Builder />);
         await tick(20_000);
         expect(updateResume).not.toHaveBeenCalled();
-        expect(screen.getByTestId('summary')).toHaveTextContent(REAL_RESUME.summary);
+        expect(screen.getByTestId('summary')).toHaveTextContent(REAL_SUMMARY);
         await act(async () => {
           screen.getByRole('button', { name: 'builder.draftRecovery.restoreDraft' }).click();
         });
         await tick(2500);
         expect(updateResume).toHaveBeenCalledWith(
           'res-1',
-          expect.objectContaining({ summary: 'approved recovered draft' })
+          expect.objectContaining({
+            sections: expect.arrayContaining([
+              expect.objectContaining({ key: 'summary', text: 'approved recovered draft' }),
+            ]),
+          })
         );
       }
     );
@@ -397,20 +405,28 @@ it.each(['legacy pending', 'partial raw JSON'])('loads a usable %s baseline', as
       ? { processed_resume: REAL_RESUME, raw_resume: { processing_status: 'pending' } }
       : {
           processed_resume: null,
-          raw_resume: { content: JSON.stringify({ summary: 'Partial editable resume' }) },
+          // A document the shape guard accepts but that omits most section
+          // fields: the builder must still open it for editing.
+          raw_resume: {
+            content: JSON.stringify({
+              schemaVersion: 2,
+              header: { name: 'Partial Person' },
+              sections: [{ key: 'summary', kind: 'text', text: 'Partial editable resume' }],
+            }),
+          },
         }
   );
   const Builder = await importBuilder();
   render(<Builder />);
   await tick(0);
   expect(screen.getByTestId('summary')).toHaveTextContent(
-    kind === 'legacy pending' ? REAL_RESUME.summary : 'Partial editable resume'
+    kind === 'legacy pending' ? REAL_SUMMARY : 'Partial editable resume'
   );
   expect(screen.queryByRole('alert')).toBeNull();
 });
 
 it('does not claim a restored backup if its source disappeared and the scoped write fails', async () => {
-  setDraft('res-1', { ...REAL_RESUME, summary: 'RECOVERED' });
+  setDraft('res-1', withSummary(REAL_RESUME, 'RECOVERED'));
   fetchResume.mockResolvedValue({ processed_resume: REAL_RESUME });
   updateResume.mockRejectedValue(new Error('offline'));
   const Builder = await importBuilder();

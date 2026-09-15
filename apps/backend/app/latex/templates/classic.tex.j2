@@ -1,0 +1,52 @@
+<# Classic: the single-column article layout from the reference CV.
+     `article` 10pt, titlesec rules, tabularx header, fontawesome5 icons. #>
+\documentclass[a4paper,<< settings.get('fontSize', 10) | int >>pt]{article}
+
+\usepackage{url}
+\usepackage{parskip}
+\RequirePackage{color}
+\RequirePackage{graphicx}
+\usepackage[usenames,dvipsnames]{xcolor}
+\usepackage[scale=<< settings.get('texScale', '0.9') >>]{geometry}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{supertabular}
+\usepackage{titlesec}
+\usepackage{multicol}
+\usepackage{multirow}
+\usepackage{fontawesome5}
+
+\newcolumntype{C}{>{\centering\arraybackslash}X}
+\newlength{\fullcollw}
+\setlength{\fullcollw}{0.47\textwidth}
+
+\titleformat{\section}{\large\scshape\raggedright}{}{0em}{}[\titlerule]
+\titlespacing{\section}{0pt}{7pt}{4pt}
+
+\usepackage[unicode, draft=false]{hyperref}
+\definecolor{linkcolour}{rgb}{0,0.2,0.6}
+\hypersetup{colorlinks,breaklinks,urlcolor=linkcolour,linkcolor=linkcolour,pdftitle={<< (header.name or 'Resume') | tex >>}}
+
+\newenvironment{jobshort}[2]
+    {
+    \begin{tabularx}{\linewidth}{@{}l X r@{}}
+    \textbf{#1} & \hfill & #2 \\[2pt]
+    \end{tabularx}
+    }
+    {
+    }
+
+\newenvironment{joblong}[2]
+    {
+    \begin{tabularx}{\linewidth}{@{}l X r@{}}
+    \textbf{#1} & \hfill & #2 \\[2pt]
+    \end{tabularx}
+    \begin{minipage}[t]{\linewidth}
+    \begin{itemize}[nosep,after=\strut, leftmargin=1em, itemsep=2pt,label=\textbullet]
+    }
+    {
+    \end{itemize}
+    \end{minipage}
+    }
+
+<% include '_document.tex.j2' %>

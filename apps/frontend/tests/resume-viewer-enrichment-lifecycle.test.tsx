@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ResumeViewerPage from '@/app/(default)/resumes/[id]/page';
 import { fetchResume } from '@/lib/api/resume';
 import { analyzeResume, applyEnhancements, generateEnhancements } from '@/lib/api/enrichment';
+import type { ResumeDocument } from '@/lib/types/document';
+import { sampleDocument } from './fixtures/document';
 
 const route = vi.hoisted(() => ({ resumeId: 'resume-a' }));
 const locale = vi.hoisted(() => ({ t: (key: string) => key }));
@@ -21,8 +23,8 @@ vi.mock('@/lib/context/language-context', () => ({
   useLanguage: () => ({ uiLanguage: 'en' }),
 }));
 vi.mock('@/components/dashboard/resume-component', () => ({
-  default: ({ resumeData }: { resumeData: { personalInfo?: { name?: string } } }) => (
-    <div data-testid="resume-name">{resumeData.personalInfo?.name}</div>
+  default: ({ doc }: { doc: ResumeDocument }) => (
+    <div data-testid="resume-name">{doc.header.name}</div>
   ),
 }));
 vi.mock('@/lib/api/resume', () => ({
@@ -48,13 +50,7 @@ function resume(name: string, resumeId = 'resume-a'): Awaited<ReturnType<typeof 
   return {
     resume_id: resumeId,
     title: `${name} resume`,
-    processed_resume: {
-      personalInfo: { name },
-      workExperience: [],
-      education: [],
-      personalProjects: [],
-      additional: {},
-    },
+    processed_resume: sampleDocument({ header: { name } }),
     raw_resume: {
       id: null,
       content: '',
@@ -111,7 +107,7 @@ beforeEach(() => {
     items_to_enrich: [
       {
         item_id: 'exp_0',
-        item_type: 'experience',
+        item_type: 'entry',
         title: 'Engineer',
         current_description: ['Built tools'],
         weakness_reason: 'Needs detail',
@@ -130,7 +126,7 @@ beforeEach(() => {
     enhancements: [
       {
         item_id: 'exp_0',
-        item_type: 'experience',
+        item_type: 'entry',
         title: 'Engineer',
         original_description: ['Built tools'],
         enhanced_description: ['Built reliable Python systems'],

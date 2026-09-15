@@ -8,136 +8,40 @@ import {
   ResumeClean,
   ResumeVivid,
 } from '@/components/resume';
+import type { ResumeTemplateProps } from '@/components/resume/template-props';
 import {
   type TemplateSettings,
   type TemplateType,
   DEFAULT_TEMPLATE_SETTINGS,
   settingsToCssVars,
 } from '@/lib/types/template-settings';
+import type { ResumeDocument } from '@/lib/types/document';
+import { sectionHeading } from '@/lib/utils/section-helpers';
 import baseStyles from '@/components/resume/styles/_base.module.css';
 
-export interface PersonalInfo {
-  name?: string;
-  title?: string;
-  email?: string;
-  phone?: string;
-  location?: string;
-  website?: string;
-  linkedin?: string;
-  github?: string;
-}
-
-export interface Experience {
-  id: number;
-  title?: string;
-  company?: string;
-  location?: string;
-  years?: string;
-  description?: string[];
-  descriptionStyles?: ('bullet' | 'plain')[];
-}
-
-export interface Education {
-  id: number;
-  institution?: string;
-  degree?: string;
-  years?: string;
-  description?: string;
-}
-
-export interface Project {
-  id: number;
-  name?: string;
-  role?: string;
-  years?: string;
-  github?: string;
-  website?: string;
-  description?: string[];
-  descriptionStyles?: ('bullet' | 'plain')[];
-}
-
-export interface AdditionalInfo {
-  technicalSkills?: string[];
-  languages?: string[];
-  certificationsTraining?: string[];
-  awards?: string[];
-}
-
-export interface AdditionalSectionLabels {
-  technicalSkills: string;
-  languages: string;
-  certifications: string;
-  awards: string;
-}
-
-export interface ResumeSectionHeadings {
-  summary: string;
-  experience: string;
-  education: string;
-  projects: string;
-  certifications: string;
-  skills: string;
-  languages: string;
-  awards: string;
-  links: string;
-}
-
-export interface ResumeFallbackLabels {
-  name: string;
-}
-
-// Section Type for dynamic sections
-export type SectionType = 'personalInfo' | 'text' | 'itemList' | 'stringList';
-
-// Section Metadata for dynamic section management
-export interface SectionMeta {
-  id: string; // Unique identifier (e.g., "summary", "custom_1")
-  key: string; // Data key (matches ResumeData field or customSections key)
-  displayName: string; // User-visible name
-  sectionType: SectionType; // Type of section
-  isDefault: boolean; // True for built-in sections
-  isVisible: boolean; // Whether to show in resume
-  order: number; // Display order (0 = first after personalInfo)
-}
-
-// Generic item for custom item-based sections
-export interface CustomSectionItem {
-  id: number;
-  title?: string; // Primary title
-  subtitle?: string; // Secondary info (company, institution, etc.)
-  location?: string;
-  years?: string;
-  description?: string[];
-  descriptionStyles?: ('bullet' | 'plain')[];
-}
-
-// Custom section data container
-export interface CustomSection {
-  sectionType: SectionType;
-  items?: CustomSectionItem[]; // For itemList type
-  strings?: string[]; // For stringList type
-  text?: string; // For text type
-}
-
-export interface ResumeData {
-  personalInfo?: PersonalInfo;
-  summary?: string;
-  workExperience?: Experience[];
-  education?: Education[];
-  personalProjects?: Project[];
-  additional?: AdditionalInfo;
-  // NEW: Section metadata and custom sections
-  sectionMeta?: SectionMeta[];
-  customSections?: Record<string, CustomSection>;
-}
+const TEMPLATE_COMPONENTS: Record<TemplateType, React.FC<ResumeTemplateProps>> = {
+  'swiss-single': ResumeSingleColumn,
+  'swiss-two-column': ResumeTwoColumn,
+  modern: ResumeModern,
+  'modern-two-column': ResumeModernTwoColumn,
+  latex: ResumeLatex,
+  clean: ResumeClean,
+  vivid: ResumeVivid,
+};
 
 interface ResumeProps {
-  resumeData: ResumeData;
+  doc: ResumeDocument;
   template?: TemplateType;
   settings?: TemplateSettings;
-  additionalSectionLabels?: Partial<AdditionalSectionLabels>;
-  sectionHeadings?: Partial<ResumeSectionHeadings>;
-  fallbackLabels?: Partial<ResumeFallbackLabels>;
+  /**
+   * Resolves `resume.sections.*` keys. Headings projected from the v1
+   * built-ins carry a `headingI18nKey`, and `sectionHeading` translates one
+   * only while the user has not renamed it. Without this prop every heading
+   * renders verbatim.
+   */
+  translate?: (key: string) => string;
+  /** Placeholder for an empty `header.name`, already localized by the caller. */
+  fallbackName?: string;
   /**
    * Content locale ("zh" | "ja" | "ko" | ...). Orders the CJK font fallback
    * stack so a shared codepoint resolves to the right regional face.
@@ -148,25 +52,18 @@ interface ResumeProps {
 /**
  * Resume Component
  *
- * Main wrapper component that delegates rendering to template-specific components.
- * Applies CSS custom properties from settings for consistent styling.
- *
- * Templates:
- * - swiss-single: Traditional single-column layout (default)
- * - swiss-two-column: Two-column layout with experience sidebar
- * - modern: Single-column with user-selectable accent colors
- * - modern-two-column: Two-column layout with modern colorful accents
+ * Applies the template settings as CSS custom properties and delegates
+ * rendering to the selected template. Templates receive the document as-is:
+ * sections, their headings, their order and their shapes are data.
  */
 const Resume: React.FC<ResumeProps> = ({
-  resumeData,
+  doc,
   template = 'swiss-single',
   settings,
-  additionalSectionLabels,
-  sectionHeadings,
-  fallbackLabels,
+  translate,
+  fallbackName,
   locale,
 }) => {
-  // Merge provided settings with defaults
   const mergedSettings: TemplateSettings = {
     ...DEFAULT_TEMPLATE_SETTINGS,
     ...settings,
@@ -180,67 +77,34 @@ const Resume: React.FC<ResumeProps> = ({
     mergedSettings.template = template;
   }
 
-  // Convert settings to CSS variables
   const cssVars = settingsToCssVars(mergedSettings, locale);
+  const Template = TEMPLATE_COMPONENTS[mergedSettings.template] ?? ResumeSingleColumn;
 
   return (
     <div
       className={`${baseStyles['resume-body']} bg-white text-black w-full mx-auto resume-template-${mergedSettings.template}`}
       style={cssVars}
     >
-      {mergedSettings.template === 'swiss-single' && (
-        <ResumeSingleColumn
-          data={resumeData}
-          showContactIcons={mergedSettings.showContactIcons}
-          additionalSectionLabels={additionalSectionLabels}
-        />
-      )}
-      {mergedSettings.template === 'swiss-two-column' && (
-        <ResumeTwoColumn
-          data={resumeData}
-          showContactIcons={mergedSettings.showContactIcons}
-          sectionHeadings={sectionHeadings}
-        />
-      )}
-      {mergedSettings.template === 'modern' && (
-        <ResumeModern
-          data={resumeData}
-          showContactIcons={mergedSettings.showContactIcons}
-          additionalSectionLabels={additionalSectionLabels}
-        />
-      )}
-      {mergedSettings.template === 'modern-two-column' && (
-        <ResumeModernTwoColumn
-          data={resumeData}
-          showContactIcons={mergedSettings.showContactIcons}
-          sectionHeadings={sectionHeadings}
-          fallbackLabels={fallbackLabels}
-        />
-      )}
-      {mergedSettings.template === 'latex' && (
-        <ResumeLatex
-          data={resumeData}
-          showContactIcons={mergedSettings.showContactIcons}
-          additionalSectionLabels={additionalSectionLabels}
-        />
-      )}
-      {mergedSettings.template === 'clean' && (
-        <ResumeClean
-          data={resumeData}
-          showContactIcons={mergedSettings.showContactIcons}
-          additionalSectionLabels={additionalSectionLabels}
-        />
-      )}
-      {mergedSettings.template === 'vivid' && (
-        <ResumeVivid
-          data={resumeData}
-          showContactIcons={mergedSettings.showContactIcons}
-          sectionHeadings={sectionHeadings}
-          fallbackLabels={fallbackLabels}
-        />
-      )}
+      <Template
+        doc={translate ? localizeHeadings(doc, translate) : doc}
+        showContactIcons={mergedSettings.showContactIcons}
+        fallbackName={fallbackName}
+      />
     </div>
   );
 };
+
+/** Swaps in translated headings, reusing the document when nothing changes. */
+function localizeHeadings(doc: ResumeDocument, translate: (key: string) => string): ResumeDocument {
+  let changed = false;
+  const sections = doc.sections.map((section) => {
+    const heading = sectionHeading(section, translate);
+    if (heading === section.heading) return section;
+    changed = true;
+    return { ...section, heading };
+  });
+
+  return changed ? { ...doc, sections } : doc;
+}
 
 export default Resume;

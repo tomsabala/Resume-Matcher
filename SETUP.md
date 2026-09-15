@@ -282,6 +282,34 @@ docker compose down
 PORT=4000 docker compose up -d
 ```
 
+### LaTeX Export (Optional)
+
+Besides the Chromium-rendered PDF, Resume Matcher can export a resume as real
+LaTeX: a generated `.tex` you can download or hand-edit, compiled to PDF by a
+TeX engine inside the container.
+
+The image ships [Tectonic](https://tectonic-typesetting.github.io/) (~30MB,
+plus a pre-warmed package bundle) for that. It is a **build arg**, so it is
+decided when the image is built:
+
+```bash
+# Default: LaTeX compilation available in-container
+docker compose build
+
+# Smaller image without any TeX engine
+INSTALL_LATEX=false docker compose build
+```
+
+With `INSTALL_LATEX=false` — or on an architecture other than `amd64`/`arm64`,
+where no Tectonic build is fetched — the LaTeX tab still generates, edits,
+resets and downloads the `.tex`. Only the in-container **PDF compile** is
+unavailable: that one endpoint answers `503` and the UI tells you to download
+the `.tex` and compile it locally.
+
+To pin an engine instead of auto-detecting `tectonic` → `latexmk` → `xelatex`
+→ `pdflatex`, set `RESUME_MATCHER_LATEX_ENGINE` (a name on `PATH` or an
+absolute path) — see the table below.
+
 ### Configuration Options
 
 | Variable | Default | Description |
@@ -293,6 +321,8 @@ PORT=4000 docker compose up -d
 | `LLM_MODEL` | — | Model to use (configured via Settings UI) |
 | `LLM_API_KEY` | — | API key (recommended: configure via Settings UI) |
 | `LLM_API_BASE` | — | Custom API endpoint (for Ollama or proxies) |
+| `INSTALL_LATEX` | `true` | **Build arg** (not runtime): install Tectonic so LaTeX export can compile PDFs in-container. `false` = smaller image, `.tex` generation/download only |
+| `RESUME_MATCHER_LATEX_ENGINE` | — | Pin the LaTeX engine instead of auto-detecting `tectonic` → `latexmk` → `xelatex` → `pdflatex` |
 
 > **Note:** Changes to `LOG_LEVEL` and `LOG_LLM` require a container restart to take effect.
 
@@ -524,6 +554,32 @@ sudo pacman -S noto-fonts-cjk
 ```
 
 Restart the backend afterwards so Chromium picks up the new font cache.
+
+### LaTeX PDF export fails
+
+**Error:** `No LaTeX engine found. Install tectonic or a TeX distribution, or
+download the .tex source instead.` (HTTP 503)
+
+No TeX engine is visible to the backend. Everything except the PDF compile
+still works — use **Download .tex** and compile it wherever you like.
+
+To get in-app compilation:
+
+- **Docker:** rebuild with the default `INSTALL_LATEX=true`.
+- **Without Docker:** install [Tectonic](https://tectonic-typesetting.github.io/)
+  or any TeX distribution on the machine running the backend, so `tectonic`,
+  `latexmk`, `xelatex` or `pdflatex` is on its `PATH`. Detection happens per
+  request; pin a specific one with `RESUME_MATCHER_LATEX_ENGINE`.
+
+**Error:** `LaTeX compilation failed` with an engine log (HTTP 422)
+
+The engine ran and rejected the source. This only happens on a hand-edited
+source: fix the line the log points at (the excerpt starts at TeX's `!` error
+line), or use **Reset to generated** to go back to the generated `.tex` — your
+edited version stays in the version history either way.
+
+> The first in-container compile after a build downloads nothing extra: the
+> image warms Tectonic's package bundle at build time.
 
 ### Ollama connection fails
 

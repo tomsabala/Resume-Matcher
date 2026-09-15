@@ -27,7 +27,7 @@ describe('resume wizard api', () => {
     expect(state.step).toBe('intro');
     expect(state.current_question.section).toBe('intro');
     expect(state.current_question.text.length).toBeGreaterThan(0);
-    expect(state.resume_data.personalInfo?.name).toBe('');
+    expect(state.resume_data.header.name).toBe('');
     expect(state.asked_count).toBe(0);
     expect(state.progress.total).toBe(8);
   });
@@ -38,7 +38,7 @@ describe('resume wizard api', () => {
     expect(a).not.toBe(b);
     expect(a.history).not.toBe(b.history);
     expect(a.resume_data).not.toBe(b.resume_data);
-    expect(a.resume_data.workExperience).not.toBe(b.resume_data.workExperience);
+    expect(a.resume_data.sections).not.toBe(b.resume_data.sections);
   });
 
   it('posts a turn to the resume-wizard endpoint', async () => {

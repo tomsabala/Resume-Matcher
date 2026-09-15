@@ -2,26 +2,39 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
-from app.schemas.models import ResumeData
 from app.ai_limits import validate_source_size
+from app.schemas.document import ResumeDocument
 
-ResumeWizardSection = Literal[
-    "intro",
-    "contact",
-    "summary",
-    "workExperience",
-    "internships",  # mapped onto workExperience by the service merge layer
-    "education",
-    "personalProjects",
-    "skills",
-    "review",
+SECTION_TOKEN_PREFIX = "section:"
+
+# A wizard turn targets either a fixed step or one section of the document.
+# Sections are pure data, so a section target is addressed by the document's own
+# section key (`section:military_service`) instead of a built-in enum.
+FIXED_WIZARD_SECTIONS: tuple[str, ...] = ("intro", "contact", "review")
+
+SECTION_TOKEN_PATTERN = r"^(?:intro|contact|review|section:[a-z0-9_]+)$"
+
+ResumeWizardSection = Annotated[
+    str, StringConstraints(pattern=SECTION_TOKEN_PATTERN, max_length=120)
 ]
 
 ResumeWizardStep = Literal["intro", "question", "review", "complete"]
 
 ResumeWizardAction = Literal["start", "answer", "skip", "back", "review"]
+
+
+def section_token(key: str) -> str:
+    """The wizard target token addressing the section with this key."""
+    return f"{SECTION_TOKEN_PREFIX}{key}"
+
+
+def token_section_key(token: str) -> str:
+    """The section key inside a target token, or "" for a fixed step."""
+    if token.startswith(SECTION_TOKEN_PREFIX):
+        return token[len(SECTION_TOKEN_PREFIX) :]
+    return ""
 
 
 class ResumeWizardQuestion(BaseModel):
@@ -57,14 +70,14 @@ class ResumeWizardHistoryEntry(BaseModel):
     question: str = Field(max_length=2000)
     answer: str = Field(max_length=6000)
     section: ResumeWizardSection
-    resume_data_before: ResumeData
+    resume_data_before: ResumeDocument
 
 
 class ResumeWizardState(BaseModel):
     """Complete state that round-trips between client and server."""
 
     step: ResumeWizardStep = "intro"
-    resume_data: ResumeData = Field(default_factory=ResumeData)
+    resume_data: ResumeDocument = Field(default_factory=ResumeDocument)
     current_question: ResumeWizardQuestion = Field(default_factory=ResumeWizardQuestion)
     history: list[ResumeWizardHistoryEntry] = Field(default_factory=list, max_length=15)
     asked_count: int = 0
@@ -112,8 +125,8 @@ class ResumeWizardFinalizeRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_ready_to_finalize(self) -> "ResumeWizardFinalizeRequest":
-        if not self.state.resume_data.personalInfo.name.strip():
-            raise ValueError("personalInfo.name is required")
+        if not self.state.resume_data.header.name.strip():
+            raise ValueError("header.name is required")
         return self
 
 
