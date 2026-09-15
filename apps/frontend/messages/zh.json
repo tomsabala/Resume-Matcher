@@ -306,8 +306,8 @@
           "description": "现代双栏布局，带彩色点缀与主题色"
         },
         "latex": {
-          "name": "LaTeX",
-          "description": "经典衬线学术版式，带分隔线的栏目标题"
+          "name": "学术衬线",
+          "description": "由浏览器渲染的衬线排版，带分隔线标题。需要引擎编译的 LaTeX 请使用 LaTeX 选项卡。"
         },
         "clean": {
           "name": "简洁",
@@ -1219,6 +1219,8 @@
     },
     "overrideNotice": "你正在直接编辑 LaTeX。在重置之前，文档更改不会再更新此源码。",
     "noEngine": "此服务器上没有 LaTeX 引擎。请下载 .tex 并在本地编译。",
+    "previewLabel": "编译预览",
+    "previewCompiling": "正在编译预览...",
     "sourceLabel": "LaTeX 源码",
     "lineCount": "{count} 行",
     "downloadTex": "下载 .tex",

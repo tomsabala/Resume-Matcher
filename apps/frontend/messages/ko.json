@@ -284,8 +284,8 @@
           "description": "모던하고 화려한 포인트와 테마가 있는 2단 레이아웃"
         },
         "latex": {
-          "name": "LaTeX",
-          "description": "괘선 섹션 제목이 있는 클래식 세리프 학술 레이아웃"
+          "name": "아카데믹 세리프",
+          "description": "브라우저에서 렌더링되는 구분선 제목의 세리프 레이아웃입니다. 엔진으로 컴파일한 LaTeX은 LaTeX 탭을 사용하세요."
         },
         "clean": {
           "name": "클린",
@@ -1219,6 +1219,8 @@
     },
     "overrideNotice": "LaTeX를 직접 편집하고 있습니다. 재설정하기 전까지 문서 변경 사항은 이 소스에 반영되지 않습니다.",
     "noEngine": "이 서버에는 LaTeX 엔진이 없습니다. .tex를 내려받아 로컬에서 컴파일하세요.",
+    "previewLabel": "컴파일된 미리보기",
+    "previewCompiling": "미리보기 컴파일 중...",
     "sourceLabel": "LaTeX 소스",
     "lineCount": "{count}줄",
     "downloadTex": ".tex 내려받기",

@@ -113,9 +113,9 @@ def test_consecutive_entries_are_separated_in_vertical_mode() -> None:
         )
     )
 
-    assert "\\end{joblong}\n\n\\vspace{1pt}\n\n\\begin{joblong}{Second}" in source
+    assert "\\end{joblong}\n\n\\resumeEntryGap\n\n\\begin{joblong}{Second}" in source
     # The last entry falls through to the section's own trailing spacing.
-    assert source.count(r"\vspace{1pt}") == 1
+    assert source.count("\n\\resumeEntryGap\n") == 1
 
 
 def test_a_summary_and_bullets_together_keep_the_summary_out_of_the_list() -> None:
@@ -261,3 +261,119 @@ def test_an_explicit_contact_url_is_never_overridden() -> None:
     contact = Contact(kind="website", value="ada.dev", url="https://other.example")
 
     assert contact_url(contact) == "https://other.example"
+
+
+def test_a_contact_with_only_a_url_still_reaches_the_header() -> None:
+    """The builder has separate label/value/url inputs, and the HTML header
+    renders a value-less contact as an icon-only link. Filtering on ``value``
+    dropped exactly the icon-only GitHub row the url field exists for."""
+    document = ResumeDocument.model_validate(
+        {
+            "schemaVersion": 2,
+            "header": {
+                "name": "Ada",
+                "contacts": [{"kind": "github", "url": "https://github.com/ada"}],
+            },
+            "sections": [],
+        }
+    )
+
+    source = render_document_tex(document)
+
+    assert r"\href{https://github.com/ada}" in source
+    assert r"\faGithub" in source
+
+
+def test_a_contact_with_nothing_in_it_is_not_rendered() -> None:
+    document = ResumeDocument.model_validate(
+        {
+            "schemaVersion": 2,
+            "header": {"name": "Ada", "contacts": [{"kind": "github"}]},
+            "sections": [],
+        }
+    )
+
+    assert r"\faGithub" not in render_document_tex(document)
+
+
+def test_bullet_markup_becomes_latex_rather_than_printed_tags() -> None:
+    """Bullets are the one field edited as rich text; escaping them as plain
+    text printed ``<strong>`` on the page."""
+    source = render_document_tex(
+        _document(
+            s=_section(
+                "exp",
+                "entries",
+                entries=[
+                    _entry(
+                        bullets=[
+                            {"text": "<p>Cut <strong>latency</strong> by 50%</p>"}
+                        ]
+                    )
+                ],
+            )
+        )
+    )
+
+    assert r"\item Cut \textbf{latency} by 50\%" in source
+    assert "<strong>" not in source
+    assert "<p>" not in source
+
+
+def test_an_entry_link_icon_sits_in_the_right_hand_cell() -> None:
+    """The reference CV puts a repo icon flush right, in the row's second
+    column; concatenating it into the title printed it beside the words."""
+    source = render_document_tex(
+        _document(
+            s=_section(
+                "projects",
+                "entries",
+                entries=[
+                    _entry(
+                        title="Voicy",
+                        period="",
+                        links=[{"kind": "github", "url": "https://github.com/ada/v"}],
+                        bullets=[{"text": "Shipped it."}],
+                    )
+                ],
+            )
+        )
+    )
+
+    assert r"\begin{joblong}{Voicy}{" in source
+    line = next(ln for ln in source.splitlines() if ln.startswith(r"\begin{joblong}"))
+    title, right = line[len(r"\begin{joblong}{") :].split("}{", 1)
+    assert r"\faGithub" not in title
+    assert r"\faGithub" in right
+    assert r"\textbf{\faGithub}" in right
+
+
+def test_a_date_range_gets_the_reference_cv_en_dash() -> None:
+    source = render_document_tex(
+        _document(
+            s=_section(
+                "exp",
+                "entries",
+                entries=[_entry(title="Full-stack lead", period="2023 - May 2026")],
+            )
+        )
+    )
+
+    assert "2023 -- May 2026" in source
+    # A hyphen inside a word is not a date range.
+    assert "Full-stack lead" in source
+
+
+def test_the_section_trailer_is_a_named_length_each_template_tunes() -> None:
+    """A literal ``\\vspace{-6pt}`` everywhere pushed the last section onto a
+    second page; the value is per-template because compact sets ``\\parskip``."""
+    document = _document(
+        s=_section("exp", "entries", entries=[_entry()]),
+    )
+
+    classic = render_document_tex(document, "tex-classic")
+    compact = render_document_tex(document, "tex-compact")
+
+    assert r"\resumeSectionEnd" in classic
+    assert r"\newcommand{\resumeSectionEnd}{\vspace{-11pt}}" in classic
+    assert r"\newcommand{\resumeSectionEnd}{\vspace{-9pt}}" in compact

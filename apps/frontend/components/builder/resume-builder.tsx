@@ -48,6 +48,8 @@ import {
 import { JDComparisonView } from './jd-comparison-view';
 import { VersionTimeline } from '@/components/versions/version-timeline';
 import { LatexPanel } from '@/components/latex/latex-panel';
+import { TexPdfPreview } from '@/components/latex/tex-pdf-preview';
+import type { TexTemplateId } from '@/lib/api/tex';
 import { RegenerateWizard } from './regenerate-wizard';
 import { useRegenerateWizard } from '@/hooks/use-regenerate-wizard';
 import { useTranslations } from '@/lib/i18n';
@@ -313,6 +315,12 @@ const ResumeBuilderContent = () => {
 
   // Bumped whenever the server copy changes, so the version timeline refetches.
   const [historyRevision, setHistoryRevision] = useState(0);
+
+  // The LaTeX tab's source editor and its compiled preview must agree on
+  // which template they are showing, so the choice lives here.
+  const [texTemplate, setTexTemplate] = useState<TexTemplateId>('tex-classic');
+  // Bumped after a source save or reset, so the compiled preview recompiles.
+  const [texRevision, setTexRevision] = useState(0);
 
   /** Re-read the resume from the server and adopt it as the editor's state. */
   const reloadFromServer = useCallback(async () => {
@@ -1665,8 +1673,13 @@ const ResumeBuilderContent = () => {
               {activeTab === 'latex' && resumeId && (
                 <LatexPanel
                   resumeId={resumeId}
+                  template={texTemplate}
+                  onTemplateChange={setTexTemplate}
                   revision={historyRevision}
-                  onSourceChanged={() => setHistoryRevision((value) => value + 1)}
+                  onSourceChanged={() => {
+                    setHistoryRevision((value) => value + 1);
+                    setTexRevision((value) => value + 1);
+                  }}
                 />
               )}
 
@@ -1830,9 +1843,9 @@ const ResumeBuilderContent = () => {
                 <PaginatedPreview doc={canonicalDocument} settings={templateSettings} />
               )}
 
-              {/* The document as it stands, beside its LaTeX source. */}
-              {activeTab === 'latex' && (
-                <PaginatedPreview doc={canonicalDocument} settings={templateSettings} />
+              {/* The compiled PDF, beside the source that produced it. */}
+              {activeTab === 'latex' && resumeId && (
+                <TexPdfPreview resumeId={resumeId} template={texTemplate} revision={texRevision} />
               )}
             </div>
           </div>

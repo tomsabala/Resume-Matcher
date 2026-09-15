@@ -306,8 +306,8 @@
           "description": "Mise en page deux colonnes avec accents colorés modernes et thèmes"
         },
         "latex": {
-          "name": "LaTeX",
-          "description": "Mise en page académique classique serif avec en-têtes de section soulignés"
+          "name": "Serif académique",
+          "description": "Mise en page serif à filets, rendue par le navigateur. Pour du LaTeX compilé, utilisez l'onglet LaTeX."
         },
         "clean": {
           "name": "Épuré",
@@ -1219,6 +1219,8 @@
     },
     "overrideNotice": "Vous modifiez directement le LaTeX. Les changements du document ne mettent plus à jour cette source tant que vous ne la réinitialisez pas.",
     "noEngine": "Aucun moteur LaTeX sur ce serveur. Téléchargez le .tex et compilez-le localement.",
+    "previewLabel": "Aperçu compilé",
+    "previewCompiling": "Compilation de l'aperçu...",
     "sourceLabel": "Source LaTeX",
     "lineCount": "{count} lignes",
     "downloadTex": "Télécharger .tex",

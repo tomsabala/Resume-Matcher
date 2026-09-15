@@ -306,8 +306,8 @@
           "description": "モダンな2カラムとカラフルなアクセント"
         },
         "latex": {
-          "name": "LaTeX",
-          "description": "罫線付き見出しのクラシックなセリフ体レイアウト"
+          "name": "アカデミック・セリフ",
+          "description": "ブラウザで描画される、罫線付き見出しのセリフレイアウト。エンジンでコンパイルする LaTeX は「LaTeX」タブを使用します。"
         },
         "clean": {
           "name": "クリーン",
@@ -1219,6 +1219,8 @@
     },
     "overrideNotice": "LaTeX を直接編集しています。リセットするまで、ドキュメントの変更はこのソースに反映されません。",
     "noEngine": "このサーバーに LaTeX エンジンがありません。.tex をダウンロードしてローカルでコンパイルしてください。",
+    "previewLabel": "コンパイル済みプレビュー",
+    "previewCompiling": "プレビューをコンパイル中...",
     "sourceLabel": "LaTeX ソース",
     "lineCount": "{count} 行",
     "downloadTex": ".tex をダウンロード",

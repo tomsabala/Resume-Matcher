@@ -306,8 +306,8 @@
           "description": "Two-column layout with modern colorful accents and themes"
         },
         "latex": {
-          "name": "LaTeX",
-          "description": "Classic serif academic layout with ruled section headers"
+          "name": "Academic Serif",
+          "description": "Browser-rendered serif layout with ruled section headers. For engine-compiled LaTeX, use the LaTeX tab."
         },
         "clean": {
           "name": "Clean",
@@ -1219,6 +1219,8 @@
     },
     "overrideNotice": "You are editing the LaTeX directly. Document changes no longer update this source until you reset it.",
     "noEngine": "No LaTeX engine on this server. Download the .tex and compile it locally.",
+    "previewLabel": "Compiled preview",
+    "previewCompiling": "Compiling preview...",
     "sourceLabel": "LaTeX source",
     "lineCount": "{count} lines",
     "downloadTex": "Download .tex",

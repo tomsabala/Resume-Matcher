@@ -32,6 +32,7 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "httpx>=0.28.0",
     "respx>=0.21.1",
+    "pypdf>=4.0.0",  # PDF geometry probe for the LaTeX spacing regression test
 ]
 e2e-monitor = [
     "pypdf>=4.0.0",  # PDF text probe for the non-blank render check

@@ -11,11 +11,12 @@ macro is *deliberately* unescaped visible.
 
 from __future__ import annotations
 
+import re
 from functools import cache
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
-from app.latex.escape import escape_tex
+from app.latex.escape import escape_tex, escape_tex_rich
 from app.schemas.document import Contact, ResumeDocument, Section, SectionKind
 
 __all__ = ["LATEX_TEMPLATES", "render_document_tex"]
@@ -59,8 +60,11 @@ def _environment() -> Environment:
         loader=PackageLoader("app.latex", "templates"),
     )
     environment.filters["tex"] = escape_tex
+    environment.filters["tex_rich"] = escape_tex_rich
+    environment.filters["dates"] = date_dashes
     environment.filters["contact_url"] = contact_url
     environment.filters["contact_icon"] = contact_icon
+    environment.filters["renderable_contacts"] = renderable_contacts
     return environment
 
 
@@ -89,6 +93,25 @@ def contact_url(contact: Contact) -> str:
     if value.startswith(("http://", "https://")):
         return value
     return f"https://{value}"
+
+
+def renderable_contacts(contacts: list[Contact]) -> list[Contact]:
+    """A contact renders when it has any of label, value or url.
+
+    This matches the HTML header, where an empty label plus an icon means an
+    icon-only link. Filtering on ``value`` alone dropped the icon-only
+    GitHub/LinkedIn rows the builder's separate url field exists to create.
+    """
+    return [c for c in contacts if (c.label.strip() or c.value.strip() or c.url.strip())]
+
+
+def date_dashes(value: str) -> str:
+    """``2023 - May 2026`` → ``2023 -- May 2026``, the reference CV's en dash.
+
+    Spaces are required on both sides, so ``Full-stack`` is untouched. This is
+    render-time typography: the stored ``period`` string stays verbatim.
+    """
+    return re.sub(r"(?<=\S) - (?=\S)", " -- ", value)
 
 
 def _renderable_sections(document: ResumeDocument) -> list[Section]:

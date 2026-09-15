@@ -15,8 +15,11 @@ PDF export now has **two independent renderers**. Both consume the same
 > **Naming trap.** `latex` in the first row is an **HTML** template
 > (`apps/frontend/components/resume/resume-latex.tsx`) — a web layout that
 > *looks* like LaTeX output and is rendered by Chromium. It has nothing to do
-> with this feature. The LaTeX export templates are the `tex-`prefixed ids and
-> live in `apps/backend/app/latex/templates/`. In prose: **"the `latex` HTML
+> with this feature. The id is still `latex` (saved settings pin it), but the
+> UI calls it **Academic Serif**, because labelling a Chromium render "LaTeX"
+> is how a browser-rendered PDF gets mistaken for engine output. The LaTeX
+> export templates are the `tex-`prefixed ids and live in
+> `apps/backend/app/latex/templates/`. In prose: **"the `latex` HTML
 > template"** vs **"the LaTeX export"**.
 
 The Chromium path is documented in
@@ -52,17 +55,57 @@ file read.
 | `$` `&` `#` `_` `%` | `\$` `\&` `\#` `\_` `\%` |
 | `^` | `\textasciicircum{}` |
 | `~` | `\textasciitilde{}` |
+| `<` `>` `\|` | `\textless{}` `\textgreater{}` `\textbar{}` |
+
+The last row is typography, not safety: those three are harmless to the
+parser, but OT1 Computer Modern — the encoding the reference CV uses — maps
+them to `¡`, `¿` and `—`, so a skills line reading `Java | Python` printed em
+dashes.
+
+A second table maps the unicode the engine cannot typeset at all (`≥ ≤ ≈ ≠ ↔
+⇒ ⟶ ∞ √ ★ ✓ π α β λ ∙ ‣ ′ ″ « »` and U+2060) to math-mode or text macros;
+each of those aborted the compile with *Unicode character … not set up for
+use with LaTeX*. Characters that already typeset (`→ ← ± × ÷ • ° – — … “ ” €
+£ § ¶ © ® ½ µ ·`) are deliberately absent. `«`/`»` become typographic double
+quotes because no guillemet macro exists without `fontenc[T1]`, and switching
+encoding would move every glyph away from the reference's Computer Modern.
+Anything outside both tables (Hebrew, CJK, emoji) passes through and the
+engine rejects it by name — the panel shows that log line, which beats
+silently deleting content.
 
 **Backslash is escaped first.** Every other replacement *introduces*
 backslashes, so handling `\` last would re-escape them: `50%` → `50\%` →
 `50\textbackslash{}%`, which typesets the escape instead of the percent. The
-module encodes that ordering in its replacement table and applies it as a
-single compiled-alternation `re.sub` pass, so no substitution's output is ever
-rescanned.
+module encodes that ordering in its replacement table and applies both tables
+as a single compiled-alternation `re.sub` pass, so no substitution's output is
+ever rescanned — which matters doubly for the unicode macros, whose values are
+themselves full of backslashes and `$`.
 
 `escape_tex(None)` is `""` and non-strings are stringified, so a template can
 interpolate a number or an absent field without a guard. The result is inert
 text whatever the input was.
+
+### Bullets are rich text (`escape_tex_rich`, filter `tex_rich`)
+
+Bullets are the one field edited with TipTap and stored as sanitised HTML, so
+`escape_tex` printed their markup: `<strong>x</strong>` typeset as
+`¡strong¿x¡/strong¿`. `escape_tex_rich` converts the tag set the frontend
+sanitiser allows and escapes everything else:
+
+| Markup | LaTeX |
+| ------ | ----- |
+| `<strong>` `<b>` | `\textbf{…}` |
+| `<em>` `<i>` | `\textit{…}` |
+| `<u>` | `\underline{…}` |
+| `<a href>` | `\href{…}{…}` for `http`/`https`/`mailto`/`tel`/`www.` only; any other scheme keeps the text and drops the link |
+| `<br>` | `\\` |
+| `</p><p>` | `\par` |
+| anything else | dropped, inner text kept |
+
+Entities are decoded before escaping (`&amp;` → `&` → `\&`), and the output is
+always brace-balanced: an unclosed tag is closed at the end and a stray close
+tag ignored, because an unbalanced group is a failed compile. Only bullets use
+this filter — every other field is plain text and keeps `| tex`.
 
 ## Rendering (`app/latex/render.py`)
 
@@ -87,10 +130,16 @@ Applying it per site rather than globally keeps the few deliberately
 unescaped values (macro names, hrefs already built by the renderer) visible as
 exceptions instead of hiding them behind a default. The environment also sets
 `StrictUndefined`, so a typo'd field is a render error rather than a silently
-empty PDF, and registers two helper filters: `contact_url` (an explicit
-`contact.url` wins; otherwise `mailto:`/`tel:`/`https://` is derived from the
-kind) and `contact_icon` (contact kind → `fontawesome5` macro; unmapped kinds
-render text-only).
+empty PDF, and registers the helper filters below.
+
+| Filter | Purpose |
+| ------ | ------- |
+| `tex` | `escape_tex` — mandatory on every plain-text interpolation |
+| `tex_rich` | `escape_tex_rich` — bullets only |
+| `dates` | `2023 - May 2026` → `2023 -- May 2026`; spaces required on both sides, so `Full-stack` is untouched. Render-time typography: the stored `period` stays verbatim |
+| `contact_url` | An explicit `contact.url` wins; otherwise `mailto:`/`tel:`/`https://` is derived from the kind |
+| `contact_icon` | Contact kind → `fontawesome5` macro; unmapped kinds render text-only |
+| `renderable_contacts` | A contact renders when it has *any* of label, value or url — matching the HTML header, where an empty label plus an icon means an icon-only link |
 
 `render_document_tex(document, template_id="tex-classic", settings=None)` is
 the whole API. `settings` is an optional dict of template knobs; each template
@@ -133,9 +182,25 @@ Entry rendering in `_document.tex.j2`:
 A bullet with `style: "plain"` renders `\item[]` (marker suppressed, matching
 the HTML renderer's rule from
 [resume-templates.md](resume-templates.md#bullet-styles-bulletstyle)); a
-`bullet` style renders a normal `\item`. `entry.links` become icon-only
-`\href`s on the title row. `tags` sections render as a `$|$`-separated line;
-`groups` sections render as a two-column `tabularx` of `label: values`.
+`bullet` style renders a normal `\item`, and bullet text goes through
+`tex_rich` rather than `tex`. `entry.links` render as `\href`ed icons in the
+row's **right-hand cell**, after the period — flush with the margin, the way
+the reference CV places a repo link beside a project name. `tags` sections
+render as a `$|$`-separated line; `groups` sections render as a two-column
+`tabularx` of `label: values`.
+
+### Vertical rhythm is three named macros
+
+Each preamble defines `\resumeEntryGap` (between entries), `\resumeSectionEnd`
+(after an entries section) and `\resumeBlockEnd` (after text/tags/groups), and
+`_document.tex.j2` uses only those names. The section trailer is the length
+that decides whether a resume fits one page: a uniform `\vspace{-6pt}` left a
+~19pt hole and pushed the last section onto page 2, against 13.8–15.4pt in the
+reference CV. Classic uses `-11pt`, compact `-9pt` — compact sets
+`\parskip` to 2pt, so the same `\vspace` yields a larger gap, and it must stay
+the denser of the two. The values are tuned to those `\parskip` settings; if a
+template changes `\parskip`, re-measure with the gap assertion in
+`tests/unit/test_latex_compile.py` rather than copying the number.
 
 Publications and similar are ordinary `entries` sections, so **no biblatex**
 is involved — Tectonic's bundled biblatex must version-match an external
@@ -247,9 +312,14 @@ carry `origin: "tex_edit"`. See the version-history contract in
 ## Builder UI
 
 A **LaTeX** tab in `apps/frontend/components/builder/resume-builder.tsx`
-renders `apps/frontend/components/latex/latex-panel.tsx` beside the ordinary
-paginated preview. The tab is disabled until the resume has been saved, since
-generation reads the stored document.
+renders `apps/frontend/components/latex/latex-panel.tsx` beside
+`apps/frontend/components/latex/tex-pdf-preview.tsx` — the *engine-compiled*
+PDF, not the browser-rendered HTML template. Those are two different
+renderers with different fonts and metrics, so previewing the HTML one here
+showed something the tab's own Download PDF could never produce. The builder
+owns the selected template (`texTemplate`) and a `texRevision` counter so the
+panel and the preview always compile the same thing. The tab is disabled
+until the resume has been saved, since generation reads the stored document.
 
 | Panel behaviour | Detail |
 | --------------- | ------ |
@@ -262,6 +332,7 @@ generation reads the stored document.
 | Download `.tex` | Always available — the one export that cannot fail |
 | Download PDF | Compiles; on 422 the engine log is rendered in a scrollable `<pre>` under the error |
 | Refresh | The parent bumps a `revision` prop after a document save so a *generated* source refetches |
+| Compiled preview | `compileTexPdf` on mount and on every template/revision change, shown in an `<object>`; object URLs are revoked on cleanup. A missing engine, a compile failure (with its log) and any other error each render in place |
 
 Strings live under the `latex.*` i18n block in every locale
 (`apps/frontend/messages/*.json`) — see [i18n.md](i18n.md).
@@ -295,7 +366,7 @@ the override. Full deployment reference: [SETUP.md](../../../SETUP.md).
 
 | File | Purpose |
 | ---- | ------- |
-| `apps/backend/app/latex/escape.py` | `escape_tex` — the escaping boundary |
+| `apps/backend/app/latex/escape.py` | `escape_tex` (the escaping boundary) and `escape_tex_rich` (bullet HTML → LaTeX) |
 | `apps/backend/app/latex/render.py` | Jinja environment, `LATEX_TEMPLATES`, `render_document_tex` |
 | `apps/backend/app/latex/compile.py` | `latex_engine`, `compile_tex_to_pdf`, the sandbox, error excerpting |
 | `apps/backend/app/latex/templates/` | `_document.tex.j2` plus `classic`/`compact` preambles |

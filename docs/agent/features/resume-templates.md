@@ -11,7 +11,9 @@ with a TeX engine — different templates, no CSS, its own small settings
 surface: [latex-export.md](latex-export.md).
 
 > The HTML template id `latex` below is **not** the LaTeX export. It is a
-> web layout styled to resemble LaTeX output, rendered by Chromium.
+> web layout styled to resemble LaTeX output, rendered by Chromium — which is
+> why the UI labels it **Academic Serif**; only the stored id is still
+> `latex`.
 
 ## Template Types
 
@@ -21,7 +23,7 @@ surface: [latex-export.md](latex-export.md).
 | `swiss-two-column` | 65%/35% split with experience in main column, skills in sidebar |
 | `modern` | Single-column with colorful accent headers and customizable theme colors |
 | `modern-two-column` | Two-column layout combining modern accents with space-efficient design |
-| `latex` | Classic serif single-column with Title-Case ruled headers and company-first entries (LaTeX-*looking* HTML — unrelated to the [LaTeX export](latex-export.md)). Single-typeface — driven by the Header Font control |
+| `latex` (shown as **Academic Serif**) | Classic serif single-column with Title-Case ruled headers and company-first entries (LaTeX-*looking* HTML — unrelated to the [LaTeX export](latex-export.md)). Single-typeface — driven by the Header Font control |
 | `clean` | Minimal sans single-column with large understated gray UPPERCASE headers and single-line entries. Single-typeface — driven by the Body Font control |
 | `vivid` | Colorful two-column (Awesome-CV lineage): two-tone accent name, monospace contact with circular icons, accent small-caps headers, accent arrow bullets. Supports the Accent Color control |
 

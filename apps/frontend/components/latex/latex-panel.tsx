@@ -21,6 +21,9 @@ const TEMPLATES: TexTemplateId[] = ['tex-classic', 'tex-compact'];
 
 interface LatexPanelProps {
   resumeId: string;
+  /** Owned by the parent, so the preview compiles the template shown here. */
+  template: TexTemplateId;
+  onTemplateChange: (template: TexTemplateId) => void;
   /** Bumped by the parent after a document save, so a generated source refetches. */
   revision?: number;
   /** Invoked after a save or reset, which both land on the version timeline. */
@@ -44,9 +47,14 @@ function download(blob: Blob, filename: string): void {
  * document no longer touches it). Compilation may be unavailable — this panel
  * always offers the `.tex` download, which is the only export that never fails.
  */
-export function LatexPanel({ resumeId, revision = 0, onSourceChanged }: LatexPanelProps) {
+export function LatexPanel({
+  resumeId,
+  template,
+  onTemplateChange,
+  revision = 0,
+  onSourceChanged,
+}: LatexPanelProps) {
   const { t } = useTranslations();
-  const [template, setTemplate] = useState<TexTemplateId>('tex-classic');
   const [source, setSource] = useState('');
   const [serverSource, setServerSource] = useState('');
   const [isOverride, setIsOverride] = useState(false);
@@ -167,7 +175,7 @@ export function LatexPanel({ resumeId, revision = 0, onSourceChanged }: LatexPan
           <button
             key={id}
             type="button"
-            onClick={() => setTemplate(id)}
+            onClick={() => onTemplateChange(id)}
             disabled={isOverride}
             className={`border-2 border-black px-3 py-1 font-mono text-xs uppercase rounded-none transition-none disabled:opacity-40 disabled:cursor-not-allowed ${
               template === id ? 'bg-black text-white' : 'bg-white text-black hover:bg-paper-tint'

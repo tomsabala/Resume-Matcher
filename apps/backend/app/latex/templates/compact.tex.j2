@@ -15,6 +15,8 @@
 \usepackage{multicol}
 \usepackage{multirow}
 \usepackage{fontawesome5}
+\usepackage{amssymb}
+\usepackage{textcomp}
 
 \newcolumntype{C}{>{\centering\arraybackslash}X}
 \newlength{\fullcollw}
@@ -23,6 +25,13 @@
 \titleformat{\section}{\normalsize\bfseries\scshape\raggedright}{}{0em}{}
 \titlespacing{\section}{0pt}{5pt}{2pt}
 \setlength{\parskip}{2pt}
+
+<# Same rhythm knobs as classic, tighter: compact sets `\parskip` to 2pt, so
+     the identical `\vspace` yields a larger gap. `-9pt` measures 11.1pt
+     against classic's 13.8pt, keeping compact the denser template. #>
+\newcommand{\resumeEntryGap}{\vspace{1pt}}
+\newcommand{\resumeSectionEnd}{\vspace{-9pt}}
+\newcommand{\resumeBlockEnd}{\vspace{-2pt}}
 
 \usepackage[unicode, draft=false]{hyperref}
 \definecolor{linkcolour}{rgb}{0,0.2,0.6}

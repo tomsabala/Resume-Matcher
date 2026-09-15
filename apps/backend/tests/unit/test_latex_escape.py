@@ -6,7 +6,7 @@ a line, and unescaped ``\\`` lets resume content execute as LaTeX.
 
 import pytest
 
-from app.latex.escape import escape_tex
+from app.latex.escape import _UNICODE, escape_tex, escape_tex_rich
 
 pytestmark = pytest.mark.unit
 
@@ -23,6 +23,9 @@ pytestmark = pytest.mark.unit
         ("~approx", r"\textasciitilde{}approx"),
         ("{braced}", r"\{braced\}"),
         ("back\\slash", r"back\textbackslash{}slash"),
+        ("<", r"\textless{}"),
+        (">", r"\textgreater{}"),
+        ("a|b", r"a\textbar{}b"),
     ],
 )
 def test_each_special_character_is_neutralised(raw: str, expected: str) -> None:
@@ -74,3 +77,81 @@ def test_ordinary_text_and_unicode_pass_through_untouched() -> None:
 def test_non_strings_are_coerced_so_templates_need_no_guard() -> None:
     assert escape_tex(None) == ""
     assert escape_tex(42) == "42"
+
+
+@pytest.mark.parametrize("char,macro", _UNICODE)
+def test_unicode_the_engine_cannot_typeset_becomes_a_macro(
+    char: str, macro: str
+) -> None:
+    """Each of these aborts the compile with "Unicode character ... not set up
+    for use with LaTeX"; the mapped form is what makes the character printable
+    at all."""
+    result = escape_tex(f"x{char}y")
+
+    assert result == f"x{macro}y"
+    assert char not in result
+
+
+def test_a_mapped_character_is_not_re_escaped_by_the_same_pass() -> None:
+    """The macros contain ``\\`` and ``$``, which are themselves in the
+    replacement table: a second pass would emit ``\\textbackslash{}geq``."""
+    assert escape_tex("≥") == r"$\geq$"
+    assert r"\textbackslash" not in escape_tex("≥ ✓ π")
+
+
+def test_rich_text_tags_become_latex_markup() -> None:
+    assert escape_tex_rich("<strong>bold</strong>") == r"\textbf{bold}"
+    assert escape_tex_rich("<b>bold</b>") == r"\textbf{bold}"
+    assert escape_tex_rich("<em>it</em>") == r"\textit{it}"
+    assert escape_tex_rich("<i>it</i>") == r"\textit{it}"
+    assert escape_tex_rich("<u>under</u>") == r"\underline{under}"
+
+
+def test_rich_text_entities_are_decoded_before_escaping() -> None:
+    """``&amp;`` must reach the engine as ``\\&``, not ``\\&amp;``, and the
+    ``&lt;`` TipTap writes for a typed ``<`` must survive as a real ``<``."""
+    assert escape_tex_rich("R&amp;D") == r"R\&D"
+    assert escape_tex_rich("p99 &lt; 200ms") == r"p99 \textless{} 200ms"
+
+
+def test_rich_text_paragraph_wrappers_do_not_print() -> None:
+    assert escape_tex_rich("<p>only</p>") == "only"
+    assert escape_tex_rich("<p>one</p><p>two</p>") == r"one\par two"
+    assert escape_tex_rich("a<br>b") == "a\\\\ b"
+
+
+def test_rich_text_links_render_only_for_safe_schemes() -> None:
+    assert (
+        escape_tex_rich('<a href="https://x.dev">link</a>')
+        == r"\href{https://x.dev}{link}"
+    )
+    assert escape_tex_rich('<a href="javascript:alert(1)">click</a>') == "click"
+    assert escape_tex_rich('<a href="data:text/html,x">click</a>') == "click"
+
+
+def test_rich_text_drops_tags_the_sanitiser_should_have_removed() -> None:
+    """The backend does not trust the client sanitiser."""
+    assert escape_tex_rich("<script>alert(1)</script>ok") == "alert(1)ok"
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        "<strong>unclosed",
+        "</strong>stray",
+        "<em><strong>misnested</em></strong>",
+        '<a href="https://x.dev">open',
+    ],
+)
+def test_rich_text_always_balances_its_braces(markup: str) -> None:
+    """An unbalanced group is a failed compile, so malformed markup must not
+    be able to produce one. The inputs carry no literal braces, so every brace
+    in the result is one this function opened."""
+    result = escape_tex_rich(markup)
+
+    assert result.count("{") == result.count("}")
+
+
+def test_rich_text_coerces_like_escape_tex() -> None:
+    assert escape_tex_rich(None) == ""
+    assert escape_tex_rich(42) == "42"

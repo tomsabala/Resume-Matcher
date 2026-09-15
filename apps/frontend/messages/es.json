@@ -306,8 +306,8 @@
           "description": "Diseño de dos columnas moderno con acentos coloridos y temas"
         },
         "latex": {
-          "name": "LaTeX",
-          "description": "Diseño académico clásico con tipografía serif y encabezados con líneas"
+          "name": "Serif académico",
+          "description": "Diseño serif con encabezados subrayados, renderizado en el navegador. Para LaTeX compilado, usa la pestaña LaTeX."
         },
         "clean": {
           "name": "Limpio",
@@ -1219,6 +1219,8 @@
     },
     "overrideNotice": "Estás editando el LaTeX directamente. Los cambios del documento ya no actualizan este código hasta que lo restablezcas.",
     "noEngine": "No hay motor LaTeX en este servidor. Descarga el .tex y compílalo localmente.",
+    "previewLabel": "Vista previa compilada",
+    "previewCompiling": "Compilando vista previa...",
     "sourceLabel": "Código LaTeX",
     "lineCount": "{count} líneas",
     "downloadTex": "Descargar .tex",

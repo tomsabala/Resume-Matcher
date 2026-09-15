@@ -15,6 +15,8 @@
 \usepackage{multicol}
 \usepackage{multirow}
 \usepackage{fontawesome5}
+\usepackage{amssymb}
+\usepackage{textcomp}
 
 \newcolumntype{C}{>{\centering\arraybackslash}X}
 \newlength{\fullcollw}
@@ -22,6 +24,14 @@
 
 \titleformat{\section}{\large\scshape\raggedright}{}{0em}{}[\titlerule]
 \titlespacing{\section}{0pt}{7pt}{4pt}
+
+<# Vertical rhythm, named so the two templates can differ and a change is one
+     edit. Tuned against the reference CV: the gap from a section's last body
+     line to the next heading measures 13.8-14.9pt here, against the
+     reference's 13.8-15.4pt. `-6pt` gave 18.8pt and cost a whole page. #>
+\newcommand{\resumeEntryGap}{\vspace{1pt}}
+\newcommand{\resumeSectionEnd}{\vspace{-11pt}}
+\newcommand{\resumeBlockEnd}{\vspace{-2pt}}
 
 \usepackage[unicode, draft=false]{hyperref}
 \definecolor{linkcolour}{rgb}{0,0.2,0.6}

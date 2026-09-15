@@ -304,8 +304,8 @@
           "description": "Layout de duas colunas com acentos coloridos modernos e temas"
         },
         "latex": {
-          "name": "LaTeX",
-          "description": "Layout acadêmico clássico em serifa com cabeçalhos com linhas"
+          "name": "Serifa acadêmica",
+          "description": "Layout serifado com cabeçalhos sublinhados, renderizado no navegador. Para LaTeX compilado, use a aba LaTeX."
         },
         "clean": {
           "name": "Limpo",
@@ -1219,6 +1219,8 @@
     },
     "overrideNotice": "Você está editando o LaTeX diretamente. As alterações do documento não atualizam mais este código até você redefini-lo.",
     "noEngine": "Nenhum motor LaTeX neste servidor. Baixe o .tex e compile localmente.",
+    "previewLabel": "Pré-visualização compilada",
+    "previewCompiling": "Compilando pré-visualização...",
     "sourceLabel": "Código LaTeX",
     "lineCount": "{count} linhas",
     "downloadTex": "Baixar .tex",

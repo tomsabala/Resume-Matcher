@@ -265,8 +265,9 @@ export const TEMPLATE_OPTIONS: TemplateInfo[] = [
   },
   {
     id: 'latex',
-    name: 'LaTeX',
-    description: 'Classic serif academic layout with ruled section headers',
+    name: 'Academic Serif',
+    description:
+      'Browser-rendered serif layout with ruled section headers. For engine-compiled LaTeX, use the LaTeX tab.',
   },
   {
     id: 'clean',
