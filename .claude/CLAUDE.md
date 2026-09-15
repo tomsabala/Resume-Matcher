@@ -34,6 +34,7 @@ Before exploring code, read [docs/agent/README.md](../docs/agent/README.md) for 
 5. **Log detailed errors server-side**, return generic messages to clients
 6. **Never enumerate resume sections.** Resume content is a `ResumeDocument` of typed sections; render, edit, validate and tailor by dispatching on `SectionKind` — see [resume sections](../docs/agent/features/custom-sections.md)
 7. **Do NOT modify** `.github/workflows/` files without explicit request
+8. **Shut down every process you start.** Dev servers, watchers, browsers and REPLs you launch for development or verification are yours to stop in the same session — see [Processes you start](#processes-you-start)
 
 ---
 
@@ -60,6 +61,26 @@ npm run format        # Format with Prettier
 # Build (from apps/frontend)
 npm run build
 ```
+
+---
+
+## Processes You Start
+
+`:8000` (backend) and `:3030` (frontend) are usually already running — the
+developer's own. Anything **you** launch is yours to shut down before you
+finish; a leftover server holds the port and silently shadows the next run.
+
+- Start them supervised with a named handle, never as a bare backgrounded
+  shell command, so there is something to stop.
+- Stop every one you started before yielding, including on failure paths.
+  Nothing you started may be left running.
+- Do NOT detach or persist a process unless asked for one that outlives the
+  session — those are the ones that get orphaned.
+- A process the developer started is not yours. If it must be restarted
+  (e.g. it predates your backend changes), say so and restore it the way it
+  was; otherwise run your own copy on a spare port and tear that down.
+  `apps/backend/.env` sets `PORT`/`HOST`, but a real env var wins — pass
+  `PORT=8000` explicitly when relaunching `.venv/bin/app`.
 
 ---
 
