@@ -2,6 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import TailorPage from '@/app/(default)/tailor/page';
+import { sampleDocument } from './fixtures/document';
 
 vi.mock('@/lib/context/workspace-context', () => ({
   useWorkspace: () => ({ revision: 0 }),
@@ -75,13 +76,15 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+// A real v2 preview: `personalInfo` was the v1 name, and a fixture carrying
+// it let the page's stale shape guard reject every genuine preview unnoticed.
 const preview = {
   request_id: 'preview-request',
   data: {
     job_id: 'job',
     preview_id: 'preview',
     resume_id: null,
-    resume_preview: { personalInfo: { name: 'Ada' } },
+    resume_preview: sampleDocument({ header: { name: 'Ada', headline: '', contacts: [] } }),
     improvements: [],
     diff: { stats: { total_changes: 1 }, header: [], sections: [] },
   },
@@ -120,6 +123,23 @@ describe('actual tailor page transaction boundaries', () => {
     expect(api.push).toHaveBeenLastCalledWith('/resumes/tailored');
     expect(screen.queryByText('tailor.missingDiffDialog.description')).toBeNull();
     expect(screen.getByRole('button', { name: 'tailor.generateTailored' })).toBeEnabled();
+  });
+
+  it('sends the previewed document itself to confirm', async () => {
+    // The page validated `personalInfo`, a v1 field the v2 document does not
+    // have, so confirming threw "Resume preview data is invalid." before any
+    // request left the browser.
+    render(<TailorPage />);
+    await act(async () => {});
+    await generate();
+    await act(async () => screen.getByRole('button', { name: 'Confirm preview' }).click());
+
+    expect(api.confirm).toHaveBeenCalledTimes(1);
+    const payload = api.confirm.mock.calls[0][0];
+    expect(payload.resume_id).toBe('master');
+    expect(payload.job_id).toBe('job');
+    expect(payload.improved_data).toEqual(preview.data.resume_preview);
+    expect(api.push).toHaveBeenLastCalledWith('/resumes/tailored');
   });
 
   it('keeps a failed preview retry distinct from confirmation and records the created job', async () => {

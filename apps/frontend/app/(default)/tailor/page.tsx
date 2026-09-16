@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useResumePreview } from '@/components/common/resume_previewer_context';
 import type { ImprovedResult } from '@/components/common/resume_previewer_context';
-import type { ResumeDocument } from '@/lib/types/document';
+import { isResumeDocumentShape } from '@/lib/utils/resume-draft-storage';
 import {
   uploadJobDescriptions,
   previewImproveResume,
@@ -135,23 +135,18 @@ export default function TailorPage() {
     if (!masterResumeId) {
       throw new Error('Master resume ID is missing.');
     }
+    // `personalInfo` was the v1 field name. The preview has been a v2
+    // `ResumeDocument` (header + typed sections) since the migration, so the
+    // old guard rejected every valid preview before the request went out.
     const resumePreview = result.data.resume_preview;
-    if (!resumePreview || typeof resumePreview !== 'object' || Array.isArray(resumePreview)) {
-      throw new Error('Resume preview data is invalid.');
-    }
-    const previewRecord = resumePreview as unknown as Record<string, unknown>;
-    if (
-      !previewRecord.personalInfo ||
-      typeof previewRecord.personalInfo !== 'object' ||
-      Array.isArray(previewRecord.personalInfo)
-    ) {
+    if (!isResumeDocumentShape(resumePreview)) {
       throw new Error('Resume preview data is invalid.');
     }
     return {
       resume_id: masterResumeId,
       job_id: result.data.job_id,
       preview_id: result.data.preview_id ?? null,
-      improved_data: resumePreview as ResumeDocument,
+      improved_data: resumePreview,
       improvements:
         result.data.improvements?.map((item) => ({
           suggestion: item.suggestion,
