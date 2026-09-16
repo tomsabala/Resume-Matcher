@@ -55,9 +55,11 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
   texAvailable = true,
 }) => {
   const { t } = useTranslations();
-  // A LaTeX template is compiled by the engine, which reads only the page
-  // size; leaving the HTML-only knobs live would promise formatting the
-  // export cannot deliver.
+  // A LaTeX template is compiled by the engine, which reads page size,
+  // margins, spacing, base font size, header scale and compact mode. Font
+  // family, accent colour and contact icons are HTML-only, so those stay
+  // disabled: leaving them live would promise formatting the export cannot
+  // deliver.
   const usesTexEngine = isTexTemplate(settings.template);
   const [isExpanded, setIsExpanded] = useState(true);
   const compactMultiplier = settings.compactMode ? COMPACT_MULTIPLIER : 1;
@@ -314,25 +316,21 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
                 label={t('builder.formatting.margin.top')}
                 value={settings.margins.top}
                 onChange={(v) => handleMarginChange('top', v)}
-                disabled={usesTexEngine}
               />
               <MarginSlider
                 label={t('builder.formatting.margin.bottom')}
                 value={settings.margins.bottom}
                 onChange={(v) => handleMarginChange('bottom', v)}
-                disabled={usesTexEngine}
               />
               <MarginSlider
                 label={t('builder.formatting.margin.left')}
                 value={settings.margins.left}
                 onChange={(v) => handleMarginChange('left', v)}
-                disabled={usesTexEngine}
               />
               <MarginSlider
                 label={t('builder.formatting.margin.right')}
                 value={settings.margins.right}
                 onChange={(v) => handleMarginChange('right', v)}
-                disabled={usesTexEngine}
               />
             </div>
           </div>
@@ -347,19 +345,16 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
                 label={t('builder.formatting.spacingSection')}
                 value={settings.spacing.section}
                 onChange={(v) => handleSpacingChange('section', v)}
-                disabled={usesTexEngine}
               />
               <SpacingSelector
                 label={t('builder.formatting.spacingItems')}
                 value={settings.spacing.item}
                 onChange={(v) => handleSpacingChange('item', v)}
-                disabled={usesTexEngine}
               />
               <SpacingSelector
                 label={t('builder.formatting.spacingLines')}
                 value={settings.spacing.lineHeight}
                 onChange={(v) => handleSpacingChange('lineHeight', v)}
-                disabled={usesTexEngine}
               />
             </div>
           </div>
@@ -374,13 +369,11 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
                 label={t('builder.formatting.baseFontSize')}
                 value={settings.fontSize.base}
                 onChange={(v) => handleFontChange('base', v)}
-                disabled={usesTexEngine}
               />
               <SpacingSelector
                 label={t('builder.formatting.headerScale')}
                 value={settings.fontSize.headerScale}
                 onChange={(v) => handleFontChange('headerScale', v)}
-                disabled={usesTexEngine}
               />
               {/* Header Font Family */}
               <div className="flex items-center gap-2">
@@ -455,8 +448,7 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
               <label className="flex items-center gap-3 cursor-pointer">
                 <button
                   onClick={handleCompactModeToggle}
-                  disabled={usesTexEngine}
-                  className={`relative w-10 h-5 border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                  className={`relative w-10 h-5 border-2 transition-all ${
                     settings.compactMode
                       ? 'bg-blue-700 border-blue-700'
                       : 'bg-white border-steel-grey'
@@ -514,31 +506,37 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
                     right: settings.margins.right,
                   })}
                 </div>
-                <div>
-                  {t('builder.formatting.effectiveSectionGap')}: {formatRem(sectionGapRem)}
-                </div>
-                <div>
-                  {t('builder.formatting.effectiveItemGap')}: {formatRem(itemGapRem)}
-                </div>
-                <div>
-                  {t('builder.formatting.effectiveLineHeight')}: {lineHeightValue.toFixed(2)}
-                </div>
-                <div>
-                  {t('builder.formatting.effectiveBaseFont')}:{' '}
-                  {FONT_SIZE_MAP[settings.fontSize.base]}
-                </div>
-                <div>
-                  {t('builder.formatting.effectiveHeaderScale')}:{' '}
-                  {HEADER_SCALE_MAP[settings.fontSize.headerScale]}x
-                </div>
-                <div>
-                  {t('builder.formatting.effectiveHeaderFont')}:{' '}
-                  {getFontLabel(settings.fontSize.headerFont)}
-                </div>
-                <div>
-                  {t('builder.formatting.effectiveBodyFont')}:{' '}
-                  {getFontLabel(settings.fontSize.bodyFont)}
-                </div>
+                {/* CSS units describe the browser renderer only; the engine's
+                    lengths come from `app/latex/layout.py`. */}
+                {!usesTexEngine && (
+                  <>
+                    <div>
+                      {t('builder.formatting.effectiveSectionGap')}: {formatRem(sectionGapRem)}
+                    </div>
+                    <div>
+                      {t('builder.formatting.effectiveItemGap')}: {formatRem(itemGapRem)}
+                    </div>
+                    <div>
+                      {t('builder.formatting.effectiveLineHeight')}: {lineHeightValue.toFixed(2)}
+                    </div>
+                    <div>
+                      {t('builder.formatting.effectiveBaseFont')}:{' '}
+                      {FONT_SIZE_MAP[settings.fontSize.base]}
+                    </div>
+                    <div>
+                      {t('builder.formatting.effectiveHeaderScale')}:{' '}
+                      {HEADER_SCALE_MAP[settings.fontSize.headerScale]}x
+                    </div>
+                    <div>
+                      {t('builder.formatting.effectiveHeaderFont')}:{' '}
+                      {getFontLabel(settings.fontSize.headerFont)}
+                    </div>
+                    <div>
+                      {t('builder.formatting.effectiveBodyFont')}:{' '}
+                      {getFontLabel(settings.fontSize.bodyFont)}
+                    </div>
+                  </>
+                )}
               </div>
               {settings.compactMode && (
                 <div className="font-mono text-[10px] text-steel-grey mt-2">

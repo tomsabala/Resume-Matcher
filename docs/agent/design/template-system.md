@@ -105,11 +105,13 @@ interface TemplateSettings {
 }
 ```
 
-With a `tex` template selected, `pageSize` is the only field that still has an
-effect: the `/tex*` routes take `pageSize=A4|LETTER` and the `.tex.j2`
-preambles select `a4paper`/`letterpaper` from it. Everything else above is
-CSS-driven and HTML-only, so `FormattingControls` disables those controls for a
-`tex` selection rather than letting them appear to work.
+With a `tex` template selected, the engine reads `pageSize`, `margins`,
+`spacing`, `fontSize.base`, `fontSize.headerScale` and `compactMode`: the
+`/tex*` routes take them as query parameters and
+`apps/backend/app/latex/layout.py` turns them into preamble values. The
+font families, `showContactIcons` and `accentColor` are CSS-driven and
+HTML-only, so `FormattingControls` disables exactly those for a `tex`
+selection rather than letting them appear to work.
 
 ## Section Order and Placement
 

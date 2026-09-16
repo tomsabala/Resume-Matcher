@@ -57,12 +57,13 @@ LaTeX options render disabled when `getTexCapabilities()` reports no engine.
 | Contact Icons | boolean | false | Show icons next to contact info |
 | Accent Color | blue/green/orange/red | blue | Accent color for color templates (modern, modern-two-column, vivid) |
 
-Every control above except **Page Size** is CSS-driven, so it applies to the
-HTML target only. With a LaTeX template selected, `FormattingControls` disables
-margins, spacing, font sizes, header/body font, compact mode, contact icons and
-accent colour and shows `builder.formatting.texNotice` under the template grid.
-Page size stays live: the `/tex*` routes take `pageSize=A4|LETTER` and both
-`.tex.j2` preambles select `a4paper`/`letterpaper` from it.
+Every control above is CSS-driven for the HTML target. With a LaTeX template
+selected, page size, margins, spacing, base font size, header scale and
+compact mode still apply — the `/tex*` routes take them as query parameters
+and `apps/backend/app/latex/layout.py` maps each level to a TeX length (see
+[latex-export.md](latex-export.md#levels-become-lengths-in-applatexlayoutpy)).
+`FormattingControls` disables only header/body font, contact icons and accent
+colour, and shows `builder.formatting.texNotice` under the template grid.
 
 ## Where the Choice Lives
 

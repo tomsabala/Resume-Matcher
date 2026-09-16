@@ -384,7 +384,7 @@
       "effectiveBodyFont": "Fonte do Corpo",
       "compactHint": "O modo compacto reduz espaçamento e altura da linha. Margens e tamanho de fonte base permanecem literais.",
       "resetDefaults": "Restaurar Padrões",
-      "texNotice": "Um modelo LaTeX é compilado pelo motor, que lê apenas o tamanho da página. Os outros controles de formatação valem para os modelos renderizados no navegador."
+      "texNotice": "Um modelo LaTeX é compilado pelo motor: tamanho da página, margens, espaçamento e tamanhos de fonte valem para a exportação. A família tipográfica, a cor de destaque e os ícones de contato valem apenas para os modelos renderizados no navegador."
     },
     "leftPanel": {
       "editorPanel": "Painel do Editor",

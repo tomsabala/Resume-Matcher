@@ -272,7 +272,7 @@ export async function downloadResumePdf(
     return await compileTexPdf(
       normalizeResumeId(resumeId),
       settings.template as TexTemplateId,
-      settings.pageSize
+      settings
     );
   }
   const url = getResumePdfUrl(resumeId, settings, locale);

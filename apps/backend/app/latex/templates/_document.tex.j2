@@ -14,10 +14,10 @@
 <# Header: name, headline, and contacts on one `$|$`-separated line. #>
 \begin{tabularx}{\linewidth}{@{} C @{}}
 <% if header.name %>
-\LARGE{<< header.name | tex >>} \\[3pt]
+{<< layout.name_size >> << header.name | tex >>} \\[3pt]
 <% endif %>
 <% if header.headline %>
-\large{<< header.headline | tex >>} \\[3pt]
+{<< layout.headline_size >> << header.headline | tex >>} \\[3pt]
 <% endif %>
 <% set links = header.contacts | renderable_contacts %>
 <% for contact in links %>
@@ -57,7 +57,7 @@
 <% endif %>
 << entry.summary | tex >>
 \end{jobshort}
-\begin{itemize}[nosep,after=\strut, leftmargin=1em, itemsep=2pt,label=\textbullet]
+\begin{itemize}[nosep,after=\strut, leftmargin=1em, itemsep=\resumeItemSep,label=\textbullet]
 <% for bullet in entry.bullets %>
 <% if bullet.style == 'plain' %>
 \item[] << bullet.text | tex_rich >>

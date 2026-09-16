@@ -1,13 +1,13 @@
 <# Classic: the single-column article layout from the reference CV.
      `article` 10pt, titlesec rules, tabularx header, fontawesome5 icons. #>
-\documentclass[<< 'letterpaper' if settings.get('pageSize') == 'LETTER' else 'a4paper' >>,<< settings.get('fontSize', 10) | int >>pt]{article}
+<< layout.documentclass >>
 
 \usepackage{url}
 \usepackage{parskip}
 \RequirePackage{color}
 \RequirePackage{graphicx}
 \usepackage[usenames,dvipsnames]{xcolor}
-\usepackage[scale=<< settings.get('texScale', '0.9') >>]{geometry}
+\usepackage[<< layout.geometry >>]{geometry}
 \usepackage{tabularx}
 \usepackage{enumitem}
 \usepackage{supertabular}
@@ -22,16 +22,20 @@
 \newlength{\fullcollw}
 \setlength{\fullcollw}{0.47\textwidth}
 
-\titleformat{\section}{\large\scshape\raggedright}{}{0em}{}[\titlerule]
-\titlespacing{\section}{0pt}{7pt}{4pt}
+\titleformat{\section}{<< layout.section_size >>\scshape\raggedright}{}{0em}{}[\titlerule]
+\titlespacing{\section}{0pt}{<< layout.section_before >>}{<< layout.section_after >>}
+\linespread{<< layout.linespread >>}
 
 <# Vertical rhythm, named so the two templates can differ and a change is one
-     edit. Tuned against the reference CV: the gap from a section's last body
-     line to the next heading measures 13.8-14.9pt here, against the
-     reference's 13.8-15.4pt. `-6pt` gave 18.8pt and cost a whole page. #>
-\newcommand{\resumeEntryGap}{\vspace{1pt}}
-\newcommand{\resumeSectionEnd}{\vspace{-11pt}}
-\newcommand{\resumeBlockEnd}{\vspace{-2pt}}
+     edit. The values come from `app/latex/layout.py`, which scales the tuned
+     baselines by the panel's spacing levels. Tuned against the reference CV:
+     the gap from a section's last body line to the next heading measures
+     13.8-14.9pt at the neutral level, against the reference's 13.8-15.4pt.
+     `-6pt` gave 18.8pt and cost a whole page. #>
+\newcommand{\resumeEntryGap}{\vspace{<< layout.entry_gap >>}}
+\newcommand{\resumeSectionEnd}{\vspace{<< layout.section_end >>}}
+\newcommand{\resumeBlockEnd}{\vspace{<< layout.block_end >>}}
+\newcommand{\resumeItemSep}{<< layout.item_sep >>}
 
 \usepackage[unicode, draft=false]{hyperref}
 \definecolor{linkcolour}{rgb}{0,0.2,0.6}
@@ -52,7 +56,7 @@
     \textbf{#1} & \hfill & #2 \\[2pt]
     \end{tabularx}
     \begin{minipage}[t]{\linewidth}
-    \begin{itemize}[nosep,after=\strut, leftmargin=1em, itemsep=2pt,label=\textbullet]
+    \begin{itemize}[nosep,after=\strut, leftmargin=1em, itemsep=\resumeItemSep,label=\textbullet]
     }
     {
     \end{itemize}

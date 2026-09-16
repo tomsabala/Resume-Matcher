@@ -384,7 +384,7 @@
       "effectiveBodyFont": "正文字体",
       "compactHint": "紧凑模式会收紧间距与行高；页边距与正文字号保持不变。",
       "resetDefaults": "恢复默认设置",
-      "texNotice": "LaTeX 模板由引擎编译，只读取页面尺寸。其余排版控件适用于浏览器渲染的模板。"
+      "texNotice": "LaTeX 模板由引擎编译：页面尺寸、页边距、间距和字号都会应用到导出结果。字体、强调色和联系方式图标仅适用于浏览器渲染的模板。"
     },
     "leftPanel": {
       "editorPanel": "编辑面板",

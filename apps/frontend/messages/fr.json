@@ -384,7 +384,7 @@
       "effectiveBodyFont": "Police du corps",
       "compactHint": "Le mode compact resserre l'espacement et l'interligne. Les marges et la taille de police de base restent littérales.",
       "resetDefaults": "Rétablir les valeurs par défaut",
-      "texNotice": "Un modèle LaTeX est compilé par le moteur, qui ne lit que le format de page. Les autres réglages de mise en forme s'appliquent aux modèles rendus par le navigateur."
+      "texNotice": "Un modèle LaTeX est compilé par le moteur : le format de page, les marges, les espacements et les tailles de police s'appliquent à l'export. La police, la couleur d'accent et les icônes de contact ne s'appliquent qu'aux modèles rendus par le navigateur."
     },
     "leftPanel": {
       "editorPanel": "Panneau d'édition",

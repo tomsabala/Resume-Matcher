@@ -26,8 +26,8 @@ vi.mock('@/components/dashboard/resume-component', () => ({
   ),
 }));
 vi.mock('@/components/latex/tex-pdf-preview', () => ({
-  TexPdfPreview: ({ template, pageSize }: { template: string; pageSize: string }) => (
-    <div data-testid="tex-preview" data-template={template} data-page-size={pageSize} />
+  TexPdfPreview: ({ template, settings }: { template: string; settings: { pageSize: string } }) => (
+    <div data-testid="tex-preview" data-template={template} data-page-size={settings.pageSize} />
   ),
 }));
 vi.mock('@/lib/api/resume', () => ({

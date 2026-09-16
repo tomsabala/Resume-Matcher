@@ -39,14 +39,16 @@ describe('resume export routing', () => {
     ).toThrow(/tex-classic/);
   });
 
-  it('compiles a LaTeX selection with its template and page size', async () => {
-    await downloadResumePdf(
-      'r-1',
-      { ...DEFAULT_TEMPLATE_SETTINGS, template: 'tex-compact', pageSize: 'LETTER' },
-      'en'
-    );
+  it('compiles a LaTeX selection with its template and formatting controls', async () => {
+    const settings = {
+      ...DEFAULT_TEMPLATE_SETTINGS,
+      template: 'tex-compact' as const,
+      pageSize: 'LETTER' as const,
+    };
 
-    expect(compile).toHaveBeenCalledWith('r-1', 'tex-compact', 'LETTER');
+    await downloadResumePdf('r-1', settings, 'en');
+
+    expect(compile).toHaveBeenCalledWith('r-1', 'tex-compact', settings);
     expect(fetchApi).not.toHaveBeenCalled();
   });
 

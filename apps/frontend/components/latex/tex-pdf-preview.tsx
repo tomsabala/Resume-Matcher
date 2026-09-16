@@ -1,16 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useTranslations } from '@/lib/i18n';
-import { compileTexPdf, TexCompileError, TexUnavailableError } from '@/lib/api/tex';
-import type { TexTemplateId } from '@/lib/api/tex';
-import type { PageSize } from '@/lib/types/template-settings';
+import {
+  compileTexPdf,
+  texFormatParams,
+  TexCompileError,
+  TexUnavailableError,
+} from '@/lib/api/tex';
+import type { TexFormatSettings, TexTemplateId } from '@/lib/api/tex';
 
 interface TexPdfPreviewProps {
   resumeId: string;
   template: TexTemplateId;
-  /** The picker's page size — the one formatting control the engine reads. */
-  pageSize: PageSize;
+  /** The formatting controls the engine reads: page size, margins, spacing
+   * and font sizes. A recompile follows once they settle. */
+  settings: TexFormatSettings;
   /** Bumped by the parent after a save or reset, so the compile reruns. */
   revision: number;
 }
@@ -33,11 +39,22 @@ type Failure =
  * never what its Download PDF produced. This compiles the same source the
  * download does, so the preview is the artifact.
  */
-export function TexPdfPreview({ resumeId, template, pageSize, revision }: TexPdfPreviewProps) {
+export function TexPdfPreview({ resumeId, template, settings, revision }: TexPdfPreviewProps) {
   const { t } = useTranslations();
   const [url, setUrl] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [compiling, setCompiling] = useState(true);
+
+  // A compile is seconds of engine time, so the recompile follows the settled
+  // controls; a slider drag would otherwise queue one compile per step.
+  const formatKey = useMemo(() => texFormatParams(settings).toString(), [settings]);
+  const debouncedKey = useDebouncedValue(formatKey, 500);
+  // Synced in an effect declared before the compile one, so the compile reads
+  // the latest settings while rerunning only on the debounced key.
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +63,7 @@ export function TexPdfPreview({ resumeId, template, pageSize, revision }: TexPdf
     setCompiling(true);
     setFailure(null);
 
-    compileTexPdf(resumeId, template, pageSize)
+    compileTexPdf(resumeId, template, settingsRef.current)
       .then((blob) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
@@ -74,7 +91,9 @@ export function TexPdfPreview({ resumeId, template, pageSize, revision }: TexPdf
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [resumeId, template, pageSize, revision]);
+    // `revision` recompiles after a save or reset; `debouncedKey` after the
+    // formatting controls settle.
+  }, [resumeId, template, revision, debouncedKey]);
 
   if (failure) {
     return (

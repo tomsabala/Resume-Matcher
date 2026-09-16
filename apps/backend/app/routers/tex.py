@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.database import DatabaseBusyError, db
 from app.latex.compile import (
@@ -49,12 +49,12 @@ async def _load(resume_id: str) -> dict[str, object]:
     return resume
 
 
-def _generate(resume: dict[str, object], template: str, page_size: str) -> str:
+def _generate(
+    resume: dict[str, object], template: str, settings: dict[str, object]
+) -> str:
     document = migrate_document(resume.get("processed_data"))
     try:
-        return render_document_tex(
-            document, template, settings={"pageSize": page_size}
-        )
+        return render_document_tex(document, template, settings=settings)
     except UnknownLatexTemplateError:
         raise HTTPException(
             status_code=400,
@@ -63,18 +63,51 @@ def _generate(resume: dict[str, object], template: str, page_size: str) -> str:
 
 
 def _source_for(
-    resume: dict[str, object], template: str, page_size: str
+    resume: dict[str, object], template: str, settings: dict[str, object]
 ) -> tuple[str, bool]:
     """The source to serve, and whether it is the user's override."""
     override = resume.get("tex_source")
     if isinstance(override, str) and override.strip():
         return override, True
-    return _generate(resume, template, page_size), False
+    return _generate(resume, template, settings), False
 
 
-# The picker's page size is the only formatting control the LaTeX templates
-# read; every other knob is HTML-only and disabled for a tex selection.
-_PAGE_SIZE = Query("A4", pattern="^(A4|LETTER)$")
+def tex_format_settings(
+    pageSize: str = Query("A4", pattern="^(A4|LETTER)$"),  # noqa: N803 - query names match the client
+    marginTop: int | None = Query(None, ge=5, le=25),  # noqa: N803
+    marginBottom: int | None = Query(None, ge=5, le=25),  # noqa: N803
+    marginLeft: int | None = Query(None, ge=5, le=25),  # noqa: N803
+    marginRight: int | None = Query(None, ge=5, le=25),  # noqa: N803
+    sectionSpacing: int = Query(3, ge=1, le=5),  # noqa: N803
+    itemSpacing: int = Query(2, ge=1, le=5),  # noqa: N803
+    lineHeight: int = Query(3, ge=1, le=5),  # noqa: N803
+    fontSize: int = Query(3, ge=1, le=5),  # noqa: N803
+    headerScale: int = Query(3, ge=1, le=5),  # noqa: N803
+    compactMode: bool = Query(False),  # noqa: N803
+) -> dict[str, object]:
+    """The formatting controls the LaTeX templates read, as a settings dict.
+
+    Names and bounds are the Chromium route's (``resumes.py``'s ``/pdf``), so
+    one control cannot mean two things across the two renderers. Margins stay
+    optional: with none given the templates keep their paper-proportional
+    reference geometry.
+    """
+    margins = {
+        "marginTop": marginTop,
+        "marginBottom": marginBottom,
+        "marginLeft": marginLeft,
+        "marginRight": marginRight,
+    }
+    return {
+        "pageSize": pageSize,
+        **{key: value for key, value in margins.items() if value is not None},
+        "sectionSpacing": sectionSpacing,
+        "itemSpacing": itemSpacing,
+        "lineHeight": lineHeight,
+        "fontSize": fontSize,
+        "headerScale": headerScale,
+        "compactMode": compactMode,
+    }
 
 
 @router.get("/tex/capabilities", response_model=TexCapabilities)
@@ -92,7 +125,7 @@ async def get_tex_capabilities() -> TexCapabilities:
 async def get_resume_tex(
     resume_id: str,
     template: str = Query("tex-classic"),
-    pageSize: str = _PAGE_SIZE,  # noqa: N803 - query name matches the client
+    tex_settings: dict[str, object] = Depends(tex_format_settings),
     regenerate: bool = Query(
         False,
         description="Ignore a saved override and render from the document.",
@@ -101,9 +134,9 @@ async def get_resume_tex(
     """The resume's LaTeX source: the user's override, or freshly generated."""
     resume = await _load(resume_id)
     if regenerate:
-        source, is_override = _generate(resume, template, pageSize), False
+        source, is_override = _generate(resume, template, tex_settings), False
     else:
-        source, is_override = _source_for(resume, template, pageSize)
+        source, is_override = _source_for(resume, template, tex_settings)
     return TexSourceResponse(
         resume_id=resume_id,
         source=source,
@@ -157,7 +190,7 @@ async def put_resume_tex(
 async def delete_resume_tex(
     resume_id: str,
     template: str = Query("tex-classic"),
-    pageSize: str = _PAGE_SIZE,  # noqa: N803 - query name matches the client
+    tex_settings: dict[str, object] = Depends(tex_format_settings),
 ) -> TexSourceResponse:
     """Drop the override and go back to generating from the document."""
     resume = await _load(resume_id)
@@ -179,7 +212,7 @@ async def delete_resume_tex(
         ) from error
     return TexSourceResponse(
         resume_id=resume_id,
-        source=_generate(resume, template, pageSize),
+        source=_generate(resume, template, tex_settings),
         is_override=False,
         template=template,
         engine=_engine_name(),
@@ -190,11 +223,11 @@ async def delete_resume_tex(
 async def download_resume_tex(
     resume_id: str,
     template: str = Query("tex-classic"),
-    pageSize: str = _PAGE_SIZE,  # noqa: N803 - query name matches the client
+    tex_settings: dict[str, object] = Depends(tex_format_settings),
 ) -> Response:
     """The ``.tex`` as a file download — the fallback when no engine exists."""
     resume = await _load(resume_id)
-    source, _ = _source_for(resume, template, pageSize)
+    source, _ = _source_for(resume, template, tex_settings)
     return Response(
         content=source.encode("utf-8"),
         media_type="application/x-tex",
@@ -208,11 +241,11 @@ async def download_resume_tex(
 async def download_resume_tex_pdf(
     resume_id: str,
     template: str = Query("tex-classic"),
-    pageSize: str = _PAGE_SIZE,  # noqa: N803 - query name matches the client
+    tex_settings: dict[str, object] = Depends(tex_format_settings),
 ) -> Response:
     """Compile the resume's LaTeX and return the PDF."""
     resume = await _load(resume_id)
-    source, _ = _source_for(resume, template, pageSize)
+    source, _ = _source_for(resume, template, tex_settings)
     try:
         pdf_bytes = await compile_tex_to_pdf(source)
     except LatexUnavailableError as error:

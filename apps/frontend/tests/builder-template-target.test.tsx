@@ -52,8 +52,8 @@ vi.mock('@/components/preview', () => ({
   PaginatedPreview: () => <div data-testid="html-preview" />,
 }));
 vi.mock('@/components/latex/tex-pdf-preview', () => ({
-  TexPdfPreview: ({ template, pageSize }: { template: string; pageSize: string }) => (
-    <div data-testid="tex-preview" data-template={template} data-page-size={pageSize} />
+  TexPdfPreview: ({ template, settings }: { template: string; settings: { pageSize: string } }) => (
+    <div data-testid="tex-preview" data-template={template} data-page-size={settings.pageSize} />
   ),
 }));
 vi.mock('@/components/latex/latex-panel', () => ({ LatexPanel: () => null }));

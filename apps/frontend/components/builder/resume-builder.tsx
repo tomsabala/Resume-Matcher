@@ -1741,7 +1741,7 @@ const ResumeBuilderContent = () => {
                   onTemplateChange={(template) =>
                     handleSettingsChange(applyTemplatePreset(templateSettings, template))
                   }
-                  pageSize={templateSettings.pageSize}
+                  settings={templateSettings}
                   revision={historyRevision}
                   onSourceChanged={() => {
                     setHistoryRevision((value) => value + 1);
@@ -1854,7 +1854,7 @@ const ResumeBuilderContent = () => {
                   <TexPdfPreview
                     resumeId={resumeId}
                     template={texTemplate}
-                    pageSize={templateSettings.pageSize}
+                    settings={templateSettings}
                     revision={texRevision}
                   />
                 ) : (
@@ -1919,7 +1919,7 @@ const ResumeBuilderContent = () => {
                   <TexPdfPreview
                     resumeId={resumeId}
                     template={texTemplate}
-                    pageSize={templateSettings.pageSize}
+                    settings={templateSettings}
                     revision={texRevision}
                   />
                 ) : (
@@ -1931,7 +1931,7 @@ const ResumeBuilderContent = () => {
                 <TexPdfPreview
                   resumeId={resumeId}
                   template={texTemplate}
-                  pageSize={templateSettings.pageSize}
+                  settings={templateSettings}
                   revision={texRevision}
                 />
               )}

@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useTranslations } from '@/lib/i18n';
-import type { PageSize } from '@/lib/types/template-settings';
 import {
   clearTexSource,
   compileTexPdf,
@@ -12,9 +12,11 @@ import {
   getTexSource,
   saveTexSource,
   downloadTexSource,
+  texFormatParams,
   TexCompileError,
   TexUnavailableError,
   type TexCapabilities,
+  type TexFormatSettings,
   type TexTemplateId,
 } from '@/lib/api/tex';
 
@@ -32,8 +34,9 @@ interface LatexPanelProps {
   htmlTemplateSelected: boolean;
   /** Used only by the notice that offers to switch to a LaTeX template. */
   onTemplateChange: (template: TexTemplateId) => void;
-  /** The picker's page size — the one formatting control the engine reads. */
-  pageSize: PageSize;
+  /** The formatting controls the engine reads: page size, margins, spacing
+   * and font sizes. Generated source refetches when they settle. */
+  settings: TexFormatSettings;
   /** Bumped by the parent after a document save, so a generated source refetches. */
   revision?: number;
   /** Invoked after a save or reset, which both land on the version timeline. */
@@ -62,7 +65,7 @@ export function LatexPanel({
   template,
   htmlTemplateSelected,
   onTemplateChange,
-  pageSize,
+  settings,
   revision = 0,
   onSourceChanged,
 }: LatexPanelProps) {
@@ -92,28 +95,56 @@ export function LatexPanel({
     };
   }, []);
 
-  const load = useCallback(
-    async (nextTemplate: TexTemplateId) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await getTexSource(resumeId, { template: nextTemplate, pageSize });
+  // The reload key, not the settings object: a slider emits a value per pixel
+  // of drag, and every one of those is a new object identity.
+  const formatKey = useMemo(() => texFormatParams(settings).toString(), [settings]);
+  const debouncedKey = useDebouncedValue(formatKey, 500);
+
+  // Read inside the effect rather than closed over, so the fetch uses the
+  // latest values while the effect reruns only on the debounced key. `t` is a
+  // fresh identity every render, so it has to be a ref too or the source
+  // refetches on every keystroke. Synced in an effect declared before the
+  // reload one, so it lands first.
+  const settingsRef = useRef(settings);
+  const dirtyRef = useRef(isDirty);
+  const translateRef = useRef(t);
+  useEffect(() => {
+    settingsRef.current = settings;
+    dirtyRef.current = isDirty;
+    translateRef.current = t;
+  });
+
+  useEffect(() => {
+    // Never refetch over unsaved LaTeX: it would silently discard the edit.
+    // Save and Reset set the source themselves and both clear dirtiness.
+    if (dirtyRef.current) return;
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getTexSource(resumeId, { template, format: settingsRef.current })
+      .then((result) => {
+        if (cancelled) return;
         setSource(result.source);
         setServerSource(result.source);
         setIsOverride(result.is_override);
-      } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : t('latex.errors.load'));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [resumeId, pageSize, t]
-  );
+      })
+      .catch((loadError: unknown) => {
+        if (cancelled) return;
+        setError(
+          loadError instanceof Error ? loadError.message : translateRef.current('latex.errors.load')
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-  useEffect(() => {
-    void load(template);
-    // `revision` participates so a document save refreshes generated source.
-  }, [load, template, revision]);
+    // `revision` participates so a document save refreshes generated source;
+    // `debouncedKey` so settled formatting controls do.
+    return () => {
+      cancelled = true;
+    };
+  }, [resumeId, template, revision, debouncedKey]);
 
   const handleSave = async () => {
     setBusy('saving');
@@ -135,7 +166,7 @@ export function LatexPanel({
     setBusy('resetting');
     setError(null);
     try {
-      const result = await clearTexSource(resumeId, template, pageSize);
+      const result = await clearTexSource(resumeId, template, settings);
       setSource(result.source);
       setServerSource(result.source);
       setIsOverride(false);
@@ -150,7 +181,7 @@ export function LatexPanel({
   const handleDownloadSource = async () => {
     setError(null);
     try {
-      download(await downloadTexSource(resumeId, template, pageSize), `resume-${template}.tex`);
+      download(await downloadTexSource(resumeId, template, settings), `resume-${template}.tex`);
     } catch (downloadError) {
       setError(downloadError instanceof Error ? downloadError.message : t('latex.errors.load'));
     }
@@ -161,7 +192,7 @@ export function LatexPanel({
     setError(null);
     setCompileLog(null);
     try {
-      download(await compileTexPdf(resumeId, template, pageSize), `resume-${template}.pdf`);
+      download(await compileTexPdf(resumeId, template, settings), `resume-${template}.pdf`);
     } catch (compileError) {
       if (compileError instanceof TexCompileError) {
         setError(compileError.message);

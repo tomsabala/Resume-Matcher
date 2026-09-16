@@ -384,7 +384,7 @@
       "effectiveBodyFont": "Fuente del cuerpo",
       "compactHint": "El modo compacto reduce el espaciado y el interlineado. Los márgenes y la fuente base se mantienen.",
       "resetDefaults": "Restablecer valores",
-      "texNotice": "Una plantilla LaTeX la compila el motor, que solo lee el tamaño de página. Los demás controles de formato se aplican a las plantillas renderizadas en el navegador."
+      "texNotice": "Una plantilla LaTeX la compila el motor: el tamaño de página, los márgenes, el espaciado y los tamaños de fuente se aplican a la exportación. La familia tipográfica, el color de acento y los iconos de contacto solo se aplican a las plantillas renderizadas en el navegador."
     },
     "leftPanel": {
       "editorPanel": "Panel de edición",

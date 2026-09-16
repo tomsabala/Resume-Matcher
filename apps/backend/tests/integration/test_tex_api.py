@@ -355,8 +355,8 @@ async def test_restoring_a_pre_override_version_brings_back_its_source(
 async def test_the_picker_page_size_reaches_the_generated_source(
     isolated_db: Any, sample_resume: dict[str, Any]
 ) -> None:
-    """Page size is the one formatting control the templates read. Without it
-    the preamble hardcodes A4 and the picker's US Letter does nothing."""
+    """Page size is a class option, so without it the preamble hardcodes A4
+    and the picker's US Letter does nothing."""
     resume_id = await _seed(isolated_db, sample_resume)
 
     async with _client() as client:
@@ -368,6 +368,42 @@ async def test_the_picker_page_size_reaches_the_generated_source(
     assert "a4paper" in a4.json()["source"]
     assert "letterpaper" in letter.json()["source"]
     assert "a4paper" not in letter.json()["source"]
+
+
+async def test_the_formatting_controls_reach_the_generated_source(
+    isolated_db: Any, sample_resume: dict[str, Any]
+) -> None:
+    """Margins, base font size and spacing are panel controls; if the route
+    drops them the preview and the export keep the reference look whatever the
+    sliders say."""
+    resume_id = await _seed(isolated_db, sample_resume)
+
+    async with _client() as client:
+        response = await client.get(
+            f"/api/v1/resumes/{resume_id}/tex",
+            params={"marginLeft": 20, "fontSize": 5, "sectionSpacing": 5},
+        )
+
+    source = response.json()["source"]
+    assert "left=20mm" in source
+    assert "12pt]{article}" in source
+    assert "\\newcommand{\\resumeSectionEnd}{\\vspace{-7.5pt}}" in source
+    assert "scale=0.9" not in source
+
+
+async def test_an_out_of_range_formatting_level_is_rejected(
+    isolated_db: Any, sample_resume: dict[str, Any]
+) -> None:
+    """The levels are a 1-5 vocabulary shared with the Chromium route; a pt
+    value here used to be a silently different meaning of ``fontSize``."""
+    resume_id = await _seed(isolated_db, sample_resume)
+
+    async with _client() as client:
+        response = await client.get(
+            f"/api/v1/resumes/{resume_id}/tex", params={"fontSize": 9}
+        )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")

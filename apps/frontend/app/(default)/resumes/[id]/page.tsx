@@ -533,7 +533,7 @@ export default function ResumeViewerPage() {
               <TexPdfPreview
                 resumeId={resumeId}
                 template={templateSettings.template as TexTemplateId}
-                pageSize={templateSettings.pageSize}
+                settings={templateSettings}
                 revision={0}
               />
             </div>

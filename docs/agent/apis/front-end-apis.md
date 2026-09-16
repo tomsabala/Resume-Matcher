@@ -379,12 +379,13 @@ statuses, spans and the pairing rules behind them:
 
 ```typescript
 getTexCapabilities() → TexCapabilities          // GET  /resumes/tex/capabilities
-getTexSource(resumeId, { template?, regenerate? }) → TexSource
+getTexSource(resumeId, { template?, regenerate?, format? }) → TexSource
                                                 // GET  /resumes/{id}/tex
 saveTexSource(resumeId, source) → TexSource     // PUT  /resumes/{id}/tex
-clearTexSource(resumeId, template?) → TexSource // DELETE /resumes/{id}/tex
-downloadTexSource(resumeId, template?) → Blob   // GET  /resumes/{id}/tex/source
-compileTexPdf(resumeId, template?) → Blob       // GET  /resumes/{id}/tex/pdf
+clearTexSource(resumeId, template?, format?) → TexSource // DELETE /resumes/{id}/tex
+downloadTexSource(resumeId, template?, format?) → Blob   // GET  /resumes/{id}/tex/source
+compileTexPdf(resumeId, template?, format?) → Blob       // GET  /resumes/{id}/tex/pdf
+texFormatParams(format?) → URLSearchParams      // the formatting query the engine reads
 ```
 
 ```typescript
@@ -406,12 +407,17 @@ interface TexSource {
 `template` defaults to `tex-classic` on every route that renders.
 `regenerate=true` returns freshly generated source for one read without
 clearing a stored override. `PUT` bodies are `{ source }`, 1–400,000 chars.
+`format` is a `TexFormatSettings` (a `TemplateSettings` narrowed to
+`pageSize`, `margins`, `spacing`, `fontSize`, `compactMode`) and becomes the
+query the LaTeX engine reads — same parameter names and bounds as the Chromium
+`/pdf` route. Omitted, only `pageSize=A4` is sent and each template keeps its
+reference geometry.
 
 | Status | Meaning |
 | ------ | ------- |
 | `400` | unknown `template` id; the detail lists the valid ones |
 | `404` | unknown resume id |
-| `422` | `/tex/pdf` — the engine rejected the source. Detail is `{ message, log }`, surfaced by the client as `TexCompileError` with the engine log attached |
+| `422` | a formatting parameter outside its range (margins 5–25mm, levels 1–5), or `/tex/pdf` — the engine rejected the source. The compile detail is `{ message, log }`, surfaced by the client as `TexCompileError` with the engine log attached |
 | `503` | `/tex/pdf` — no engine on this host, raised as `TexUnavailableError`. Distinct from a `500`: the request is valid, the capability is absent, and the caller should offer the `.tex` download instead |
 
 A `PUT` or `DELETE` writes a version checkpoint (`origin: "tex_edit"`,

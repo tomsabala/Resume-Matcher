@@ -384,7 +384,7 @@
       "effectiveBodyFont": "Body Font",
       "compactHint": "Compact mode tightens spacing and line height. Margins and base font size stay literal.",
       "resetDefaults": "Reset to Defaults",
-      "texNotice": "A LaTeX template is compiled by the engine, which reads only the page size. The other formatting controls apply to the browser-rendered templates."
+      "texNotice": "A LaTeX template is compiled by the engine: page size, margins, spacing and font sizes apply to the export. Font family, accent colour and contact icons apply only to the browser-rendered templates."
     },
     "leftPanel": {
       "editorPanel": "Editor Panel",

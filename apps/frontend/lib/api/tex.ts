@@ -8,7 +8,7 @@
  */
 
 import { apiFetch, apiPut, apiDelete } from './client';
-import type { PageSize } from '@/lib/types/template-settings';
+import type { TemplateSettings } from '@/lib/types/template-settings';
 
 export type TexTemplateId = 'tex-classic' | 'tex-compact';
 
@@ -66,16 +66,47 @@ export async function getTexCapabilities(): Promise<TexCapabilities> {
   return (await response.json()) as TexCapabilities;
 }
 
+/**
+ * The formatting controls the LaTeX engine reads.
+ *
+ * Spelled exactly like the Chromium `/pdf` route's parameters, so one control
+ * cannot mean two things across the two renderers. Font family, accent colour
+ * and contact icons are HTML-only and deliberately absent.
+ */
+export type TexFormatSettings = Pick<
+  TemplateSettings,
+  'pageSize' | 'margins' | 'spacing' | 'fontSize' | 'compactMode'
+>;
+
+export function texFormatParams(settings?: TexFormatSettings): URLSearchParams {
+  const params = new URLSearchParams();
+  params.set('pageSize', settings?.pageSize ?? 'A4');
+  if (!settings) return params;
+  params.set('marginTop', String(settings.margins.top));
+  params.set('marginBottom', String(settings.margins.bottom));
+  params.set('marginLeft', String(settings.margins.left));
+  params.set('marginRight', String(settings.margins.right));
+  params.set('sectionSpacing', String(settings.spacing.section));
+  params.set('itemSpacing', String(settings.spacing.item));
+  params.set('lineHeight', String(settings.spacing.lineHeight));
+  params.set('fontSize', String(settings.fontSize.base));
+  params.set('headerScale', String(settings.fontSize.headerScale));
+  params.set('compactMode', String(settings.compactMode));
+  return params;
+}
+
 export async function getTexSource(
   resumeId: string,
-  options: { template?: TexTemplateId; regenerate?: boolean; pageSize?: PageSize } = {}
+  options: {
+    template?: TexTemplateId;
+    regenerate?: boolean;
+    format?: TexFormatSettings;
+  } = {}
 ): Promise<TexSource> {
-  const params = new URLSearchParams();
+  const params = texFormatParams(options.format);
   if (options.template) params.set('template', options.template);
   if (options.regenerate) params.set('regenerate', 'true');
-  params.set('pageSize', options.pageSize ?? 'A4');
-  const query = params.toString();
-  const response = await apiFetch(`/resumes/${resumeId}/tex${query ? `?${query}` : ''}`);
+  const response = await apiFetch(`/resumes/${resumeId}/tex?${params.toString()}`);
   if (!response.ok) await readError(response, 'Failed to load LaTeX source');
   return (await response.json()) as TexSource;
 }
@@ -89,11 +120,11 @@ export async function saveTexSource(resumeId: string, source: string): Promise<T
 export async function clearTexSource(
   resumeId: string,
   template: TexTemplateId = 'tex-classic',
-  pageSize: PageSize = 'A4'
+  format?: TexFormatSettings
 ): Promise<TexSource> {
-  const response = await apiDelete(
-    `/resumes/${resumeId}/tex?template=${template}&pageSize=${pageSize}`
-  );
+  const params = texFormatParams(format);
+  params.set('template', template);
+  const response = await apiDelete(`/resumes/${resumeId}/tex?${params.toString()}`);
   if (!response.ok) await readError(response, 'Failed to reset LaTeX source');
   return (await response.json()) as TexSource;
 }
@@ -107,11 +138,11 @@ export async function clearTexSource(
 export async function downloadTexSource(
   resumeId: string,
   template: TexTemplateId = 'tex-classic',
-  pageSize: PageSize = 'A4'
+  format?: TexFormatSettings
 ): Promise<Blob> {
-  const response = await apiFetch(
-    `/resumes/${resumeId}/tex/source?template=${template}&pageSize=${pageSize}`
-  );
+  const params = texFormatParams(format);
+  params.set('template', template);
+  const response = await apiFetch(`/resumes/${resumeId}/tex/source?${params.toString()}`);
   if (!response.ok) await readError(response, 'Failed to download LaTeX source');
   return await response.blob();
 }
@@ -125,11 +156,11 @@ export async function downloadTexSource(
 export async function compileTexPdf(
   resumeId: string,
   template: TexTemplateId = 'tex-classic',
-  pageSize: PageSize = 'A4'
+  format?: TexFormatSettings
 ): Promise<Blob> {
-  const response = await apiFetch(
-    `/resumes/${resumeId}/tex/pdf?template=${template}&pageSize=${pageSize}`
-  );
+  const params = texFormatParams(format);
+  params.set('template', template);
+  const response = await apiFetch(`/resumes/${resumeId}/tex/pdf?${params.toString()}`);
   if (response.status === 503) {
     const detail = await response
       .json()

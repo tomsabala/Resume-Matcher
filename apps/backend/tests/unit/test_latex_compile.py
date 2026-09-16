@@ -7,6 +7,7 @@ caller sees when one is missing or the source is broken.
 
 import io
 import shutil
+from collections import Counter
 from typing import Any
 
 import pytest
@@ -36,24 +37,52 @@ def _page_text(pdf: bytes) -> str:
     return " ".join(PdfReader(io.BytesIO(pdf)).pages[0].extract_text().split())
 
 
-def _baseline_gap_before(pdf: bytes, heading: str) -> float:
-    """Points between the last baseline above ``heading`` and the heading's.
+def _baselines(pdf: bytes) -> list[tuple[float, str, float]]:
+    """``(baseline y, text, font size)`` for every text chunk on page 1.
 
     pypdf hands the text matrix to the visitor, so this reads the typeset
     geometry rather than trusting the source.
     """
     from pypdf import PdfReader
 
-    baselines: list[tuple[float, str]] = []
+    chunks: list[tuple[float, str, float]] = []
 
     def visit(text: str, cm: Any, tm: Any, font: Any, size: Any) -> None:
         if text.strip():
-            baselines.append((round(tm[5], 1), text.strip()))
+            chunks.append((round(tm[5], 1), text.strip(), float(size)))
 
     PdfReader(io.BytesIO(pdf)).pages[0].extract_text(visitor_text=visit)
-    heading_y = max(y for y, text in baselines if heading.lower() in text.lower())
-    above = sorted(y for y, _ in baselines if y > heading_y)
+    return chunks
+
+
+def _baseline_gap_before(pdf: bytes, heading: str) -> float:
+    """Points between the last baseline above ``heading`` and the heading's."""
+    chunks = _baselines(pdf)
+    heading_y = max(y for y, text, _ in chunks if heading.lower() in text.lower())
+    above = sorted(y for y, _, _ in chunks if y > heading_y)
     return above[0] - heading_y
+
+
+def _baseline_of(pdf: bytes, needle: str) -> float:
+    """The baseline of the chunk containing ``needle``."""
+    return max(y for y, text, _ in _baselines(pdf) if needle in text)
+
+
+def _body_font_size(pdf: bytes) -> float:
+    """The most common font size on the page, i.e. the body size."""
+    return Counter(round(size, 1) for _, _, size in _baselines(pdf)).most_common(1)[0][0]
+
+
+def _leading_below(pdf: bytes, heading: str) -> float:
+    """Baseline-to-baseline distance inside the paragraph under ``heading``.
+
+    The fixture's wrapped paragraph is the page's last block, so every
+    baseline below the heading belongs to it.
+    """
+    heading_y = max(y for y, text, _ in _baselines(pdf) if heading.lower() in text.lower())
+    lines = sorted({y for y, _, _ in _baselines(pdf) if y < heading_y}, reverse=True)
+    assert len(lines) >= 3, "fixture paragraph must wrap"
+    return lines[0] - lines[1]
 
 
 def test_tectonic_is_preferred_over_a_local_tex_distribution(
@@ -261,3 +290,200 @@ async def test_a_section_does_not_leave_a_heading_sized_hole_behind_it(
     pdf = await compile_tex_to_pdf(render_document_tex(document, template_id))
 
     assert low <= _baseline_gap_before(pdf, "Summary") <= high
+
+
+def _rhythm_document() -> ResumeDocument:
+    """Two entries, two bullets each, and a wrapped closing paragraph.
+
+    One fixture carrying all three spacing axes: heading gaps, bullet gaps and
+    the leading inside a paragraph. The paragraph is last, so every baseline
+    below its heading belongs to it.
+    """
+    return ResumeDocument.model_validate(
+        {
+            "schemaVersion": 2,
+            "header": {"name": "Ada Lovelace", "headline": "Engineer"},
+            "sections": [
+                {
+                    "id": "s-1",
+                    "key": "experience",
+                    "heading": "Experience",
+                    "kind": "entries",
+                    "visible": True,
+                    "column": "main",
+                    "entries": [
+                        {
+                            "id": "e-1",
+                            "title": "Acme",
+                            "period": "2020 - 2024",
+                            "bullets": [
+                                {"text": "Shipped the platform."},
+                                {"text": "Owned latency budgets."},
+                            ],
+                        },
+                        {
+                            "id": "e-2",
+                            "title": "Initech",
+                            "period": "2016 - 2020",
+                            "bullets": [
+                                {"text": "Rebuilt the ingest pipeline."},
+                                {"text": "Halved the deploy time."},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "id": "s-2",
+                    "key": "summary",
+                    "heading": "Summary",
+                    "kind": "text",
+                    "visible": True,
+                    "column": "main",
+                    "text": (
+                        "Engineer with a long history of shipping systems that other "
+                        "people depend on, from storage layers and ingest pipelines to "
+                        "the deployment machinery around them, written here at enough "
+                        "length that the paragraph wraps onto several lines no matter "
+                        "which of the two templates renders it."
+                    ),
+                },
+            ],
+        }
+    )
+
+
+_TIGHT: dict[str, object] = {
+    "sectionSpacing": 1,
+    "itemSpacing": 1,
+    "lineHeight": 1,
+    "fontSize": 1,
+    "headerScale": 1,
+    "marginTop": 5,
+    "marginBottom": 5,
+    "marginLeft": 5,
+    "marginRight": 5,
+}
+
+_LOOSE: dict[str, object] = {
+    "sectionSpacing": 5,
+    "itemSpacing": 5,
+    "lineHeight": 5,
+    "fontSize": 5,
+    "headerScale": 5,
+    "marginTop": 25,
+    "marginBottom": 25,
+    "marginLeft": 25,
+    "marginRight": 25,
+}
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+@pytest.mark.parametrize("template_id", sorted(LATEX_TEMPLATES))
+@pytest.mark.parametrize("settings", [_TIGHT, _LOOSE], ids=["tight", "loose"])
+async def test_the_formatting_extremes_compile(
+    template_id: str, settings: dict[str, object]
+) -> None:
+    """Both ends of every control at once. The tight end is the only path
+    through ``extarticle`` at 8pt, which a stock ``article`` cannot do."""
+    pdf = await compile_tex_to_pdf(
+        render_document_tex(_rhythm_document(), template_id, settings=settings)
+    )
+
+    assert pdf.startswith(b"%PDF-")
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+async def test_a_top_margin_change_moves_the_first_baseline() -> None:
+    """20mm of margin is 56.7pt of paper; anything less means ``geometry``
+    took the value but the body did not."""
+    document = _rhythm_document()
+    tight = await compile_tex_to_pdf(
+        render_document_tex(document, "tex-classic", settings={"marginTop": 5})
+    )
+    wide = await compile_tex_to_pdf(
+        render_document_tex(document, "tex-classic", settings={"marginTop": 25})
+    )
+
+    shift = _baseline_of(tight, "Ada Lovelace") - _baseline_of(wide, "Ada Lovelace")
+
+    assert 53.7 <= shift <= 59.7
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+async def test_the_base_font_size_reaches_the_typeset_page() -> None:
+    document = _rhythm_document()
+    small = await compile_tex_to_pdf(
+        render_document_tex(document, "tex-classic", settings={"fontSize": 1})
+    )
+    large = await compile_tex_to_pdf(
+        render_document_tex(document, "tex-classic", settings={"fontSize": 5})
+    )
+
+    assert 7.5 <= _body_font_size(small) <= 8.5
+    assert 11.5 <= _body_font_size(large) <= 12.5
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+async def test_section_spacing_moves_the_heading_gap_and_leaves_bullets_alone() -> None:
+    """The panel adjusts the three spacing axes separately, so this one must
+    change heading gaps without touching bullet rhythm."""
+    document = _rhythm_document()
+    pdfs = {
+        level: await compile_tex_to_pdf(
+            render_document_tex(document, "tex-classic", settings={"sectionSpacing": level})
+        )
+        for level in (1, 3, 5)
+    }
+
+    gaps = [_baseline_gap_before(pdfs[level], "Summary") for level in (1, 3, 5)]
+    bullet_gaps = [
+        _baseline_of(pdfs[level], "Shipped") - _baseline_of(pdfs[level], "Owned")
+        for level in (1, 3, 5)
+    ]
+
+    assert gaps[0] < gaps[1] < gaps[2]
+    # The default level must still land in the tuned window the reference CV
+    # sets, the one `test_a_section_does_not_leave_a_heading_sized_hole` pins.
+    assert 12.0 <= gaps[1] <= 17.0
+    assert max(bullet_gaps) - min(bullet_gaps) < 1.0
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+async def test_item_spacing_moves_the_bullet_gap_and_leaves_headings_alone() -> None:
+    document = _rhythm_document()
+    tight = await compile_tex_to_pdf(
+        render_document_tex(document, "tex-classic", settings={"itemSpacing": 1})
+    )
+    loose = await compile_tex_to_pdf(
+        render_document_tex(document, "tex-classic", settings={"itemSpacing": 5})
+    )
+
+    def bullet_gap(pdf: bytes) -> float:
+        return _baseline_of(pdf, "Shipped") - _baseline_of(pdf, "Owned")
+
+    assert bullet_gap(tight) < bullet_gap(loose)
+    assert (
+        abs(
+            _baseline_gap_before(tight, "Summary") - _baseline_gap_before(loose, "Summary")
+        )
+        < 1.5
+    )
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+async def test_line_spacing_moves_the_leading_and_leaves_the_gaps_alone() -> None:
+    """``\\linespread`` is leading inside a paragraph. ``parskip`` fixes
+    ``\\parskip`` from the class size, so it cannot leak into the spacing
+    macros — the rendered lengths stay byte-identical."""
+    document = _rhythm_document()
+    sources = {
+        level: render_document_tex(document, "tex-classic", settings={"lineHeight": level})
+        for level in (1, 5)
+    }
+    tight = await compile_tex_to_pdf(sources[1])
+    loose = await compile_tex_to_pdf(sources[5])
+
+    assert _leading_below(tight, "Summary") < _leading_below(loose, "Summary")
+    for source in sources.values():
+        assert "\\newcommand{\\resumeItemSep}{2pt}" in source
+        assert "\\newcommand{\\resumeSectionEnd}{\\vspace{-11pt}}" in source

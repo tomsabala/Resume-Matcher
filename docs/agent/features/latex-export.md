@@ -147,12 +147,44 @@ empty PDF, and registers the helper filters below.
 | `renderable_contacts` | A contact renders when it has *any* of label, value or url — matching the HTML header, where an empty label plus an icon means an icon-only link |
 
 `render_document_tex(document, template_id="tex-classic", settings=None)` is
-the whole API. `settings` is an optional dict of template knobs; each template
-reads only the keys it supports and ignores the rest. The `/tex*` routes pass
-exactly one: `{"pageSize": pageSize}` from their `pageSize` query parameter
-(`A4` | `LETTER`), which selects `a4paper` or `letterpaper` in both preambles.
-The diff's `mode: "tex"` still renders with defaults, so every other value
-below is what a generated `.tex` actually uses.
+the whole API. `settings` is an optional dict of formatting controls, spelled
+exactly like the `/tex*` (and Chromium `/pdf`) query parameters:
+`pageSize`, `marginTop`/`marginBottom`/`marginLeft`/`marginRight` (mm, 5–25),
+`sectionSpacing`, `itemSpacing`, `lineHeight`, `fontSize`, `headerScale`
+(levels 1–5) and `compactMode`. Unknown keys are ignored; absent keys fall
+back to the neutral level, which is each template's reference look, so the
+diff's `mode: "tex"` and a parameterless `GET /tex` still render the values
+documented below.
+
+### Levels become lengths in `app/latex/layout.py`
+
+`tex_layout(template_id, settings)` is the single translation from the panel's
+vocabulary to TeX, and the templates interpolate its output (`layout.*`)
+rather than doing arithmetic. `LATEX_BASELINES` holds one frozen
+`TemplateBaseline` per template — today's tuned literals — and the level
+tables scale them:
+
+| Control | Output keys | Effect |
+| ------- | ----------- | ------ |
+| `pageSize`, `fontSize` | `documentclass` | `a4paper`/`letterpaper` and 8/9/10/11/12pt. Below 10pt the class becomes `extarticle` (`extsizes`), because `article` has no 8pt or 9pt option |
+| margins | `geometry` | One explicit side switches the option list to per-side mm, the other sides taking the template's A4 equivalent; with no margin at all the paper-proportional default (`scale=0.9` / `margin=1.2cm`) is kept verbatim |
+| `sectionSpacing` | `section_before`, `section_after`, `section_end`, `block_end` | The heading rhythm. `section_end`/`block_end` scale only the measured gap *residual*, so the `\titlespacing` before-gap is not counted twice |
+| `itemSpacing` | `item_sep`, `entry_gap` | Bullet-to-bullet and entry-to-entry gaps |
+| `lineHeight` | `linespread` | Leading inside a paragraph or bullet |
+| `headerScale` | `name_size`, `headline_size`, `section_size` | Steps along LaTeX's size ladder (`\tiny`…`\Huge`), clamped at the ends |
+| `compactMode` | all spacing + `linespread` | ×0.6 spacing, ×0.92 leading — the frontend's `COMPACT_MULTIPLIER` / `COMPACT_LINE_HEIGHT_MULTIPLIER` |
+
+**The three spacing axes are disjoint on purpose**, because the panel adjusts
+them independently: `parskip` fixes `\parskip` from the class size at load
+time and does not follow `\linespread`, so leading cannot leak into paragraph,
+entry or section gaps. `tests/unit/test_latex_layout.py` asserts that each
+knob's output keys are byte-identical for the others, and
+`tests/unit/test_latex_compile.py` measures the same independence in the
+compiled PDF.
+
+Font family, accent colour and contact icons stay HTML-only: `bodyFont`
+defaults to `sans-serif`, so honouring it would switch every existing tex
+resume's body face to Computer Modern Sans.
 
 **Sections with nothing to show emit no heading.** `_renderable_sections`
 drops invisible sections and sections that are empty *for their kind* — blank
@@ -173,10 +205,10 @@ Both preambles are modelled on a real-world `article` 10pt CV:
 `enumitem` `\textbullet` lists, `hyperref` links. `tex-classic` uses
 `geometry`'s `scale` with a `\titlerule` under each heading; `tex-compact`
 uses fixed margins, unruled small-caps headings and tighter `parskip`/item
-spacing for a history that has to fit on one page. Each reads a small number
-of `settings` keys, each with a default it falls back to: `fontSize`
-(`10`, the `article` class option in pt), plus `texScale` (`0.9`, classic) or
-`texMargin` (`1.2cm`, compact).
+spacing for a history that has to fit on one page. Neither template hardcodes
+a length any more: the class options, `geometry` options and rhythm macros are
+`layout.*` values from `tex_layout`, and at default levels they are exactly
+the literals above.
 
 Entry rendering in `_document.tex.j2`:
 
@@ -196,17 +228,19 @@ the reference CV places a repo link beside a project name. `tags` sections
 render as a `$|$`-separated line; `groups` sections render as a two-column
 `tabularx` of `label: values`.
 
-### Vertical rhythm is three named macros
+### Vertical rhythm is four named macros
 
 Each preamble defines `\resumeEntryGap` (between entries), `\resumeSectionEnd`
-(after an entries section) and `\resumeBlockEnd` (after text/tags/groups), and
-`_document.tex.j2` uses only those names. The section trailer is the length
-that decides whether a resume fits one page: a uniform `\vspace{-6pt}` left a
-~19pt hole and pushed the last section onto page 2, against 13.8–15.4pt in the
-reference CV. Classic uses `-11pt`, compact `-9pt` — compact sets
+(after an entries section), `\resumeBlockEnd` (after text/tags/groups) and
+`\resumeItemSep` (every bullet list's `itemsep`), and `_document.tex.j2` uses
+only those names. The section trailer is the length that decides whether a
+resume fits one page: a uniform `\vspace{-6pt}` left a ~19pt hole and pushed
+the last section onto page 2, against 13.8–15.4pt in the reference CV. At the
+default spacing level classic uses `-11pt`, compact `-9pt` — compact sets
 `\parskip` to 2pt, so the same `\vspace` yields a larger gap, and it must stay
-the denser of the two. The values are tuned to those `\parskip` settings; if a
-template changes `\parskip`, re-measure with the gap assertion in
+the denser of the two. Those are the `section_end_pt` baselines in
+`layout.py`, tuned to those `\parskip` settings; if a template changes
+`\parskip`, re-measure with the gap assertion in
 `tests/unit/test_latex_compile.py` rather than copying the number.
 
 Publications and similar are ordinary `entries` sections, so **no biblatex**
@@ -263,14 +297,25 @@ All under the `/api/v1` prefix; router `app/routers/tex.py`, schemas
 | Method | Path | Query / body | Returns |
 | ------ | ---- | ------------ | ------- |
 | `GET` | `/resumes/tex/capabilities` | — | `{ engine, can_compile, templates }` — `engine` is the bare binary name or `null` |
-| `GET` | `/resumes/{id}/tex` | `template` (default `tex-classic`), `pageSize` (default `A4`), `regenerate` (default `false`) | `{ resume_id, source, is_override, template, engine }` |
+| `GET` | `/resumes/{id}/tex` | `template` (default `tex-classic`), the formatting controls, `regenerate` (default `false`) | `{ resume_id, source, is_override, template, engine }` |
 | `PUT` | `/resumes/{id}/tex` | body `{ source }`, 1–400,000 chars | the same shape with `is_override: true`, `template: "custom"` |
-| `DELETE` | `/resumes/{id}/tex` | `template`, `pageSize` | the regenerated source with `is_override: false` |
-| `GET` | `/resumes/{id}/tex/source` | `template`, `pageSize` | the `.tex` as `application/x-tex`, `Content-Disposition: attachment` |
-| `GET` | `/resumes/{id}/tex/pdf` | `template`, `pageSize` | `application/pdf`, `Content-Disposition: attachment` |
+| `DELETE` | `/resumes/{id}/tex` | `template`, the formatting controls | the regenerated source with `is_override: false` |
+| `GET` | `/resumes/{id}/tex/source` | `template`, the formatting controls | the `.tex` as `application/x-tex`, `Content-Disposition: attachment` |
+| `GET` | `/resumes/{id}/tex/pdf` | `template`, the formatting controls | `application/pdf`, `Content-Disposition: attachment` |
+
+"The formatting controls" is the `tex_format_settings` dependency, shared by
+all four rendering routes: `pageSize` (`A4` | `LETTER`), the four
+`margin*` (5–25mm, optional — absent means the template's reference geometry),
+and `sectionSpacing`, `itemSpacing`, `lineHeight`, `fontSize`, `headerScale`
+(1–5) plus `compactMode`. Out-of-range values are a 422. The names and bounds
+are the Chromium `/pdf` route's, so one control cannot mean two things across
+the two renderers; the client builds them with `texFormatParams`
+(`apps/frontend/lib/api/tex.ts`).
 
 `regenerate=true` ignores a saved override for that one read — a preview of
-what resetting would give you, without touching stored state.
+what resetting would give you, without touching stored state. Formatting
+parameters only affect *generated* source: with an override saved, the
+compiled PDF ignores them, exactly as `pageSize` always has.
 
 Download filenames come from the resume title with non-alphanumerics stripped
 and spaces underscored, falling back to `resume.tex` / `resume.pdf`.
@@ -341,11 +386,21 @@ thing as the builder: it renders `TexPdfPreview` when the stored template
 the same settings. It used to render and export with the defaults, so a LaTeX
 selection never left the builder.
 
-Page size is the only formatting control a tex selection keeps; the margin,
-spacing, font-size, font-family, compact-mode, contact-icon and accent-colour
-controls are disabled with a notice, because the engine reads none of them.
+Page size, margins, section/item/line spacing, base font size, header scale
+and compact mode all apply to a tex selection; only the font-family, accent
+colour and contact-icon controls stay disabled with a notice, because the
+engine reads none of them. The "Effective output" readout hides its CSS-unit
+rows for a tex template (`rem`/`px` do not describe the engine's output) and
+keeps the millimetre margins row, which is true for both renderers.
 The two tex options render `disabled` when `getTexCapabilities()` reports no
 engine — selecting one there would 503 on every preview and download.
+
+A slider emits a value per pixel of drag and a compile is seconds of engine
+time, so both the panel and the preview key their reload on
+`texFormatParams(settings).toString()` through `useDebouncedValue(…, 500)`
+(`apps/frontend/hooks/use-debounced-value.ts`); template and revision changes
+still act immediately. The panel additionally refuses to refetch while the
+textarea is dirty, since an automatic reload would discard unsaved LaTeX.
 
 The **LaTeX** tab (`apps/frontend/components/builder/resume-builder.tsx`)
 renders `apps/frontend/components/latex/latex-panel.tsx` beside
@@ -371,7 +426,7 @@ reads the stored document.
 | Download `.tex` | Always available — the one export that cannot fail |
 | Download PDF | Compiles; on 422 the engine log is rendered in a scrollable `<pre>` under the error |
 | Refresh | The parent bumps a `revision` prop after a document save so a *generated* source refetches |
-| Compiled preview | `compileTexPdf` on mount and on every template/page-size/revision change, shown in an `<object>`; object URLs are revoked on cleanup. A missing engine, a compile failure (with its log) and any other error each render in place |
+| Compiled preview | `compileTexPdf` on mount, on every template/revision change and once the debounced formatting controls settle, shown in an `<object>`; object URLs are revoked on cleanup. A missing engine, a compile failure (with its log) and any other error each render in place |
 
 Strings live under the `latex.*` i18n block in every locale
 (`apps/frontend/messages/*.json`) — see [i18n.md](i18n.md).
@@ -407,6 +462,7 @@ the override. Full deployment reference: [SETUP.md](../../../SETUP.md).
 | ---- | ------- |
 | `apps/backend/app/latex/escape.py` | `escape_tex` (the escaping boundary) and `escape_tex_rich` (bullet HTML → LaTeX) |
 | `apps/backend/app/latex/render.py` | Jinja environment, `LATEX_TEMPLATES`, `render_document_tex` |
+| `apps/backend/app/latex/layout.py` | `LATEX_BASELINES` + `tex_layout` — formatting levels → preamble values |
 | `apps/backend/app/latex/compile.py` | `latex_engine`, `compile_tex_to_pdf`, the sandbox, error excerpting |
 | `apps/backend/app/latex/templates/` | `_document.tex.j2` plus `classic`/`compact` preambles |
 | `apps/backend/app/routers/tex.py` | The `/resumes/**/tex*` routes — five paths, six operations |

@@ -17,6 +17,7 @@ from functools import cache
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from app.latex.escape import escape_tex, escape_tex_rich
+from app.latex.layout import tex_layout
 from app.schemas.document import Contact, ResumeDocument, Section, SectionKind
 
 __all__ = ["LATEX_TEMPLATES", "render_document_tex"]
@@ -143,8 +144,9 @@ def render_document_tex(
 ) -> str:
     """Render ``document`` to LaTeX source.
 
-    ``settings`` carries the same knobs the HTML renderer takes; templates
-    read only the ones they support and ignore the rest.
+    ``settings`` carries the formatting controls the builder panel owns, in the
+    same spelling the routes take them; ``tex_layout`` turns the ones the
+    engine honours into preamble values and ignores the rest.
     """
     filename = LATEX_TEMPLATES.get(template_id)
     if filename is None:
@@ -154,6 +156,6 @@ def render_document_tex(
         document=document,
         header=document.header,
         sections=_renderable_sections(document),
-        settings=settings or {},
+        layout=tex_layout(template_id, settings or {}),
         SectionKind=SectionKind,
     )
