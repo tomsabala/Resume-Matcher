@@ -60,17 +60,20 @@ beforeEach(() => {
     },
     processed_resume: sampleDocument({ header: { name: 'Synthetic Person' } }),
   });
+  // A Response body can only be read once, and the page makes more than one
+  // request, so each call gets its own.
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          resume_id: 'resume-1',
-          processing_status: 'ready',
-          is_master: true,
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } }
-      )
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            resume_id: 'resume-1',
+            processing_status: 'ready',
+            is_master: true,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
     )
   );
 });
@@ -106,7 +109,12 @@ describe.each(['normal', 'StrictMode'] as const)('dashboard upload propagation (
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    // The dashboard also polls AI diagnostics, so count the upload itself
+    // rather than every request the page makes.
+    const uploads = vi
+      .mocked(fetch)
+      .mock.calls.filter(([target]) => String(target).includes('/resumes/upload'));
+    expect(uploads).toHaveLength(1);
     expect(screen.getByTestId('counters')).toHaveTextContent('1:true');
     expect(localStorage.getItem('master_resume_id')).toBe('resume-1');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

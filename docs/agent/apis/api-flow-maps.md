@@ -26,10 +26,14 @@ POST /api/v1/resumes/improve
 ├── [If enabled] generate_cover_letter() → LLM
 ├── [If enabled] generate_outreach_message() → LLM
 ├── [If enabled] generate_interview_prep() → LLM
-├── db.create_resume(improved)
+├── db.create_tailored_resume()       # copies the parent's template_settings
 ├── db.create_improvement()
 └── Return {data, cover_letter, outreach_message, interview_prep}
 ```
+
+The tailored resume inherits how its parent looks: both this legacy path and
+`POST /resumes/improve/confirm` write the parent's `template_settings` onto the
+new row, so a tailored copy is never re-themed to a default.
 
 ## Interview Prep Generation
 
@@ -72,6 +76,22 @@ GET /api/v1/status                    # each check isolated → 200 (partial/deg
 └── Return {status, llm_configured, llm_healthy, has_master_resume, database_stats}
 ```
 
+## AI Failure Diagnostics
+
+```
+complete_json(...)                     # every structured LLM call goes through it
+└── except: record_ai_failure(...)     # TERMINAL failure only — a recovered retry records nothing
+    └── app/ai_events.py deque         # in-process, newest-first, max 20, dropped on restart
+                                       #   operation/kind/detail(≤300 chars)/model/provider/
+                                       #   attempts/max_tokens — never prompt, resume or output
+
+GET /api/v1/diagnostics/ai-failures    # dashboard panel, polled every 30 s
+└── Return {failures: [...], dismissed: 0}     # kind ∈ truncated|malformed|empty|invalid|provider
+
+DELETE /api/v1/diagnostics/ai-failures # the panel's Dismiss button
+└── Return {failures: [], dismissed: N}        # N = how many were dropped
+```
+
 ## Configuration Update
 
 ```
@@ -111,10 +131,11 @@ POST /api/v1/jobs/upload
 
 | Endpoint | Flow |
 |----------|------|
-| `GET /resumes?id=` | db.get_resume() |
+| `GET /resumes?id=` | db.get_resume() — `data.template_settings` is the resume's own template/formatting choice, `null` when it has none yet |
 | `GET /resumes/list` | db.list_resumes() |
 | `PATCH /resumes/{id}` | db.update_resume() |
 | `DELETE /resumes/{id}` | db.delete_resume() |
+| `PUT /resumes/{id}/template-settings` | db.update_resume({template_settings}) — presentation only, so no version checkpoint |
 
 ## Application Tracker
 

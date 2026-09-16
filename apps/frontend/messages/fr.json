@@ -126,6 +126,21 @@
       "deleteDescription": "« {title} » et son historique seront définitivement supprimés.",
       "deleteMasterDescription": "« {title} » est votre CV principal. Le supprimer efface son historique ; les CV personnalisés sont conservés.",
       "deleteFailed": "Impossible de supprimer ce CV. Veuillez réessayer."
+    },
+    "aiFailures": {
+      "title": "Problèmes d'IA",
+      "summary": "{count} échec(s) d'IA récent(s). Diagnostic uniquement — effacé au redémarrage.",
+      "dismiss": "Ignorer",
+      "budget": "budget de sortie {tokens} jetons",
+      "attempts": "{count} tentative(s)",
+      "hintTruncated": "La réponse a dépassé le budget de sortie. Essayez un modèle avec une limite de sortie plus élevée, ou un document plus court.",
+      "kinds": {
+        "truncated": "Réponse tronquée",
+        "malformed": "JSON invalide",
+        "empty": "Réponse vide",
+        "invalid": "Réponse rejetée",
+        "provider": "Erreur du fournisseur"
+      }
     }
   },
   "builder": {

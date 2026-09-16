@@ -13,6 +13,7 @@ apps/backend/app/
 ├── models.py            # SQLAlchemy declarative Base + ORM models
 ├── db_engine.py         # SQLite engine/session factories (async + sync) + PRAGMAs
 ├── llm.py               # LiteLLM multi-provider
+├── ai_events.py         # In-process bounded tail of recent AI failures (diagnostics)
 ├── pdf.py               # Playwright PDF rendering
 ├── routers/             # API endpoints (health, config, resumes, jobs, applications, enrichment)
 ├── services/            # parser.py, improver.py, cover_letter.py
@@ -23,12 +24,25 @@ apps/backend/app/
 
 ## API Endpoints
 
-### Health & Status
+### Health, status & diagnostics
 
-| Method | Endpoint         | Description                                                                                           |
-| ------ | ---------------- | ----------------------------------------------------------------------------------------------------- |
-| GET    | `/api/v1/health` | Liveness probe (no LLM call)                                                                          |
-| GET    | `/api/v1/status` | Full system status (LLM probe + DB stats, each isolated → 200 with degraded state on partial failure) |
+| Method | Endpoint                             | Description                                                                                           |
+| ------ | ------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| GET    | `/api/v1/health`                     | Liveness probe (no LLM call)                                                                          |
+| GET    | `/api/v1/status`                     | Full system status (LLM probe + DB stats, each isolated → 200 with degraded state on partial failure) |
+| GET    | `/api/v1/diagnostics/ai-failures`    | Recent AI failures, newest first → `{failures: [...], dismissed: 0}`                                  |
+| DELETE | `/api/v1/diagnostics/ai-failures`    | Drop the tracked failures → `{failures: [], dismissed: N}`                                            |
+
+`app/ai_events.py` holds the failure tail the two diagnostics routes read: an
+in-process `deque` of at most 20 records (`MAX_TRACKED_AI_FAILURES`), guarded
+by a lock, with **no persistence** — it is a diagnostic tail, not an audit log,
+so a restart empties it. Each record stores only the shape of the failure
+(`id`, `at`, `operation`, `kind`, `detail` truncated to 300 characters, `model`,
+`provider`, `attempts`, `max_tokens`) and never a prompt, resume, job
+description or model output, which is what makes the payload safe to return to
+a client. `complete_json` records a **terminal** failure only; a retry that
+recovered is not tracked. See the [record shape and `kind`
+vocabulary](../apis/front-end-apis.md#ai-diagnostics-libapidiagnosticsts).
 
 ### Configuration
 
@@ -40,15 +54,16 @@ apps/backend/app/
 
 ### Resumes
 
-| Method | Endpoint              | Description             |
-| ------ | --------------------- | ----------------------- |
-| POST   | `/resumes/upload`     | Upload PDF/DOC/DOCX/TEX |
-| GET    | `/resumes?resume_id=` | Fetch resume            |
-| GET    | `/resumes/list`       | List all                |
-| POST   | `/resumes/improve`    | Tailor for job (LLM)    |
-| PATCH  | `/resumes/{id}`       | Update                  |
-| GET    | `/resumes/{id}/pdf`   | Download PDF            |
-| DELETE | `/resumes/{id}`       | Delete                  |
+| Method | Endpoint                            | Description                                  |
+| ------ | ----------------------------------- | -------------------------------------------- |
+| POST   | `/resumes/upload`                   | Upload PDF/DOC/DOCX/TEX                      |
+| GET    | `/resumes?resume_id=`               | Fetch resume (incl. `data.template_settings`) |
+| GET    | `/resumes/list`                     | List all                                     |
+| POST   | `/resumes/improve`                  | Tailor for job (LLM)                         |
+| PATCH  | `/resumes/{id}`                     | Update                                       |
+| PUT    | `/resumes/{id}/template-settings`   | Store this resume's template/formatting choice (404 unknown resume, 422 invalid) |
+| GET    | `/resumes/{id}/pdf`                 | Download PDF                                 |
+| DELETE | `/resumes/{id}`                     | Delete                                       |
 
 ### Jobs
 
@@ -78,6 +93,17 @@ ORM models live in `models.py` (declarative `Base` + `Resume`/`Job`/`Improvement
 engine/session plumbing lives in `db_engine.py`.
 
 Tables: `resumes`, `jobs`, `improvements`, `applications`, `tailoring_previews`, `api_keys` (encrypted).
+
+Beside the document, `resumes` carries two nullable presentation columns:
+`tex_source` (migration `0004_tex_source`), a hand-edited `.tex` override, and
+`template_settings` (migration `0005_template_settings`), the resume's own
+template and formatting choice stored as the frontend's camelCase
+`TemplateSettings` JSON and validated by `app/schemas/template_settings.py`.
+NULL in `template_settings` means "no choice stored yet", so the client keeps
+its last-used settings rather than being reset to defaults. Unlike
+`tex_source`, it is **not** carried into `resume_versions`: presentation is not
+content, so restoring an older document must not revert how the resume looks.
+A tailored resume is created with a copy of its parent's value.
 
 ```python
 await db.create_resume(content, content_type, filename, is_master, processed_data)

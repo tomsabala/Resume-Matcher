@@ -44,7 +44,13 @@ from pdfminer.pdftypes import (
 )
 from pdfminer.psparser import PSKeyword, literal_name
 
-from app.llm import complete_json, get_llm_config, get_model_name, get_safe_max_tokens
+from app.llm import (
+    RESUME_JSON_MAX_TOKENS,
+    complete_json,
+    get_llm_config,
+    get_model_name,
+    get_safe_max_tokens,
+)
 from app.prompts import PARSE_RESUME_PROMPT
 from app.prompts.templates import RESUME_SCHEMA_EXAMPLE
 from app.schemas.document import ResumeDocument, SectionKind, migrate_document
@@ -1159,7 +1165,9 @@ async def parse_resume_to_json(markdown_text: str) -> dict[str, Any]:
     result = await complete_json(
         prompt=prompt,
         system_prompt="You are a JSON extraction engine. Output only valid JSON, no explanations.",
-        max_tokens=get_safe_max_tokens(model_name, config=config),
+        max_tokens=get_safe_max_tokens(
+            model_name, RESUME_JSON_MAX_TOKENS, config=config
+        ),
         retries=3,
         response_validator=_validate_parsed_resume,
     )

@@ -61,8 +61,11 @@ provider backoff, latency, or cost. Caller cancellation is propagated.
 
 After a transport request returns, JSON completions include up to 2 automatic
 content retries for malformed, empty, truncated, or schema-invalid responses.
-The resume parser explicitly permits three content retries; the fourth sampling
-value is 0.7 where supported. Valid sparse resumes do not trigger retries.
+Malformed and schema-invalid answers are re-asked with a stricter prompt hint;
+a truncated answer is re-asked with a larger output budget instead — see
+_Truncation and the output budget_ below. The resume parser explicitly permits
+three content retries; the fourth sampling value is 0.7 where supported. Valid
+sparse resumes do not trigger retries.
 An exhausted transport error escapes immediately and does not start a content
 retry. Content retries increase temperature for response variation when the
 model supports sampling:
@@ -70,6 +73,73 @@ model supports sampling:
 - Initial attempt: temperature 0.1
 - First retry: temperature 0.3
 - Second retry: temperature 0.5
+
+### Truncation and the output budget
+
+A truncated answer is an output-budget failure, not a content-quality one: the
+model was emitting valid JSON and the provider stopped it at the output
+ceiling. Sending the same `max_tokens` again with a "do not truncate" plea
+cannot change that. That is what this path used to do — `_extract_json`'s brace
+scan ran off the end of the content, logged a warning, fell through to its
+recovery branch (which cannot act on a response that already starts with `{`)
+and raised `No JSON found in response`. The message was wrong — the JSON was
+found, it stops mid-object — and the retry bought no room. Truncation is now a
+typed error and the retry raises the budget.
+
+`TruncatedCompletionError` (a `ValueError`, so existing `except ValueError`
+callers are unaffected) is raised on three signals:
+
+| Signal                                                                     | Raised where                                                                         |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| The brace scan ends with unclosed objects                                  | `_extract_json` — `JSON response truncated: N unclosed object(s) after M characters` |
+| No visible content and `finish_reason` is `"length"`                       | the retry loop, in place of the old `Empty response from LLM`                        |
+| A `json.JSONDecodeError` on an answer whose `finish_reason` was `"length"` | the retry loop, reclassifying the syntax error as the budget error it actually is    |
+
+`_finish_reason(choice)` reads `finish_reason` or `stop_reason` across
+providers. `"length"` is the provider stating it stopped at the output ceiling,
+which is the difference between "the model wrote nonsense" and "we gave it no
+room to finish".
+
+Each truncation retry calls `_escalate_token_budget(model_name, budget)`: it
+doubles the budget (`TRUNCATION_BUDGET_MULTIPLIER = 2`) up to
+`MAX_ESCALATED_JSON_MAX_TOKENS = 65_536`, clamped to the model's **registry**
+output limit (`_model_output_limit`, which returns `None` when the registry has
+no entry for the model). It deliberately does *not* clamp to
+`FALLBACK_MAX_TOKENS` (4096): that is only the conservative guess applied to
+models the registry does not know, and a truncated answer is evidence the guess
+was too small. A parsed-but-thin result (`_appears_truncated`) escalates the
+same way. The retry prompt still asks for a complete object, but the larger
+budget is what makes the next attempt different.
+
+Escalation is bounded by the content-retry budget, so a resume parse
+(`retries=3`, four attempts) walks 24,576 → 49,152 → 65,536 → 65,536 tokens,
+each additionally clamped to the model's own registry limit; the default
+`retries=2` gives three attempts at B → 2B → 4B. The final attempt's error
+reaches the caller, and `complete_json` — now a thin wrapper around
+`_complete_json_with_retries` — records that **terminal** failure (kind from
+`classify_ai_failure`, plus the resolved model and provider, the attempt count
+and the escalated `max_tokens`, carried back out of the loop in
+`_JsonAttemptProgress`). A retry that recovered records nothing.
+
+### Token budgets
+
+| Constant                        |  Value | Role                                                                             |
+| ------------------------------- | -----: | -------------------------------------------------------------------------------- |
+| `DEFAULT_JSON_MAX_TOKENS`       |  8,192 | Default `requested` for `get_safe_max_tokens`; the shared structured-call budget |
+| `RESUME_JSON_MAX_TOKENS`        | 24,576 | `parse_resume_to_json` only — one JSON object carries the whole document         |
+| `FALLBACK_MAX_TOKENS`           |  4,096 | Clamp for models absent from LiteLLM's registry                                  |
+| `TRUNCATION_BUDGET_MULTIPLIER`  |      2 | Factor applied per truncation retry                                              |
+| `MAX_ESCALATED_JSON_MAX_TOKENS` | 65,536 | Ceiling on escalation, so one bad answer cannot become an unbounded request      |
+
+Callers pass their request through `get_safe_max_tokens(model_name, requested,
+config)`, which clamps to `_model_output_limit(model_name)` or, for an
+unregistered model, to `FALLBACK_MAX_TOKENS` — the verified OpenCode Zen HY3
+route uses `DEFAULT_JSON_MAX_TOKENS` there instead, because JSON extraction
+disables its reasoning and it needs the full structured-output budget. Resume
+parsing asks for `RESUME_JSON_MAX_TOKENS` rather than the shared
+`DEFAULT_JSON_MAX_TOKENS`, still clamped the same way. Reasoning models spend
+part of the same allowance on thinking tokens the caller never sees, so a
+budget that looks generous against the JSON alone can still run out mid-object.
 
 ## Anthropic Thinking Budget
 
@@ -169,6 +239,8 @@ Robust bracket-matching algorithm in `_extract_json()` handles:
 - Rejection of top-level arrays when an object is required
 - Edge cases
 - Infinite recursion protection when content starts with `{` but matching fails
+- Truncated objects: a scan that ends with unclosed braces raises
+  `TruncatedCompletionError`, never `No JSON found in response`
 
 Callers can pass a synchronous `response_validator` to `complete_json()`. The
 validator runs inside the content retry budget, so a schema-valid JSON object

@@ -20,11 +20,27 @@ Dashboard → Upload Master Resume → Tailor for Job → View/Edit → Download
 - Pending/processing master status is polled serially with a 3–30 second backoff, for at most 12 polls. Hidden tabs skip polling. Polling stops on ready/failed, missing master, or unmount; focus refresh and Retry provide recovery after a failure.
 - Selecting exactly two resume cards enables **Compare**, which navigates to
   `/compare?base=resume:<a>&head=resume:<b>`.
+- **AI failures:** `components/dashboard/ai-failure-panel.tsx` sits at the top
+  of the page and states *why* the last AI operations failed instead of a
+  generic "please try again". One row per failure — category (`truncated`,
+  `malformed`, `empty`, `invalid`, `provider`), the operation, local time, the
+  capped detail message, and the model, output budget and attempt count when
+  known; a `truncated` row adds the actionable hint (shorten the input or raise
+  the model's output limit). It renders `null` when there are no failures,
+  re-reads `GET /diagnostics/ai-failures` every 30 s (and on a failed master
+  status) so a failure appears without a reload, and **Dismiss** clears
+  server-side via `DELETE /diagnostics/ai-failures`. Its own fetch and dismiss
+  errors are swallowed — diagnostics must never break the dashboard they
+  annotate. The tail is bounded to 20 records, carries no prompt, resume or
+  model output, and is lost on a backend restart (see the
+  [client contract](../apis/front-end-apis.md#ai-diagnostics-libapidiagnosticsts)).
 
 ### 2. Resume Viewer (`/resumes/[id]`)
 
 - Read-only display at 250mm width
 - Actions: Back, Edit, Download PDF, Delete
+- Renders and exports with the resume's own `template_settings` (see
+  [Template Settings](#template-settings)), not with the defaults
 - Delete shows confirmation + success dialogs
 
 ### 3. Tailor (`/tailor`)
@@ -81,8 +97,22 @@ Dashboard → Upload Master Resume → Tailor for Job → View/Edit → Download
 | --- | --- |
 | `master_resume_id` | Master resume UUID |
 | `resume_builder_draft:<resumeId>` / `resume_builder_draft:new` | Resume-scoped recovery draft; a failed write is shown as unavailable and never described as saved |
-| `resume_builder_settings` | Template prefs |
+| `resume_builder_settings` | Last-used template/formatting settings — the default for a resume that has none of its own, not the choice itself |
 | `resume_wizard_draft` | Versioned wizard state; nested resume/history values are normalized before restoration |
+
+### Template Settings
+
+The template and formatting choice lives on the resume
+(`Resume.template_settings`), so it survives a reload and follows the resume
+to another browser.
+
+| Step | Where |
+| --- | --- |
+| Read on load | `components/builder/resume-builder.tsx` → `adoptTemplateSettings(data.template_settings)`; a `null` keeps the browser's last-used settings, so no existing resume resets to `swiss-single` |
+| Write on change | `saveResumeTemplateSettings(resumeId, settings)` (`lib/api/resume.ts`) after `TEMPLATE_SETTINGS_SAVE_DEBOUNCE_MS` = 700 ms, only while `loadingState === 'loaded'` so a slow GET cannot pin this resume to the previous one's template |
+| Last-used default | `lib/utils/template-settings-storage.ts` — `readTemplateSettings` / `writeTemplateSettings` over `resume_builder_settings`, merged onto `DEFAULT_TEMPLATE_SETTINGS` with an unknown template id dropped |
+| Viewer | `app/(default)/resumes/[id]/page.tsx` prefers `data.template_settings`, falls back to the stored last-used ones, renders `TexPdfPreview` or `<Resume settings={…}>` from them and passes them to `downloadResumePdf` |
+| Inheritance | A tailored resume is created with its parent's `template_settings` |
 
 ### StatusCache Context
 

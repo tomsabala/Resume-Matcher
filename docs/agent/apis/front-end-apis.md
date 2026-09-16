@@ -34,10 +34,11 @@ confirmImproveResume(payload: ImproveResumeConfirmRequest) → ImprovedResult
 improveResume(resumeId: string, jobId: string, promptId?: string) → ImprovedResult  // legacy one-shot
 
 // CRUD
-fetchResume(resumeId: string) → ResumeResponse['data']
+fetchResume(resumeId: string) → ResumeDetail
 fetchResumeList(includeMaster?: boolean) → ResumeListItem[]
-updateResume(resumeId: string, resumeData: ResumeDocument) → ResumeResponse['data']
+updateResume(resumeId: string, resumeData: ResumeDocument) → ResumeDetail
 deleteResume(resumeId: string) → void
+saveResumeTemplateSettings(resumeId: string, settings: TemplateSettings) → TemplateSettings
 
 // PDF
 downloadResumePdf(resumeId: string, settings?: TemplateSettings) → Blob
@@ -110,10 +111,11 @@ Contract notes that matter on the wire:
 
 | Endpoint | Body | Response |
 |---|---|---|
-| `GET /resumes?resume_id=` | — | `{ request_id, data: { resume_id, raw_resume, processed_resume: ResumeDocument \| null, cover_letter, outreach_message, interview_prep, parent_id, title } }` |
+| `GET /resumes?resume_id=` | — | `{ request_id, data: { resume_id, raw_resume, processed_resume: ResumeDocument \| null, cover_letter, outreach_message, interview_prep, parent_id, title, template_settings: TemplateSettings \| null } }` |
 | `PATCH /resumes/{id}` | a complete `ResumeDocument` | same shape as `GET /resumes` |
 | `POST /resumes/improve/preview` | `{ resume_id, job_id, prompt_id? }` | `{ request_id, data: ImproveResumeData }` — `resume_preview` is a `ResumeDocument`, `resume_id` is `null` |
 | `POST /resumes/improve/confirm` | `{ resume_id, job_id, preview_id, improved_data: ResumeDocument, improvements, accepted_paths? }` | `{ request_id, data: ImproveResumeData }` — `resume_id` is the persisted tailored resume |
+| `PUT /resumes/{id}/template-settings` | a `TemplateSettings` object | the settings as stored (see below) |
 
 `PATCH` takes the whole document, not a partial patch: send back the document
 you loaded, with your edits applied. `improve/confirm` must forward the
@@ -129,6 +131,63 @@ could not be made, and the response then carries a warning saying so.
 accepts the whole proposal, an array takes only those diff-row paths. Selectable
 paths are content leaves only — see
 [document-diff.md](../features/document-diff.md#partial-accept).
+
+## Template settings (`PUT /resumes/{id}/template-settings`)
+
+The template and formatting choice belongs to the **resume**, not the browser,
+so the builder, the viewer and both export routes render what the user picked
+for that resume on any device. `GET /resumes?resume_id=` and
+`PATCH /resumes/{id}` return it as `data.template_settings`.
+
+**`null` means "no choice stored yet"** — not "the defaults". A client that
+gets `null` keeps its own last-used settings instead of snapping the resume
+back to the default template. A stored payload the server cannot validate (one
+written by a newer client, say) is logged server-side and reported as `null`
+for the same reason: an unreadable presentation blob must never fail the fetch.
+
+The body is the frontend's `TemplateSettings`
+(`apps/frontend/lib/types/template-settings.ts`, mirrored by
+`apps/backend/app/schemas/template_settings.py`) stored verbatim — camelCase,
+and `extra="forbid"` at every level, so an unknown field is a `422` rather than
+a silent drop. A `200` returns the object exactly as stored.
+
+```jsonc
+{
+  "template": "swiss-single",  // one of the nine template ids (see below)
+  "pageSize": "A4",            // "A4" | "LETTER"
+  "margins":  { "top": 10, "bottom": 10, "left": 10, "right": 10 },  // mm, 5-25 each
+  "spacing":  { "section": 3, "item": 2, "lineHeight": 3 },          // steps, 1-5 each
+  "fontSize": {
+    "base": 3, "headerScale": 3,                                     // steps, 1-5
+    "headerFont": "serif", "bodyFont": "sans-serif"                  // serif | sans-serif | mono
+  },
+  "compactMode": false,
+  "showContactIcons": false,
+  "accentColor": "blue"        // "blue" | "green" | "orange" | "red"
+}
+```
+
+`template` is one of `swiss-single`, `swiss-two-column`, `modern`,
+`modern-two-column`, `latex`, `clean`, `vivid` (the Chromium-rendered
+`HTML_TEMPLATES`) or `tex-classic`, `tex-compact` (`TEX_TEMPLATES`, compiled by
+the engine). Every field shown has that default, so a partial body validates
+and the omitted fields are stored at their defaults — this is a `PUT`, not a
+merge: what you send is what the resume carries afterwards.
+
+| Status | Meaning |
+| ------ | ------- |
+| `200` | stored; the body is the settings as saved |
+| `404` | unknown resume id |
+| `422` | unknown field, number out of range, or a value outside an allowed set (e.g. an unrecognised `template` id) |
+
+**Not versioned.** These settings are presentation, not content, so they never
+reach `resume_versions`: restoring an older document does not revert how the
+resume looks, and a `PATCH /resumes/{id}` leaves them untouched.
+
+**Tailoring inherits them.** `POST /resumes/improve/confirm` and the one-shot
+`POST /resumes/improve` copy the parent's `template_settings` onto the resume
+they create (a `null` parent gives a `null` child), so a tailored resume opens
+looking like the one it came from rather than resetting to a default.
 
 ## AI change paths
 
@@ -433,6 +492,58 @@ updateLanguageConfig(language: string) → LanguageConfig
 ```
 
 > `updateLlmApiKey` (`PUT /config/llm-api-key`) no longer persists a key — keys are managed per-provider via the encrypted `/config/api-keys` endpoints above.
+
+## AI diagnostics (`lib/api/diagnostics.ts`)
+
+```typescript
+fetchAIFailures() → AIFailure[]        // GET    /diagnostics/ai-failures  → payload.failures
+dismissAIFailures() → number           // DELETE /diagnostics/ai-failures  → payload.dismissed
+```
+
+Both endpoints answer with the same envelope, so a dismiss needs no second
+request to learn the new (empty) state:
+
+```typescript
+// GET    → { failures: [...], dismissed: 0 }
+// DELETE → { failures: [],    dismissed: 3 }   // how many were dropped
+interface AIFailure {
+  id: string;                  // uuid4, per record
+  at: string;                  // ISO-8601 UTC, second precision
+  operation: string;           // the call's schema: 'resume', 'diff', 'enrichment', 'keywords', 'interview_prep'
+  kind: AIFailureKind;
+  detail: string;              // operator-facing message, capped at 300 characters
+  model?: string | null;       // resolved model id, when the call got that far
+  provider?: string | null;
+  attempts?: number | null;    // attempts made before giving up
+  max_tokens?: number | null;  // output budget in force on the last attempt
+}
+```
+
+`failures` is newest first. A non-2xx response makes both client functions
+throw; the dashboard panel swallows that (see
+[Dashboard](../architecture/frontend-workflow.md#1-dashboard-dashboard)).
+
+`kind` is a closed vocabulary — `'truncated' | 'malformed' | 'empty' | 'invalid' | 'provider'`:
+
+| `kind` | What went wrong | What the user can do |
+| --- | --- | --- |
+| `truncated` | The model hit its output budget mid-answer | Shorten the input or pick a model with a larger output limit |
+| `malformed` | The answer arrived but is not parseable JSON | Retry; a weaker model is the usual cause |
+| `empty` | The provider returned no answer at all | Retry; check the provider's status |
+| `invalid` | Parseable JSON that validation rejected | Retry; the model ignored the schema |
+| `provider` | Upstream/transport error (auth, rate limit, network) | Check the API key, quota and connectivity |
+
+Render an unrecognised `kind` as `provider` rather than dropping the row.
+
+**The records carry no prompt, resume text, job text or model output** — only
+the shape of the failure (operation, category, model, provider, attempts,
+budget) plus the capped `detail`. Everything in the payload is safe to show in
+the UI.
+
+Only **terminal** failures are recorded: a retry that recovered leaves nothing
+behind. The tail is in-process, bounded to the 20 most recent records, and
+lost on a backend restart — a diagnostic tail, not an audit log. So an empty
+`failures` array means "nothing recent", never "nothing ever".
 
 ## Provider Info
 

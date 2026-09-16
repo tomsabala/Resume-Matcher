@@ -126,6 +126,21 @@
       "deleteDescription": "“{title}” and its history will be permanently deleted.",
       "deleteMasterDescription": "“{title}” is your master resume. Deleting it removes its history; tailored resumes stay.",
       "deleteFailed": "Could not delete this resume. Please try again."
+    },
+    "aiFailures": {
+      "title": "AI problems",
+      "summary": "{count} recent AI failure(s). Diagnostics only — cleared on restart.",
+      "dismiss": "Dismiss",
+      "budget": "output budget {tokens} tokens",
+      "attempts": "{count} attempt(s)",
+      "hintTruncated": "The answer did not fit the output budget. Try a model with a larger output limit, or a shorter source document.",
+      "kinds": {
+        "truncated": "Answer cut off",
+        "malformed": "Invalid JSON",
+        "empty": "Empty answer",
+        "invalid": "Answer rejected",
+        "provider": "Provider error"
+      }
     }
   },
   "builder": {

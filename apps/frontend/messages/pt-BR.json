@@ -126,6 +126,21 @@
       "deleteDescription": "“{title}” e seu histórico serão excluídos permanentemente.",
       "deleteMasterDescription": "“{title}” é o seu currículo mestre. Excluí-lo remove o histórico; os currículos personalizados permanecem.",
       "deleteFailed": "Não foi possível excluir este currículo. Tente novamente."
+    },
+    "aiFailures": {
+      "title": "Problemas de IA",
+      "summary": "{count} falha(s) recente(s) de IA. Apenas diagnóstico — limpo ao reiniciar.",
+      "dismiss": "Descartar",
+      "budget": "orçamento de saída {tokens} tokens",
+      "attempts": "{count} tentativa(s)",
+      "hintTruncated": "A resposta não caiu no orçamento de saída. Tente um modelo com limite de saída maior ou um documento mais curto.",
+      "kinds": {
+        "truncated": "Resposta cortada",
+        "malformed": "JSON inválido",
+        "empty": "Resposta vazia",
+        "invalid": "Resposta rejeitada",
+        "provider": "Erro do provedor"
+      }
     }
   },
   "builder": {

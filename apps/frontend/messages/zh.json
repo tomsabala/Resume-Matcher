@@ -126,6 +126,21 @@
       "deleteDescription": "“{title}”及其历史记录将被永久删除。",
       "deleteMasterDescription": "“{title}”是您的主简历。删除后其历史记录会消失，定制简历仍会保留。",
       "deleteFailed": "无法删除此简历，请重试。"
+    },
+    "aiFailures": {
+      "title": "AI 问题",
+      "summary": "最近有 {count} 次 AI 失败。仅用于诊断，重启后清除。",
+      "dismiss": "忽略",
+      "budget": "输出预算 {tokens} tokens",
+      "attempts": "{count} 次尝试",
+      "hintTruncated": "回答超出了输出预算。请改用输出上限更大的模型，或更短的源文档。",
+      "kinds": {
+        "truncated": "回答被截断",
+        "malformed": "JSON 无效",
+        "empty": "回答为空",
+        "invalid": "回答被拒绝",
+        "provider": "服务商错误"
+      }
     }
   },
   "builder": {

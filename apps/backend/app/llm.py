@@ -5,6 +5,7 @@ import logging
 import re
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -13,6 +14,7 @@ from litellm import Router
 from litellm.router import RetryPolicy
 from pydantic import BaseModel
 
+from app.ai_events import classify_ai_failure, record_ai_failure
 from app.ai_limits import validate_prompt_size
 from app.ai_budget import remaining_timeout
 from app.config import load_config_file, save_config_file, settings
@@ -53,6 +55,27 @@ MAX_JSON_CONTENT_SIZE = 1024 * 1024  # 1MB
 # output limits. Callers should use get_safe_max_tokens() so this is
 # automatically clamped to the model's actual capacity.
 DEFAULT_JSON_MAX_TOKENS = 8192
+
+# A resume parse emits one JSON object for the whole document, so it needs a
+# larger budget than the other structured calls. Reasoning models spend part
+# of the same allowance on thinking tokens the caller never sees.
+RESUME_JSON_MAX_TOKENS = 24_576
+
+# Truncation is an output-budget problem, so the retry doubles the budget
+# rather than asking the model to be briefer. Bounded so a model with a huge
+# output limit cannot turn one bad answer into an unbounded request.
+TRUNCATION_BUDGET_MULTIPLIER = 2
+MAX_ESCALATED_JSON_MAX_TOKENS = 65_536
+
+
+class TruncatedCompletionError(ValueError):
+    """The model's answer stopped mid-object.
+
+    A ``ValueError`` so the existing content-quality retry path still catches
+    it, but distinguishable because the fix is a larger output budget, not a
+    differently worded prompt.
+    """
+
 
 # ---------------------------------------------------------------------------
 # OpenAI-compatible endpoint allowlists
@@ -513,6 +536,28 @@ def _extract_choice_primary_text(choice: Any) -> str | None:
                 return extracted
 
     return None
+
+
+def _finish_reason(choice: Any) -> str | None:
+    """Why the provider stopped. ``"length"`` means the budget ran out."""
+    reason = _safe_get(choice, "finish_reason") or _safe_get(choice, "stop_reason")
+    return str(reason) if reason else None
+
+
+def _escalate_token_budget(model_name: str, budget: int) -> int:
+    """Return the next larger output budget, or ``budget`` if already capped.
+
+    Truncation cannot be prompted away: the answer did not fit. Doubling is
+    clamped by the model's *registry* limit and by our own ceiling — but not by
+    ``FALLBACK_MAX_TOKENS``, which is only the guess used for models the
+    registry does not know. A truncated answer is evidence that the guess was
+    too small, so escalation has to be allowed past it.
+    """
+    target = min(budget * TRUNCATION_BUDGET_MULTIPLIER, MAX_ESCALATED_JSON_MAX_TOKENS)
+    limit = _model_output_limit(model_name)
+    if limit is not None:
+        target = min(target, limit)
+    return max(budget, target)
 
 
 def _to_code_block(content: str | None, language: str = "text") -> str:
@@ -1087,6 +1132,17 @@ def _is_response_format_unsupported(error: Exception) -> bool:
 
 FALLBACK_MAX_TOKENS = 4096
 
+
+def _model_output_limit(model_name: str) -> int | None:
+    """The model's real output ceiling, or None when the registry has none."""
+    try:
+        info = litellm.get_model_info(model=model_name)
+    except Exception:
+        return None  # Not in the registry (custom Ollama/compatible models).
+    limit = info.get("max_output_tokens") or info.get("max_tokens")
+    return limit if isinstance(limit, int) and limit > 0 else None
+
+
 def get_safe_max_tokens(
     model_name: str,
     requested: int = DEFAULT_JSON_MAX_TOKENS,
@@ -1113,21 +1169,17 @@ def get_safe_max_tokens(
     """
     safe_requested = max(1, requested)
 
-    try:
-        info = litellm.get_model_info(model=model_name)
-        model_limit = info.get("max_output_tokens") or info.get("max_tokens")
-        if model_limit and isinstance(model_limit, int) and model_limit > 0:
-            safe = min(safe_requested, model_limit)
-            if safe < safe_requested:
-                logging.debug(
-                    "max_tokens clamped %d → %d for model %s (model limit)",
-                    safe_requested,
-                    safe,
-                    model_name,
-                )
-            return safe
-    except Exception:
-        pass  # Model not in registry, drop down to fallback logic
+    model_limit = _model_output_limit(model_name)
+    if model_limit is not None:
+        safe = min(safe_requested, model_limit)
+        if safe < safe_requested:
+            logging.debug(
+                "max_tokens clamped %d → %d for model %s (model limit)",
+                safe_requested,
+                safe,
+                model_name,
+            )
+        return safe
 
     fallback_limit = (
         DEFAULT_JSON_MAX_TOKENS
@@ -1582,11 +1634,18 @@ def _extract_json(content: str, _depth: int = 0) -> str:
                     end_idx = i
                     break
 
-        # LLM-001: Check for unbalanced braces - loop ended without depth reaching 0
+        # LLM-001: the scan ran off the end without closing the object. The
+        # JSON *was* found; it stops mid-object, which is an output-budget
+        # problem and must not be reported as "no JSON in response".
         if end_idx == -1 and depth != 0:
             logging.warning(
-                "JSON extraction found unbalanced braces (depth=%d), possible truncation",
+                "JSON response truncated: %d unclosed object(s) after %d chars",
                 depth,
+                len(content),
+            )
+            raise TruncatedCompletionError(
+                f"JSON response truncated: {depth} unclosed object(s) after "
+                f"{len(content)} characters"
             )
 
         if end_idx != -1:
@@ -1614,6 +1673,20 @@ def _extract_json(content: str, _depth: int = 0) -> str:
     raise ValueError(f"No JSON found in response (response length: {len(original)})")
 
 
+@dataclass
+class _JsonAttemptProgress:
+    """What the retry loop actually tried, for failure reporting.
+
+    The loop escalates the token budget and resolves the route itself, so the
+    caller cannot infer any of this from its own arguments.
+    """
+
+    attempts: int = 0
+    max_tokens: int = 0
+    model: str | None = None
+    provider: str | None = None
+
+
 async def complete_json(
     prompt: str,
     system_prompt: str | None = None,
@@ -1622,6 +1695,47 @@ async def complete_json(
     retries: int = 2,
     schema_type: str = "resume",
     response_validator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Make a completion request expecting JSON response.
+
+    Wraps :func:`_complete_json_with_retries` to record a terminal failure
+    where the dashboard can show it. Recovered attempts are not recorded: the
+    user does not need to know about a retry that worked.
+    """
+    progress = _JsonAttemptProgress(max_tokens=max_tokens)
+    try:
+        return await _complete_json_with_retries(
+            prompt,
+            system_prompt=system_prompt,
+            config=config,
+            max_tokens=max_tokens,
+            retries=retries,
+            schema_type=schema_type,
+            response_validator=response_validator,
+            progress=progress,
+        )
+    except Exception as error:
+        record_ai_failure(
+            operation=schema_type,
+            kind=classify_ai_failure(error),
+            detail=str(error),
+            model=progress.model,
+            provider=progress.provider,
+            attempts=progress.attempts or None,
+            max_tokens=progress.max_tokens or None,
+        )
+        raise
+
+
+async def _complete_json_with_retries(
+    prompt: str,
+    system_prompt: str | None = None,
+    config: LLMConfig | None = None,
+    max_tokens: int = 4096,
+    retries: int = 2,
+    schema_type: str = "resume",
+    response_validator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    progress: _JsonAttemptProgress | None = None,
 ) -> dict[str, Any]:
     """Make a completion request expecting JSON response.
 
@@ -1639,6 +1753,9 @@ async def complete_json(
     validate_prompt_size(prompt + (system_prompt or ""))
     router, config = get_router(config)
     model_name = get_model_name(config)
+    if progress is not None:
+        progress.model = model_name
+        progress.provider = config.provider
 
     # Build messages
     json_system = (
@@ -1654,6 +1771,8 @@ async def complete_json(
     # support it; prompt-only JSON remains the portable default.
     use_json_mode = _supports_json_mode(model_name) or _openai_compatible_supports_json_mode(config)
     json_mode_failed = False
+    # Raised, not re-worded, when an answer comes back truncated.
+    token_budget = max_tokens
 
     for attempt in range(retries + 1):
         try:
@@ -1689,10 +1808,13 @@ async def complete_json(
             # reasoning_effort reaches the provider and no budget applies.
             effective_max_tokens = _reconcile_max_tokens(
                 model_name,
-                max_tokens,
+                token_budget,
                 None if uses_hy3 else reasoning_effort,
                 config,
             )
+            if progress is not None:
+                progress.attempts = attempt + 1
+                progress.max_tokens = effective_max_tokens
             kwargs: dict[str, Any] = {
                 "model": "primary",
                 "messages": messages,
@@ -1723,8 +1845,17 @@ async def complete_json(
             # consumed its budget on reasoning but produced no final answer,
             # treat it as an empty completion and retry with the full budget.
             content = _extract_choice_primary_text(response.choices[0])
+            # "length" means the provider stopped at the output ceiling, which
+            # is the difference between "the model wrote nonsense" and "we did
+            # not give it room to finish".
+            stopped_at_limit = _finish_reason(response.choices[0]) == "length"
 
             if not content:
+                if stopped_at_limit:
+                    raise TruncatedCompletionError(
+                        "Output budget exhausted before any answer was produced "
+                        f"(max_tokens={effective_max_tokens})"
+                    )
                 raise ValueError("Empty response from LLM")
 
             # Do not log response bodies: they frequently contain a resume or
@@ -1736,8 +1867,18 @@ async def complete_json(
             )
 
             # Extract and parse JSON
-            json_str = _extract_json(content)
-            result = json.loads(json_str)
+            try:
+                json_str = _extract_json(content)
+                result = json.loads(json_str)
+            except (TruncatedCompletionError, json.JSONDecodeError) as error:
+                # A parse failure on an answer the provider cut off is a budget
+                # problem, whatever the parser says about the syntax.
+                if stopped_at_limit and not isinstance(error, TruncatedCompletionError):
+                    raise TruncatedCompletionError(
+                        "JSON response truncated at the output budget "
+                        f"(max_tokens={effective_max_tokens}, {len(content)} chars)"
+                    ) from error
+                raise
 
             if not isinstance(result, dict):
                 raise ValueError("Expected a JSON object")
@@ -1754,6 +1895,7 @@ async def complete_json(
                         attempt + 1,
                         retries + 1,
                     )
+                    token_budget = _escalate_token_budget(model_name, token_budget)
                     if schema_type == "resume":
                         hint = (
                             "\n\nIMPORTANT: Output the COMPLETE JSON object with ALL sections. Do not truncate."
@@ -1797,6 +1939,31 @@ async def complete_json(
                 continue
             raise ValueError(
                 f"Failed to parse JSON after {retries + 1} attempts: {e}")
+
+        except TruncatedCompletionError as e:
+            # The answer did not fit. A politer prompt cannot change that, so
+            # buy room and try again; on the last attempt it becomes the
+            # caller's error and a dashboard-visible failure.
+            escalated = _escalate_token_budget(model_name, token_budget)
+            logging.warning(
+                "Truncated %s completion (attempt %d/%d, model %s, max_tokens %d"
+                "%s): %s",
+                schema_type,
+                attempt + 1,
+                retries + 1,
+                model_name,
+                token_budget,
+                f" → {escalated}" if escalated > token_budget else " (already at ceiling)",
+                e,
+            )
+            if attempt < retries:
+                token_budget = escalated
+                messages[-1]["content"] = (
+                    prompt
+                    + "\n\nIMPORTANT: Output the COMPLETE JSON object and nothing else."
+                )
+                continue
+            raise
 
         except ValueError as e:
             # Content quality — empty response, JSON extraction failure

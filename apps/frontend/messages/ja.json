@@ -126,6 +126,21 @@
       "deleteDescription": "「{title}」とその履歴は完全に削除されます。",
       "deleteMasterDescription": "「{title}」はマスター履歴書です。削除すると履歴も消えますが、カスタマイズ済みの履歴書は残ります。",
       "deleteFailed": "この履歴書を削除できませんでした。もう一度お試しください。"
+    },
+    "aiFailures": {
+      "title": "AI の問題",
+      "summary": "最近の AI 失敗が {count} 件。診断用のみ — 再起動で消去されます。",
+      "dismiss": "閉じる",
+      "budget": "出力予算 {tokens} トークン",
+      "attempts": "{count} 回試行",
+      "hintTruncated": "回答が出力予算に収まりませんでした。出力上限の大きいモデル、または短い元書類を試してください。",
+      "kinds": {
+        "truncated": "回答が途切れました",
+        "malformed": "不正な JSON",
+        "empty": "空の回答",
+        "invalid": "回答が拒否されました",
+        "provider": "プロバイダーエラー"
+      }
     }
   },
   "builder": {

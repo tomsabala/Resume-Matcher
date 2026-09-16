@@ -148,6 +148,8 @@ Legend: ✅ done · 🚧 in progress · ⬜ planned
 ### Result after Phases 1–7
 **192 → ~444 deterministic tests** (+ 1 opt-in LLM-judge eval), **0 failures**. Phases 1–5 were built via parallel subagents (one per phase, strict file ownership) using the `dispatching-parallel-agents` skill; Phase 7 followed the TinyDB→SQLite migration (PRs #841 + #843).
 
+Added since: `tests/unit/test_llm_truncation.py` (12 — the `finish_reason == "length"` / unclosed-object truncation contract and `_escalate_token_budget`'s clamps) and `tests/integration/test_diagnostics_api.py` (4 — the AI-failure tail behind `/api/v1/diagnostics/ai-failures`).
+
 ---
 
 ## 6. How to run

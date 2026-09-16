@@ -23,7 +23,8 @@ apps/backend/app/
 ├── database.py     # Async SQLAlchemy/SQLite facade (returns plain dicts)
 ├── models.py       # SQLAlchemy declarative Base + ORM models
 ├── db_engine.py    # SQLite engine/session factories (async + sync) + PRAGMAs
-├── llm.py          # Multi-provider LLM
+├── llm.py          # Multi-provider LLM (JSON retries + output-budget escalation)
+├── ai_events.py    # Bounded in-process tail of recent AI failures (diagnostics)
 ├── deps.py         # FastAPI dependencies (resolve_workspace_id → X-Workspace-Id)
 ├── preview.py      # Preview fingerprints/claims for tailoring confirmation
 ├── latex/          # LaTeX export: escape.py (the escaping boundary),
@@ -247,6 +248,42 @@ version timeline as `origin="tex_edit"`. No engine installed is a **503**, not
 a 500 — the capability is missing, not the request. Full contract:
 [latex-export.md](../features/latex-export.md).
 
+## Template settings (`resumes.template_settings`)
+
+The template and formatting choice belongs to the **resume**, not the browser:
+the viewer and both export routes render what the user designed for that
+resume, on any device. `resumes.template_settings` (migration
+`0005_template_settings`) is a nullable JSON column holding the frontend's
+`TemplateSettings` object verbatim.
+
+- **NULL means "no choice stored yet"**, not "the defaults". A client reading
+  NULL keeps its own last-used settings, so opening a resume that predates the
+  column never resets how it looks. `_parse_template_settings`
+  (`app/routers/resumes.py`) degrades an unreadable stored payload to `None`
+  with a logged warning for the same reason — presentation must not fail a
+  document fetch.
+- **The payload is validated, not trusted.**
+  `PUT /resumes/{id}/template-settings` binds the body to `TemplateSettings`
+  (`app/schemas/template_settings.py`): camelCase names mirroring the frontend
+  type, `extra="forbid"` at every level, margins 5–25 mm, spacing and
+  type-scale steps 1–5, and closed literals for `template`, `pageSize`, the two
+  font families and `accentColor`. Unknown resume → 404, anything outside those
+  bounds → 422.
+- **Not versioned.** Presentation is not content, so the column never reaches
+  `commit_resume_version` and `resume_versions` has no such field: restoring an
+  older document does not revert how the resume looks, and a document `PATCH`
+  leaves the settings untouched. Contrast `tex_source`, which *is* versioned
+  because a source edit is authored content.
+- **Tailoring inherits it.** `POST /resumes/improve/confirm` and the one-shot
+  `POST /resumes/improve` copy the parent's value onto the resume they create,
+  so a tailored copy is never silently re-themed.
+- **The ids live in the schema module.** `HTML_TEMPLATES` (the seven
+  Chromium-rendered templates) and `TEX_TEMPLATES` (`tex-classic`,
+  `tex-compact`) are defined in `app/schemas/template_settings.py`;
+  `app/routers/resumes.py` imports `HTML_TEMPLATES` from there for the 400 that
+  `GET /resumes/{id}/pdf` raises on a LaTeX template, so the stored value, the
+  validator and the export guard cannot drift apart.
+
 ## Configuration ownership
 
 `Settings.data_dir` owns `resume_matcher.db`, `config.json` and `.secret_key`.
@@ -257,12 +294,14 @@ network by default, so normal test runs do not read or overwrite developer setti
 
 ## LLM Features
 
-| Feature         | Description                                                                                                           |
-| --------------- | --------------------------------------------------------------------------------------------------------------------- |
-| API Key Passing | Direct to litellm (avoids race conditions)                                                                            |
-| JSON Mode       | Auto-enabled for supported providers                                                                                  |
-| Retry Logic     | Bounded task-schema content retries plus a separate transport-error policy; [exact policy](../llm-integration.md)     |
-| Timeouts        | 30s health; completion/JSON base 120s/180s scale by tokens/provider and are capped by the remaining operation deadline |
+| Feature         | Description                                                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| API Key Passing | Direct to litellm (avoids race conditions)                                                                                   |
+| JSON Mode       | Auto-enabled for supported providers                                                                                         |
+| Retry Logic     | Bounded task-schema content retries plus a separate transport-error policy; [exact policy](../llm-integration.md)            |
+| Token budgets   | `DEFAULT_JSON_MAX_TOKENS` 8192; resume parsing asks `RESUME_JSON_MAX_TOKENS` 24,576; both clamped by `get_safe_max_tokens`    |
+| Truncation      | `finish_reason == "length"` or an unclosed object raises `TruncatedCompletionError`; the retry doubles the budget (≤ 65,536)  |
+| Timeouts        | 30s health; completion/JSON base 120s/180s scale by tokens/provider and are capped by the remaining operation deadline       |
 
 ## Prompt Guidelines
 
@@ -283,6 +322,7 @@ PATCH /api/v1/resumes/{id}        # body: a complete ResumeDocument
 POST /api/v1/resumes/improve/preview  + /improve/confirm   # tailor (LLM), then persist
 POST /api/v1/resumes/improve     # legacy one-shot tailor (LLM)
 GET  /api/v1/resumes/{id}/pdf
+PUT  /api/v1/resumes/{id}/template-settings   # the resume's own template/formatting choice
 GET  /api/v1/resumes/tex/capabilities         # engine name, can_compile, template ids
 GET/PUT/DELETE /api/v1/resumes/{id}/tex       # LaTeX source: generated | override
 GET  /api/v1/resumes/{id}/tex/source          # .tex download

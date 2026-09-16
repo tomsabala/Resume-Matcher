@@ -3,6 +3,7 @@
 import { SwissGrid } from '@/components/home/swiss-grid';
 import { ResumeUploadDialog } from '@/components/dashboard/resume-upload-dialog';
 import { MasterResumeChoiceDialog } from '@/components/dashboard/master-resume-choice-dialog';
+import { AIFailurePanel } from '@/components/dashboard/ai-failure-panel';
 import { useState, useEffect, useCallback, useRef, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -581,6 +582,8 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {listErrorAlert}
+      {/* Why an AI operation failed, when one just did. */}
+      <AIFailurePanel revision={processingStatus === 'failed' ? revision + 1 : revision} />
       {/* Configuration Warning Banner */}
       {masterResumeId && !isLlmConfigured && !statusLoading && (
         <div className="border-2 border-warning bg-amber-50 p-4 shadow-sw-default mb-6 flex items-center justify-between">

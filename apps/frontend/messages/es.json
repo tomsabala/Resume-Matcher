@@ -126,6 +126,21 @@
       "deleteDescription": "«{title}» y su historial se eliminarán permanentemente.",
       "deleteMasterDescription": "«{title}» es tu currículum maestro. Al eliminarlo se borra su historial; los currículums personalizados permanecen.",
       "deleteFailed": "No se pudo eliminar este currículum. Inténtalo de nuevo."
+    },
+    "aiFailures": {
+      "title": "Problemas de IA",
+      "summary": "{count} fallo(s) reciente(s) de IA. Solo diagnóstico: se borran al reiniciar.",
+      "dismiss": "Descartar",
+      "budget": "presupuesto de salida {tokens} tokens",
+      "attempts": "{count} intento(s)",
+      "hintTruncated": "La respuesta no cupo en el presupuesto de salida. Prueba un modelo con mayor límite de salida o un documento más corto.",
+      "kinds": {
+        "truncated": "Respuesta cortada",
+        "malformed": "JSON no válido",
+        "empty": "Respuesta vacía",
+        "invalid": "Respuesta rechazada",
+        "provider": "Error del proveedor"
+      }
     }
   },
   "builder": {
