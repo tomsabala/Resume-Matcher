@@ -87,6 +87,12 @@ class Resume(Base):
     # the .tex endpoints serve this verbatim and the document stops driving
     # the LaTeX output until the user clears it.
     tex_source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The resume's own template and formatting choice (camelCase JSON, the
+    # frontend's TemplateSettings). NULL means the user has not chosen for
+    # this resume yet, so the client falls back to its last-used settings.
+    # Deliberately outside resume_versions: presentation is not content, and
+    # restoring an older document must not revert how the resume looks.
+    template_settings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
     updated_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
 

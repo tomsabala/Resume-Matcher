@@ -232,6 +232,7 @@ class Database:
             "processed_data": row.processed_data,
             "head_version_id": row.head_version_id,
             "tex_source": row.tex_source,
+            "template_settings": row.template_settings,
             "processing_status": row.processing_status,
             "cover_letter": row.cover_letter,
             "outreach_message": row.outreach_message,

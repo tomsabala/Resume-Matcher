@@ -9,6 +9,7 @@ from app.ai_limits import validate_source_size
 from app.schemas.document import ResumeDocument
 from app.schemas.diff import DocumentDiff
 from app.schemas.refinement import RefinementStats
+from app.schemas.template_settings import TemplateSettings
 
 
 _TEXT_VALUE_KEYS = (
@@ -169,6 +170,9 @@ class ResumeFetchData(BaseModel):
     interview_prep: InterviewPrepData | None = None
     parent_id: str | None = None  # For determining if resume is tailored
     title: str | None = None
+    # None means this resume has no stored choice yet; the client then applies
+    # its last-used settings instead of overriding them with defaults.
+    template_settings: TemplateSettings | None = None
 
 
 class ResumeFetchResponse(BaseModel):

@@ -25,8 +25,16 @@ import {
   MessagesSquare,
 } from 'lucide-react';
 import { EnrichmentModal } from '@/components/enrichment/enrichment-modal';
+import { TexPdfPreview } from '@/components/latex/tex-pdf-preview';
+import type { TexTemplateId } from '@/lib/api/tex';
 import { useTranslations } from '@/lib/i18n';
 import type { ResumeDocument } from '@/lib/types/document';
+import {
+  DEFAULT_TEMPLATE_SETTINGS,
+  isTexTemplate,
+  type TemplateSettings,
+} from '@/lib/types/template-settings';
+import { readTemplateSettings } from '@/lib/utils/template-settings-storage';
 import { useLanguage } from '@/lib/context/language-context';
 import { downloadBlobAsFile, openUrlInNewTab, sanitizeFilename } from '@/lib/utils/download';
 import { useOperationOwner } from '@/hooks/use-operation-owner';
@@ -62,6 +70,14 @@ export default function ResumeViewerPage() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitleValue, setEditingTitleValue] = useState('');
   const [isTailoredResume, setIsTailoredResume] = useState(false);
+  // The builder's template choice, read after mount: the server render has no
+  // localStorage, so seeding it during render would hydrate a mismatch.
+  const [templateSettings, setTemplateSettings] =
+    useState<TemplateSettings>(DEFAULT_TEMPLATE_SETTINGS);
+  useEffect(() => {
+    setTemplateSettings(readTemplateSettings());
+  }, []);
+  const usesTexEngine = isTexTemplate(templateSettings.template);
 
   const resumeId = params?.id as string;
   const {
@@ -105,6 +121,9 @@ export default function ResumeViewerPage() {
         // Capture title for editable display (always set to clear stale state)
         setResumeTitle(data.title ?? null);
         setIsTailoredResume(Boolean(data.parent_id));
+        // The resume's own choice wins; without one, the last used in the
+        // builder is the closest thing to the user's intent.
+        if (data.template_settings) setTemplateSettings(data.template_settings);
 
         // Prioritize processed_resume if available (structured JSON)
         if (data.processed_resume) {
@@ -255,7 +274,7 @@ export default function ResumeViewerPage() {
     setIsDownloading(true);
     try {
       setDownloadError(null);
-      const blob = await downloadResumePdf(resumeId, undefined, uiLanguage);
+      const blob = await downloadResumePdf(resumeId, templateSettings, uiLanguage);
       const filename = sanitizeFilename(resumeTitle, resumeId, 'resume');
       downloadBlobAsFile(blob, filename);
       if (!isCurrentDownload(token)) return;
@@ -263,8 +282,9 @@ export default function ResumeViewerPage() {
     } catch (err) {
       if (!isCurrentDownload(token)) return;
       console.error('Failed to download resume:', err);
-      if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
-        const fallbackUrl = getResumePdfUrl(resumeId, undefined, uiLanguage);
+      // A LaTeX template is compiled, so it has no browser-openable URL.
+      if (!usesTexEngine && err instanceof TypeError && err.message.includes('Failed to fetch')) {
+        const fallbackUrl = getResumePdfUrl(resumeId, templateSettings, uiLanguage);
         const didOpen = openUrlInNewTab(fallbackUrl);
         if (!didOpen) {
           setDownloadError(t('common.popupBlocked', { url: fallbackUrl }));
@@ -506,11 +526,27 @@ export default function ResumeViewerPage() {
           </div>
         )}
 
-        {/* Resume Viewer */}
+        {/* Resume Viewer — the renderer the selected template belongs to. */}
         <div className="flex justify-center pb-4">
-          <div className="resume-print w-full max-w-[250mm] shadow-sw-lg border-2 border-black bg-white">
-            <Resume doc={doc} translate={t} fallbackName={t('resume.defaults.name')} />
-          </div>
+          {usesTexEngine ? (
+            <div className="w-full max-w-[250mm] h-[297mm] border-2 border-black bg-white shadow-sw-lg">
+              <TexPdfPreview
+                resumeId={resumeId}
+                template={templateSettings.template as TexTemplateId}
+                pageSize={templateSettings.pageSize}
+                revision={0}
+              />
+            </div>
+          ) : (
+            <div className="resume-print w-full max-w-[250mm] shadow-sw-lg border-2 border-black bg-white">
+              <Resume
+                doc={doc}
+                settings={templateSettings}
+                translate={t}
+                fallbackName={t('resume.defaults.name')}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end pt-4 no-print">

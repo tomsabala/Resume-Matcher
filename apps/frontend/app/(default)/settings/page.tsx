@@ -64,6 +64,7 @@ import { useLanguage } from '@/lib/context/language-context';
 import { useTranslations } from '@/lib/i18n';
 import { ATTACHMENT_DRAFT_STORAGE_PREFIX } from '@/lib/utils/attachment-draft-storage';
 import { RESUME_DRAFT_STORAGE_PREFIX, safeStorage } from '@/lib/utils/resume-draft-storage';
+import { TEMPLATE_SETTINGS_STORAGE_KEY } from '@/lib/utils/template-settings-storage';
 import type { SupportedLanguage } from '@/lib/api/config';
 import type { Locale } from '@/i18n/config';
 
@@ -635,7 +636,7 @@ export default function SettingsPage() {
         // Enumerating localStorage can throw for the same reasons; the scoped
         // drafts simply stay until their TTL expires.
       }
-      safeStorage.remove('resume_builder_settings');
+      safeStorage.remove(TEMPLATE_SETTINGS_STORAGE_KEY);
       safeStorage.remove('resume_matcher_content_language');
       safeStorage.remove('resume_matcher_ui_language');
 

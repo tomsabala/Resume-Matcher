@@ -38,6 +38,7 @@ import {
   getCoverLetterPdfUrl,
   fetchResume,
   updateResume,
+  saveResumeTemplateSettings,
   updateCoverLetter,
   updateOutreachMessage,
   generateCoverLetter,
@@ -56,11 +57,10 @@ import { useTranslations } from '@/lib/i18n';
 import {
   type TemplateSettings,
   type TemplateType,
-  DEFAULT_TEMPLATE_SETTINGS,
-  TEMPLATE_OPTIONS,
   applyTemplatePreset,
   isTexTemplate,
 } from '@/lib/types/template-settings';
+import { readTemplateSettings, writeTemplateSettings } from '@/lib/utils/template-settings-storage';
 import { sectionHeading, visibleSections } from '@/lib/utils/section-helpers';
 import { useLanguage } from '@/lib/context/language-context';
 import { buildResumeFilename, downloadBlobAsFile, openUrlInNewTab } from '@/lib/utils/download';
@@ -88,7 +88,6 @@ type TabId =
   'resume' | 'cover-letter' | 'outreach' | 'interview-prep' | 'jd-match' | 'history' | 'latex';
 type JobContextStatus = 'idle' | 'loading' | 'available' | 'missing';
 
-const SETTINGS_STORAGE_KEY = 'resume_builder_settings';
 const TAB_IDS: TabId[] = [
   'resume',
   'cover-letter',
@@ -108,6 +107,9 @@ const SINGLE_COLUMN_TEMPLATES: Partial<Record<TemplateType, true>> = {
   'tex-classic': true,
   'tex-compact': true,
 };
+// A slider drag emits a change per pixel; one write per settled choice is
+// enough, and the render is local either way.
+const TEMPLATE_SETTINGS_SAVE_DEBOUNCE_MS = 700;
 const RESUME_AUTOSAVE_DEBOUNCE_MS = 2500;
 const RESUME_AUTOSAVE_MAX_WAIT_MS = 12000;
 // Floor for the computed delay. Without it, once an unsynced streak exceeds the
@@ -229,29 +231,7 @@ const ResumeBuilderContent = () => {
   const [hasCurrentLocalDraft, setHasCurrentLocalDraft] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [loadingState, setLoadingState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
-  const [templateSettings, setTemplateSettings] = useState<TemplateSettings>(() => {
-    if (typeof window === 'undefined') return DEFAULT_TEMPLATE_SETTINGS;
-    try {
-      const saved = safeStorage.get(SETTINGS_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const merged = {
-          ...DEFAULT_TEMPLATE_SETTINGS,
-          ...parsed,
-          margins: { ...DEFAULT_TEMPLATE_SETTINGS.margins, ...parsed.margins },
-          spacing: { ...DEFAULT_TEMPLATE_SETTINGS.spacing, ...parsed.spacing },
-          fontSize: { ...DEFAULT_TEMPLATE_SETTINGS.fontSize, ...parsed.fontSize },
-        };
-        // A stored id that no longer exists would route the export to a
-        // renderer that cannot produce it, so it never survives hydration.
-        const known = TEMPLATE_OPTIONS.some((option) => option.id === merged.template);
-        return known ? merged : { ...merged, template: DEFAULT_TEMPLATE_SETTINGS.template };
-      }
-    } catch {
-      // fall through to defaults
-    }
-    return DEFAULT_TEMPLATE_SETTINGS;
-  });
+  const [templateSettings, setTemplateSettings] = useState<TemplateSettings>(readTemplateSettings);
   const { improvedData } = useResumePreview();
   const improvedPreview = improvedData?.data?.resume_preview;
   const improvedCoverLetter = improvedData?.data?.cover_letter;
@@ -364,11 +344,23 @@ const ResumeBuilderContent = () => {
     };
   }, []);
 
+  // The settings last written to this resume, so an adopted value is not
+  // immediately echoed back and a slider drag saves once, not per pixel.
+  const persistedSettingsRef = useRef<string | null>(null);
+
+  /** Adopt the resume's own template choice; keep the last-used one if it has none. */
+  const adoptTemplateSettings = useCallback((stored: TemplateSettings | null | undefined) => {
+    if (!stored) return;
+    persistedSettingsRef.current = JSON.stringify(stored);
+    setTemplateSettings(stored);
+  }, []);
+
   /** Re-read the resume from the server and adopt it as the editor's state. */
   const reloadFromServer = useCallback(async () => {
     if (!resumeId) return;
     const data = await fetchResume(resumeId);
     setResumeTitle(data.title ?? null);
+    adoptTemplateSettings(data.template_settings);
     if (data.processed_resume) {
       setDoc(data.processed_resume);
       setLastSavedData(data.processed_resume);
@@ -377,7 +369,7 @@ const ResumeBuilderContent = () => {
       unsyncedSinceRef.current = null;
     }
     setHistoryRevision((value) => value + 1);
-  }, [resumeId]);
+  }, [resumeId, adoptTemplateSettings]);
 
   // AI Regenerate wizard
   const regenerateWizard = useRegenerateWizard({
@@ -479,10 +471,28 @@ const ResumeBuilderContent = () => {
       .filter((group) => group.items.length > 0);
   }, [canonicalDocument, t]);
 
-  // Save template settings to localStorage when they change
+  // Remember the choice as the default for resumes that have none of their own.
   useEffect(() => {
-    safeStorage.set(SETTINGS_STORAGE_KEY, JSON.stringify(templateSettings));
+    writeTemplateSettings(templateSettings);
   }, [templateSettings]);
+
+  // ...and store it on the resume, which is what the viewer and both PDF
+  // routes read. Gated on a settled load so a slow GET cannot lose the race
+  // and pin this resume to the previous one's template.
+  useEffect(() => {
+    if (!resumeId || loadingState !== 'loaded') return;
+    const payload = JSON.stringify(templateSettings);
+    if (persistedSettingsRef.current === payload) return;
+    const timer = setTimeout(() => {
+      persistedSettingsRef.current = payload;
+      void saveResumeTemplateSettings(resumeId, templateSettings).catch((error) => {
+        // Let the next change retry instead of believing the write landed.
+        persistedSettingsRef.current = null;
+        console.error('Failed to save template settings:', error);
+      });
+    }, TEMPLATE_SETTINGS_SAVE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [templateSettings, resumeId, loadingState]);
 
   // Warn user before leaving with unsaved changes
   useEffect(() => {
@@ -509,6 +519,8 @@ const ResumeBuilderContent = () => {
       setLoadingState('loading');
       setPendingDraftRestore(null);
       setPendingAttachmentDraftRestore(null);
+      // A different resume's choice must not be credited to this one.
+      persistedSettingsRef.current = null;
 
       // Priority 1: Fetch from API if ID is in URL (most reliable)
       if (resumeId) {
@@ -545,6 +557,7 @@ const ResumeBuilderContent = () => {
           setIsTailoredResume(Boolean(data.parent_id));
           // Store resume title for downloads
           setResumeTitle(data.title ?? null);
+          adoptTemplateSettings(data.template_settings);
           // These values belong to this resume. Explicitly applying empty values
           // prevents the preceding document's attachment from surviving a switch.
           const serverCoverLetter = data.cover_letter ?? '';
@@ -646,6 +659,7 @@ const ResumeBuilderContent = () => {
     improvedOutreach,
     improvedInterviewPrep,
     resumeId,
+    adoptTemplateSettings,
   ]);
 
   useEffect(() => {

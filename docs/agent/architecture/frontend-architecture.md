@@ -97,8 +97,8 @@ fetchLlmConfig, updateLlmConfig, testLlmConnection, fetchSystemStatus
 | Key | Purpose |
 |-----|---------|
 | `master_resume_id` | Master resume UUID |
-| `resume_builder_draft` | Auto-saved form data |
-| `resume_builder_settings` | Template preferences |
+| `resume_builder_draft:{id}` | Auto-saved form data, per resume |
+| `resume_builder_settings` | Last template/formatting choice — the default for a resume with none of its own. The choice itself lives on the resume (`template_settings`) |
 
 ## Pagination System
 

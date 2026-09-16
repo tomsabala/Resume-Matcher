@@ -328,6 +328,19 @@ emitting a `/pdf` URL, and `GET /resumes/{id}/pdf` answers **400** for one.
 Before this, the picker and the LaTeX tab held two separate choices and
 Download PDF always used Chromium.
 
+**The choice is stored on the resume, not in the browser.** The builder adopts
+`data.template_settings` when the resume loads and writes any change back with
+`saveResumeTemplateSettings` (`PUT /resumes/{id}/template-settings`) after a
+700 ms debounce, once the load has settled; `localStorage`
+(`apps/frontend/lib/utils/template-settings-storage.ts`) is only the last-used
+default for a resume that has no choice of its own, and a tailored resume
+inherits its parent's. The viewer page
+(`apps/frontend/app/(default)/resumes/[id]/page.tsx`) therefore shows the same
+thing as the builder: it renders `TexPdfPreview` when the stored template
+`isTexTemplate` and `<Resume settings={…}>` otherwise, and downloads through
+the same settings. It used to render and export with the defaults, so a LaTeX
+selection never left the builder.
+
 Page size is the only formatting control a tex selection keeps; the margin,
 spacing, font-size, font-family, compact-mode, contact-icon and accent-colour
 controls are disabled with a notice, because the engine reads none of them.

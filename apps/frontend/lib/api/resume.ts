@@ -7,26 +7,39 @@ import { isTexTemplate, type TemplateSettings } from '@/lib/types/template-setti
 import { compileTexPdf, type TexTemplateId } from '@/lib/api/tex';
 import { type Locale } from '@/i18n/config';
 import { clearResumeWizardCompletion } from '@/lib/utils/resume-wizard-storage';
-import { API_BASE, DEFAULT_TIMEOUT_MS, apiPost, apiPatch, apiDelete, apiFetch } from './client';
+import {
+  API_BASE,
+  DEFAULT_TIMEOUT_MS,
+  apiPost,
+  apiPatch,
+  apiPut,
+  apiDelete,
+  apiFetch,
+} from './client';
+
+/** One resume as the detail endpoints return it. */
+export interface ResumeDetail {
+  resume_id: string;
+  raw_resume: {
+    id: number | null;
+    content: string;
+    content_type: string;
+    created_at: string;
+    processing_status: 'pending' | 'processing' | 'ready' | 'failed';
+  };
+  processed_resume: ResumeDocument | null;
+  cover_letter?: string | null;
+  outreach_message?: string | null;
+  interview_prep?: InterviewPrepData | null;
+  parent_id?: string | null; // For determining if resume is tailored
+  title?: string | null;
+  /** Null when this resume has no stored choice yet. */
+  template_settings?: TemplateSettings | null;
+}
 
 interface ResumeResponse {
   request_id: string;
-  data: {
-    resume_id: string;
-    raw_resume: {
-      id: number | null;
-      content: string;
-      content_type: string;
-      created_at: string;
-      processing_status: 'pending' | 'processing' | 'ready' | 'failed';
-    };
-    processed_resume: ResumeDocument | null;
-    cover_letter?: string | null;
-    outreach_message?: string | null;
-    interview_prep?: InterviewPrepData | null;
-    parent_id?: string | null; // For determining if resume is tailored
-    title?: string | null;
-  };
+  data: ResumeDetail;
 }
 
 /** Response from resume upload endpoint */
@@ -151,7 +164,7 @@ export async function confirmImproveResume(
 }
 
 /** Fetches a raw resume record for previewing the original upload */
-export async function fetchResume(resumeId: string): Promise<ResumeResponse['data']> {
+export async function fetchResume(resumeId: string): Promise<ResumeDetail> {
   const res = await apiFetch(`/resumes?resume_id=${encodeURIComponent(resumeId)}`);
   if (!res.ok) {
     throw new Error(`Failed to load resume (status ${res.status}).`);
@@ -174,7 +187,7 @@ export async function fetchResumeList(includeMaster = false): Promise<ResumeList
 export async function updateResume(
   resumeId: string,
   resumeData: ResumeDocument
-): Promise<ResumeResponse['data']> {
+): Promise<ResumeDetail> {
   const res = await apiPatch(`/resumes/${encodeURIComponent(resumeId)}`, resumeData);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -182,6 +195,25 @@ export async function updateResume(
   }
   const payload = (await res.json()) as ResumeResponse;
   return payload.data;
+}
+
+/**
+ * Store this resume's template and formatting choice.
+ *
+ * The choice belongs to the resume: the viewer and both PDF routes render
+ * what is stored here, so it survives a reload and follows the resume to
+ * another device.
+ */
+export async function saveResumeTemplateSettings(
+  resumeId: string,
+  settings: TemplateSettings
+): Promise<TemplateSettings> {
+  const res = await apiPut(`/resumes/${encodeURIComponent(resumeId)}/template-settings`, settings);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to save template settings (status ${res.status}): ${text}`);
+  }
+  return (await res.json()) as TemplateSettings;
 }
 
 /**

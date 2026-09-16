@@ -67,6 +67,7 @@ from app.schemas.versions import (
     VersionListResponse,
     VersionSummary,
 )
+from app.schemas.template_settings import HTML_TEMPLATES, TemplateSettings
 from app.services.parser import (
     DocumentResourceLimitError,
     MAX_EXTRACTED_TEXT_BYTES,
@@ -198,6 +199,29 @@ def _parse_interview_prep(
     except (TypeError, json.JSONDecodeError, ValidationError, ValueError) as e:
         logger.warning(
             "Invalid interview_prep payload for resume %s: %s",
+            resume_id or "<unknown>",
+            e,
+        )
+        return None
+
+
+def _parse_template_settings(
+    raw: Any,
+    *,
+    resume_id: str | None = None,
+) -> TemplateSettings | None:
+    """Stored presentation settings, or None when absent or unreadable.
+
+    A row written by a newer client must never fail the whole fetch: the
+    client falls back to its own settings, which is the pre-storage behaviour.
+    """
+    if raw in (None, ""):
+        return None
+    try:
+        return TemplateSettings.model_validate(raw)
+    except (TypeError, ValidationError, ValueError) as e:
+        logger.warning(
+            "Invalid template_settings payload for resume %s: %s",
             resume_id or "<unknown>",
             e,
         )
@@ -653,19 +677,6 @@ DOCUMENT_TYPES_BY_EXTENSION = {
 ALLOWED_TYPES = frozenset().union(*DOCUMENT_TYPES_BY_EXTENSION.values())
 MAX_FILE_SIZE = 4 * 1024 * 1024  # 4MB
 UPLOAD_READ_CHUNK_SIZE = 64 * 1024
-# The templates the print route knows how to render. Mirrors the
-# `target: 'html'` rows of TEMPLATE_OPTIONS in the frontend.
-HTML_TEMPLATES = frozenset(
-    {
-        "swiss-single",
-        "swiss-two-column",
-        "modern",
-        "modern-two-column",
-        "latex",
-        "clean",
-        "vivid",
-    }
-)
 
 
 def _validate_upload_type(file: UploadFile) -> None:
@@ -1035,8 +1046,33 @@ async def get_resume(resume_id: str = Query(...)) -> ResumeFetchResponse:
             ),
             parent_id=resume.get("parent_id"),
             title=resume.get("title"),
+            template_settings=_parse_template_settings(
+                resume.get("template_settings"), resume_id=resume_id
+            ),
         ),
     )
+
+
+@router.put("/{resume_id}/template-settings", response_model=TemplateSettings)
+async def save_resume_template_settings(
+    resume_id: str, request: TemplateSettings
+) -> TemplateSettings:
+    """Store this resume's template and formatting choice.
+
+    The choice belongs to the resume, not the browser: the viewer and both PDF
+    routes render whatever is stored here, so a tailored resume keeps looking
+    the way it was designed on any device.
+
+    Not a version checkpoint — presentation is not content, and a restore must
+    not revert it.
+    """
+    try:
+        await db.update_resume(
+            resume_id, {"template_settings": request.model_dump(mode="json")}
+        )
+    except ResumeNotFoundError:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    return request
 
 
 @router.get("/list", response_model=ResumeListResponse)
@@ -1540,6 +1576,9 @@ async def improve_resume_confirm_endpoint(
                 "outreach_message": outreach_message,
                 "interview_prep": _serialize_interview_prep(interview_prep),
                 "title": title,
+                # A tailored resume inherits how its parent looks; the user
+                # designed that, and a new default would be a surprise.
+                "template_settings": resume.get("template_settings"),
             },
             response_data=response.model_dump(mode="json"),
             improvements=claim.improvements or [],
@@ -1802,6 +1841,7 @@ async def improve_resume_endpoint(
                 "outreach_message": outreach_message,
                 "interview_prep": _serialize_interview_prep(interview_prep),
                 "title": title,
+                "template_settings": resume.get("template_settings"),
             },
             improvements=improvements,
         )
@@ -1920,6 +1960,9 @@ async def update_resume_endpoint(
             ),
             parent_id=updated.get("parent_id"),
             title=updated.get("title"),
+            template_settings=_parse_template_settings(
+                updated.get("template_settings"), resume_id=resume_id
+            ),
         ),
     )
 

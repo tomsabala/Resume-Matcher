@@ -19,6 +19,7 @@ vi.mock('@/lib/api/resume', () => ({
   fetchResume: (...args: unknown[]) => fetchResume(...args),
   updateResume: vi.fn(),
   downloadResumePdf: vi.fn(),
+  saveResumeTemplateSettings: vi.fn(() => Promise.resolve()),
   downloadCoverLetterPdf: vi.fn(),
   getResumePdfUrl: vi.fn(() => ''),
   getCoverLetterPdfUrl: vi.fn(() => ''),

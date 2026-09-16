@@ -64,6 +64,42 @@ accent colour and shows `builder.formatting.texNotice` under the template grid.
 Page size stays live: the `/tex*` routes take `pageSize=A4|LETTER` and both
 `.tex.j2` preambles select `a4paper`/`letterpaper` from it.
 
+## Where the Choice Lives
+
+The template and formatting choice belongs to the **resume**, not the browser.
+`Resume.template_settings` (JSON, nullable) stores the same object the picker
+edits, and `GET /api/v1/resumes?resume_id=` returns it as
+`data.template_settings`.
+
+- **Load.** The builder (`components/builder/resume-builder.tsx`) adopts
+  `data.template_settings` via `adoptTemplateSettings`, on the initial load and
+  on every reload. A resume that has none (`null`) keeps whatever settings the
+  browser already holds, so no existing resume silently resets to
+  `swiss-single`.
+- **Change.** The builder writes the choice back with
+  `saveResumeTemplateSettings(resumeId, settings)`
+  (`PUT /api/v1/resumes/{id}/template-settings`) after a
+  `TEMPLATE_SETTINGS_SAVE_DEBOUNCE_MS` = 700 ms debounce, gated on
+  `loadingState === 'loaded'` so a slow GET cannot pin this resume to the
+  previously open one's template. A `persistedSettingsRef` keeps it from
+  echoing back a value it has just adopted.
+- **localStorage is only the last-used default.** `resume_builder_settings`,
+  owned by `lib/utils/template-settings-storage.ts` (`readTemplateSettings`,
+  `writeTemplateSettings`), merges over `DEFAULT_TEMPLATE_SETTINGS` and drops an
+  unknown template id. It supplies the starting point for resumes with no
+  stored choice; it no longer *is* the choice.
+- **The viewer reads the resume's own settings.**
+  `app/(default)/resumes/[id]/page.tsx` prefers `data.template_settings`,
+  falling back to the stored last-used ones, renders `TexPdfPreview` for a tex
+  template and `<Resume settings={…}>` otherwise, and passes the same settings
+  to `downloadResumePdf`. It used to render and export with the defaults, so a
+  chosen template was invisible outside the builder.
+- **A tailored resume inherits its parent's** `template_settings`, on both the
+  `improve/confirm` and the direct `improve` path.
+- **The choice is not versioned.** `resume_versions` does not carry it, so
+  restoring an older document does not revert how the resume looks, and a
+  document `PATCH` leaves it untouched.
+
 ## Key Files
 
 | File | Purpose |
@@ -73,6 +109,8 @@ Page size stays live: the `/tex*` routes take `pageSize=A4|LETTER` and both
 | `apps/frontend/components/resume/section-kinds/` | `SECTION_KIND_RENDERERS` + `SectionBlock`: one renderer per `SectionKind` |
 | `apps/frontend/lib/utils/section-helpers.ts` | `visibleSections`, `sectionHeading` |
 | `apps/frontend/lib/types/template-settings.ts` | Type definitions, defaults, CSS variable mapping |
+| `apps/frontend/lib/utils/template-settings-storage.ts` | `TEMPLATE_SETTINGS_STORAGE_KEY`, `readTemplateSettings`, `writeTemplateSettings` — the last-used default |
+| `apps/frontend/lib/api/resume.ts` | `ResumeDetail.template_settings` and `saveResumeTemplateSettings` |
 | `apps/frontend/components/resume/styles/_tokens.css` | Global design tokens (colors) |
 | `apps/frontend/components/resume/styles/_base.module.css` | Shared typography and layout styles |
 | `apps/frontend/components/builder/formatting-controls.tsx` | UI controls for template settings |
@@ -83,7 +121,7 @@ Page size stays live: the `/tex*` routes take `pageSize=A4|LETTER` and both
 | `apps/frontend/components/resume/resume-latex.tsx` | `latex` |
 | `apps/frontend/components/resume/resume-clean.tsx` | `clean` |
 | `apps/frontend/components/resume/resume-vivid.tsx` | `vivid` |
-| `apps/backend/app/routers/resumes.py` | PDF generation endpoint with accentColor support |
+| `apps/backend/app/routers/resumes.py` | PDF generation endpoint with accentColor support; `PUT /resumes/{id}/template-settings` |
 
 ## CSS Variables
 
