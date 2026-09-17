@@ -9,8 +9,13 @@ FROM node:22-bookworm AS frontend-builder
 # Build argument for API URL (allows customization at build time)
 # Default routes requests through Next.js rewrites on the same origin.
 ARG NEXT_PUBLIC_API_URL=/
+# Mount prefix when the app is served under a path (e.g. /a/resume-matcher behind a gateway).
+# Empty means "owns its origin". Both values are inlined by `npm run build`, so the mount
+# path is baked into the image — rebuild to change it.
+ARG NEXT_PUBLIC_BASE_PATH=
 ENV NEXT_TELEMETRY_DISABLED=1 \
-    NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+    NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
 
 WORKDIR /app/frontend
 

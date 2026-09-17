@@ -4,7 +4,9 @@
  * Single source of truth for API configuration and base fetch utilities.
  */
 
-const DEFAULT_PUBLIC_API_URL = '/';
+// Mount prefix, inlined at build time (see next.config.ts `basePath`). Empty when the app
+// owns its origin.
+const BASE_PATH = (process.env.NEXT_PUBLIC_BASE_PATH ?? '').replace(/\/+$/, '');
 const INTERNAL_API_ORIGIN = 'http://127.0.0.1:8000';
 
 function normalizeApiUrl(value: string): string {
@@ -26,10 +28,19 @@ function resolveRuntimeApiBase(apiBase: string): string {
   if (typeof window !== 'undefined' || !apiBase.startsWith('/')) {
     return apiBase;
   }
-  return `${INTERNAL_API_ORIGIN}${apiBase}`;
+  // Server components talk to uvicorn directly, so the gateway mount prefix has to come off
+  // first: `${INTERNAL_API_ORIGIN}/a/resume-matcher/api/v1` would 404 (that prefix only
+  // exists in front of Next). The print routes render through this branch.
+  const internal = BASE_PATH && apiBase.startsWith(`${BASE_PATH}/`) ? apiBase.slice(BASE_PATH.length) : apiBase;
+  return `${INTERNAL_API_ORIGIN}${internal}`;
 }
 
-export const API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_PUBLIC_API_URL);
+// `NEXT_PUBLIC_API_URL` wins, except its "/" default, which only says "same origin as the
+// frontend" — and under a mount prefix that origin-relative root is BASE_PATH, not "/".
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+export const API_URL = normalizeApiUrl(
+  configuredApiUrl && configuredApiUrl !== '/' ? configuredApiUrl : BASE_PATH || '/'
+);
 export const API_BASE = resolveRuntimeApiBase(toApiBase(API_URL));
 
 // Default request timeout (ms). MUST match the backend's REQUEST_TIMEOUT_SECONDS
