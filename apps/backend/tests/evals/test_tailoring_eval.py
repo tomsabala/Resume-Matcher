@@ -37,16 +37,21 @@ async def generate_tailoring(case: dict[str, Any]) -> dict[str, Any]:
     from app.schemas import ImproveResumeRequest, ResumeDocument
 
     original = ResumeDocument.model_validate(case["original"]).model_dump(mode="json")
+    workspace_id = await db.default_workspace_id()
     resume = await db.create_resume(
         content=json.dumps(original),
         content_type="json",
         processed_data=original,
         processing_status="ready",
         is_master=True,
+        workspace_id=workspace_id,
     )
-    job = await db.create_job(case["job_description"], resume["resume_id"])
+    job = await db.create_job(
+        case["job_description"], resume["resume_id"], workspace_id=workspace_id
+    )
     response = await improve_resume_preview_endpoint(
-        ImproveResumeRequest(resume_id=resume["resume_id"], job_id=job["job_id"])
+        ImproveResumeRequest(resume_id=resume["resume_id"], job_id=job["job_id"]),
+        workspace_id,
     )
     return response.data.resume_preview.model_dump()
 

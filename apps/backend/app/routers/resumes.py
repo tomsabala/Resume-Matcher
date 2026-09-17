@@ -23,7 +23,7 @@ from app.ai_budget import (
 )
 from app.config_cache import get_content_language, load_config as _load_config
 from app.database import DatabaseBusyError, ProcessingFinishOutcome, ResumeNotFoundError, db
-from app.deps import WorkspaceId
+from app.deps import ActiveTenantDep, WorkspaceId
 from app.pdf import render_resume_pdf, PDFRenderError
 from app.config import settings
 from app.preview import (
@@ -124,6 +124,7 @@ DIFF_UNAVAILABLE_WARNING = "DIFF_UNAVAILABLE: Resume changes could not be calcul
 
 async def _auto_create_tracker_application(
     *,
+    workspace_id: str,
     job_id: str,
     tailored_resume_id: str,
     master_resume_id: str,
@@ -137,7 +138,9 @@ async def _auto_create_tracker_application(
     """
     try:
         if title is None:
-            saved_resume = await db.get_resume(tailored_resume_id)
+            saved_resume = await db.get_resume(
+                tailored_resume_id, workspace_id=workspace_id
+            )
             title = (saved_resume or {}).get("title")
         company = (job or {}).get("company")
         role = title or (job or {}).get("role")
@@ -148,6 +151,7 @@ async def _auto_create_tracker_application(
             status="applied",
             company=company,
             role=role,
+            workspace_id=workspace_id,
         )
     except Exception as e:  # noqa: BLE001 - tracker is non-critical
         logger.warning("Failed to auto-create tracker application: %s", e)
@@ -781,14 +785,17 @@ async def _await_processing_cleanup(task: asyncio.Task[Any]) -> Any:
 
 
 async def _retire_processing_attempt(
-    resume_id: str, processing_token: str | None
+    resume_id: str, processing_token: str | None, *, workspace_id: str
 ) -> None:
     """Retire an attempt after bounded contention retries."""
     retry_delay = _PROCESSING_RETIREMENT_INITIAL_BACKOFF_SECONDS
     for attempt in range(1, _PROCESSING_RETIREMENT_MAX_ATTEMPTS + 1):
         try:
             await db.finish_resume_processing(
-                resume_id, processing_token, processing_status="failed"
+                resume_id,
+                processing_token,
+                workspace_id=workspace_id,
+                processing_status="failed",
             )
             return
         except DatabaseBusyError:
@@ -833,11 +840,13 @@ async def drain_processing_cleanup_tasks() -> None:
 
 
 async def _finish_cancelled_processing(
-    resume_id: str, processing_token: str | None
+    resume_id: str, processing_token: str | None, *, workspace_id: str
 ) -> None:
     """Retire only this attempt, deferring a stalled cleanup after a bounded wait."""
     cleanup = asyncio.create_task(
-        _retire_processing_attempt(resume_id, processing_token)
+        _retire_processing_attempt(
+            resume_id, processing_token, workspace_id=workspace_id
+        )
     )
     try:
         await _await_processing_cleanup(cleanup)
@@ -848,11 +857,13 @@ async def _finish_cancelled_processing(
 
 
 async def _claim_processing(
-    resume_id: str, *, allow_ready_at: str | None = None
+    resume_id: str, *, workspace_id: str, allow_ready_at: str | None = None
 ) -> str | None:
     """Recover ownership when cancellation arrives during a committed claim."""
     claim = asyncio.create_task(
-        db.claim_resume_processing(resume_id, allow_ready_at=allow_ready_at)
+        db.claim_resume_processing(
+            resume_id, workspace_id=workspace_id, allow_ready_at=allow_ready_at
+        )
     )
     try:
         return await asyncio.shield(claim)
@@ -860,7 +871,9 @@ async def _claim_processing(
         async def retire_claim() -> None:
             token = await claim
             if token is not None:
-                await _retire_processing_attempt(resume_id, token)
+                await _retire_processing_attempt(
+                    resume_id, token, workspace_id=workspace_id
+                )
 
         retirement = asyncio.create_task(retire_claim())
         try:
@@ -950,11 +963,15 @@ async def upload_resume(
     request.state.uploaded_resume = (resume["resume_id"], resume.get("is_master", False))
 
     try:
-        processing_token = await _claim_processing(resume["resume_id"])
+        processing_token = await _claim_processing(
+            resume["resume_id"], workspace_id=workspace_id
+        )
     except DatabaseBusyError:
         # This request created the row, but no claim was installed. Retire it
         # only while its token is still NULL; a concurrent owner/save wins.
-        await _finish_cancelled_processing(resume["resume_id"], None)
+        await _finish_cancelled_processing(
+            resume["resume_id"], None, workspace_id=workspace_id
+        )
         raise
     except ResumeNotFoundError as e:
         raise HTTPException(
@@ -977,6 +994,7 @@ async def upload_resume(
             outcome = await db.finish_resume_processing(
                 resume["resume_id"],
                 processing_token,
+                workspace_id=workspace_id,
                 processing_status="failed",
             )
             _require_processing_commit(
@@ -988,6 +1006,7 @@ async def upload_resume(
             outcome = await db.finish_resume_processing(
                 resume["resume_id"],
                 processing_token,
+                workspace_id=workspace_id,
                 processing_status="ready",
                 processed_data=processed_data,
             )
@@ -997,7 +1016,9 @@ async def upload_resume(
             )
             resume["processed_data"] = processed_data
             resume["processing_status"] = "ready"
-            await db.seed_resume_version(resume["resume_id"], origin="import")
+            await db.seed_resume_version(
+                resume["resume_id"], workspace_id=workspace_id, origin="import"
+            )
 
         # Return accurate status to client (API-001 fix)
         return ResumeUploadResponse(
@@ -1017,19 +1038,23 @@ async def upload_resume(
         PromptSizeError,
         DatabaseBusyError,
     ):
-        await _finish_cancelled_processing(resume["resume_id"], processing_token)
+        await _finish_cancelled_processing(
+            resume["resume_id"], processing_token, workspace_id=workspace_id
+        )
         raise
 
 
 @router.get("", response_model=ResumeFetchResponse)
-async def get_resume(resume_id: str = Query(...)) -> ResumeFetchResponse:
+async def get_resume(
+    workspace_id: WorkspaceId, resume_id: str = Query(...)
+) -> ResumeFetchResponse:
     """Fetch resume details by ID.
 
     Returns both raw markdown and structured data (if available),
     plus cover letter and outreach message if they exist.
     Applies lazy migration for section metadata if needed.
     """
-    resume = await db.get_resume(resume_id)
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
 
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -1078,7 +1103,7 @@ async def get_resume(resume_id: str = Query(...)) -> ResumeFetchResponse:
 
 @router.put("/{resume_id}/template-settings", response_model=TemplateSettings)
 async def save_resume_template_settings(
-    resume_id: str, request: TemplateSettings
+    resume_id: str, request: TemplateSettings, workspace_id: WorkspaceId
 ) -> TemplateSettings:
     """Store this resume's template and formatting choice.
 
@@ -1091,7 +1116,9 @@ async def save_resume_template_settings(
     """
     try:
         await db.update_resume(
-            resume_id, {"template_settings": request.model_dump(mode="json")}
+            resume_id,
+            {"template_settings": request.model_dump(mode="json")},
+            workspace_id=workspace_id,
         )
     except ResumeNotFoundError:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -1119,11 +1146,8 @@ async def set_master_resume(
     tailoring is verified against (see ``get_master_resume`` callers and
     ``app/prompts/refinement.py``) — the client says so before asking.
     """
-    resume = await db.get_resume(resume_id)
-    # `get_resume` is not workspace-scoped and `set_master_resume` takes its
-    # scope from the target row, so without this check a stray id would
-    # promote a master in someone else's workspace.
-    if not resume or resume.get("workspace_id") != workspace_id:
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
+    if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
     status = resume.get("processing_status", "pending")
@@ -1143,7 +1167,7 @@ async def set_master_resume(
             resume_id=resume_id, is_master=True, previous_master_id=None
         )
 
-    if not await db.set_master_resume(resume_id):
+    if not await db.set_master_resume(resume_id, workspace_id=workspace_id):
         raise HTTPException(status_code=404, detail="Resume not found")
 
     logger.info(
@@ -1187,17 +1211,17 @@ async def list_resumes(
 
 @router.post("/improve/preview", response_model=ImproveResumeResponse)
 async def improve_resume_preview_endpoint(
-    request: ImproveResumeRequest,
+    request: ImproveResumeRequest, workspace_id: WorkspaceId
 ) -> ImproveResumeResponse:
     """Preview a tailored resume without persisting it.
 
     The response includes resume_preview data but leaves resume_id null.
     """
-    resume = await db.get_resume(request.resume_id)
+    resume = await db.get_resume(request.resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
-    job = await db.get_job(request.job_id)
+    job = await db.get_job(request.job_id, workspace_id=workspace_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job description not found")
 
@@ -1211,6 +1235,7 @@ async def improve_resume_preview_endpoint(
         return await asyncio.wait_for(
             _improve_preview_flow(
                 request=request,
+                workspace_id=workspace_id,
                 resume=resume,
                 job=job,
                 language=language,
@@ -1250,6 +1275,7 @@ async def improve_resume_preview_endpoint(
 async def _improve_preview_flow(
     *,
     request: ImproveResumeRequest,
+    workspace_id: str,
     resume: dict[str, Any],
     job: dict[str, Any],
     language: str,
@@ -1285,6 +1311,7 @@ async def _improve_preview_flow(
             updated_job = await db.update_job(
                 request.job_id,
                 cache_updates,
+                workspace_id=workspace_id,
             )
             if not updated_job:
                 logger.warning(
@@ -1411,7 +1438,7 @@ async def _improve_preview_flow(
     refinement_successful = False
     try:
         # Get master resume for alignment validation
-        master_resume = await db.get_master_resume(resume.get("workspace_id"))
+        master_resume = await db.get_master_resume(workspace_id)
         master_data = (
             _get_original_resume_data(master_resume)
             if master_resume
@@ -1465,6 +1492,7 @@ async def _improve_preview_flow(
     preview_hash = _hash_improved_data(improved_data)
     improvements = generate_improvements(job_keywords)
     registered_preview = await db.register_preview(
+        workspace_id=workspace_id,
         source_id=request.resume_id,
         job_id=request.job_id,
         payload_hash=preview_hash,
@@ -1526,13 +1554,13 @@ async def _improve_preview_flow(
 
 @router.post("/improve/confirm", response_model=ImproveResumeResponse)
 async def improve_resume_confirm_endpoint(
-    request: ImproveResumeConfirmRequest,
+    request: ImproveResumeConfirmRequest, workspace_id: WorkspaceId
 ) -> ImproveResumeResponse:
     """Confirm an accepted input snapshot once, with durable replay semantics."""
-    resume = await db.get_resume(request.resume_id)
+    resume = await db.get_resume(request.resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
-    job = await db.get_job(request.job_id)
+    job = await db.get_job(request.job_id, workspace_id=workspace_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job description not found")
 
@@ -1543,6 +1571,7 @@ async def improve_resume_confirm_endpoint(
     try:
         improved_data = request.improved_data.model_dump()
         claim = await db.claim_preview(
+            workspace_id=workspace_id,
             preview_id=request.preview_id,
             source_id=request.resume_id,
             job_id=request.job_id,
@@ -1552,6 +1581,7 @@ async def improve_resume_confirm_endpoint(
         if claim.response is not None:
             data = ImproveResumeData.model_validate(claim.response)
             await _auto_create_tracker_application(
+                workspace_id=workspace_id,
                 job_id=request.job_id, tailored_resume_id=data.resume_id,
                 master_resume_id=request.resume_id, job=job, title=None,
             )
@@ -1644,9 +1674,9 @@ async def improve_resume_confirm_endpoint(
         )
         stage = "commit_confirmation"
         result = await db.complete_preview(
+            workspace_id=workspace_id,
             claim=claim,
             resume_fields={
-                "workspace_id": resume.get("workspace_id", ""),
                 "content": improved_text,
                 "content_type": "json",
                 "filename": f"tailored_{resume.get('filename', 'resume')}",
@@ -1667,9 +1697,13 @@ async def improve_resume_confirm_endpoint(
         )
         claim = None  # The transaction committed; there is no lease to release.
         await db.seed_resume_version(
-            result["resume_id"], origin="ai_tailor", origin_ref=result["preview_id"]
+            result["resume_id"],
+            workspace_id=workspace_id,
+            origin="ai_tailor",
+            origin_ref=result["preview_id"],
         )
         await _auto_create_tracker_application(
+            workspace_id=workspace_id,
             job_id=request.job_id,
             tailored_resume_id=result["resume_id"],
             master_resume_id=request.resume_id,
@@ -1703,7 +1737,9 @@ async def improve_resume_confirm_endpoint(
     finally:
         if claim is not None and claim.token is not None:
             try:
-                await asyncio.shield(db.release_preview_claim(claim))
+                await asyncio.shield(
+                    db.release_preview_claim(claim, workspace_id=workspace_id)
+                )
             except Exception:
                 logger.exception(
                     "Failed to release confirmation claim for %s", claim.preview_id
@@ -1712,7 +1748,7 @@ async def improve_resume_confirm_endpoint(
 
 @router.post("/improve", response_model=ImproveResumeResponse)
 async def improve_resume_endpoint(
-    request: ImproveResumeRequest,
+    request: ImproveResumeRequest, workspace_id: WorkspaceId
 ) -> ImproveResumeResponse:
     """Improve/tailor a resume for a specific job description.
 
@@ -1722,12 +1758,12 @@ async def improve_resume_endpoint(
     Persists the tailored resume and returns a non-null resume_id.
     """
     # Fetch resume
-    resume = await db.get_resume(request.resume_id)
+    resume = await db.get_resume(request.resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
     # Fetch job description
-    job = await db.get_job(request.job_id)
+    job = await db.get_job(request.job_id, workspace_id=workspace_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job description not found")
 
@@ -1824,7 +1860,7 @@ async def improve_resume_endpoint(
         refinement_successful = False
         try:
             # Get master resume for alignment validation
-            master_resume = await db.get_master_resume(resume.get("workspace_id"))
+            master_resume = await db.get_master_resume(workspace_id)
             master_data = (
                 _get_original_resume_data(master_resume)
                 if master_resume
@@ -1907,11 +1943,11 @@ async def improve_resume_endpoint(
         # Cancellation must leave both required records committed or neither.
         request_id = str(uuid4())
         tailored_resume = await db.create_tailored_resume(
+            workspace_id=workspace_id,
             request_id=request_id,
             original_resume_id=request.resume_id,
             job_id=request.job_id,
             resume_fields={
-                "workspace_id": resume.get("workspace_id", ""),
                 "content": improved_text,
                 "content_type": "json",
                 "filename": f"tailored_{resume.get('filename', 'resume')}",
@@ -1929,9 +1965,13 @@ async def improve_resume_endpoint(
         )
 
         await db.seed_resume_version(
-            tailored_resume["resume_id"], origin="ai_tailor", origin_ref=request_id
+            tailored_resume["resume_id"],
+            workspace_id=workspace_id,
+            origin="ai_tailor",
+            origin_ref=request_id,
         )
         await _auto_create_tracker_application(
+            workspace_id=workspace_id,
             job_id=request.job_id,
             tailored_resume_id=tailored_resume["resume_id"],
             master_resume_id=request.resume_id,
@@ -1994,7 +2034,7 @@ async def update_resume_endpoint(
     point in history (consecutive autosaves coalesce — see
     ``Database.commit_resume_version``).
     """
-    existing = await db.get_resume(resume_id)
+    existing = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Resume not found")
 
@@ -2002,6 +2042,7 @@ async def update_resume_endpoint(
     await db.commit_resume_version(
         resume_id,
         updated_data,
+        workspace_id=workspace_id,
         origin="manual",
         resume_updates={
             "content": json.dumps(updated_data, indent=2),
@@ -2010,7 +2051,7 @@ async def update_resume_endpoint(
         },
     )
 
-    updated = await db.get_resume(resume_id)
+    updated = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update resume")
 
@@ -2052,6 +2093,7 @@ async def update_resume_endpoint(
 @router.get("/{resume_id}/versions", response_model=VersionListResponse)
 async def list_resume_versions(
     resume_id: str,
+    workspace_id: WorkspaceId,
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = Query(None),
 ) -> VersionListResponse:
@@ -2061,7 +2103,9 @@ async def list_resume_versions(
     full document for each. Fetch one with ``GET /versions/{version_id}``.
     """
     try:
-        versions = await db.list_resume_versions(resume_id, limit=limit, cursor=cursor)
+        versions = await db.list_resume_versions(
+            resume_id, workspace_id=workspace_id, limit=limit, cursor=cursor
+        )
     except ResumeNotFoundError:
         raise HTTPException(status_code=404, detail="Resume not found")
     # A full page implies there may be more; the next cursor is the oldest
@@ -2075,14 +2119,16 @@ async def list_resume_versions(
 
 @router.post("/{resume_id}/restore", response_model=VersionSummary)
 async def restore_resume_version(
-    resume_id: str, request: RestoreVersionRequest
+    resume_id: str, request: RestoreVersionRequest, workspace_id: WorkspaceId
 ) -> VersionSummary:
     """Restore a past version by writing it forward as a new head.
 
     History is append-only: nothing is rewound, so the restore itself stays
     on the timeline and is itself undoable.
     """
-    version = await db.get_resume_version(request.version_id)
+    version = await db.get_resume_version(
+        request.version_id, workspace_id=workspace_id
+    )
     if version is None or version["resume_id"] != resume_id:
         raise HTTPException(status_code=404, detail="Version not found")
 
@@ -2091,6 +2137,7 @@ async def restore_resume_version(
         restored = await db.commit_resume_version(
             resume_id,
             document,
+            workspace_id=workspace_id,
             origin="restore",
             origin_ref=request.version_id,
             # A restore returns the whole checkpoint, LaTeX override
@@ -2113,6 +2160,8 @@ async def restore_resume_version(
 @router.get("/{resume_id}/pdf")
 async def download_resume_pdf(
     resume_id: str,
+    workspace_id: WorkspaceId,
+    tenant: ActiveTenantDep,
     template: str = Query("swiss-single"),
     pageSize: str = Query("A4", pattern="^(A4|LETTER)$"),
     marginTop: int = Query(10, ge=5, le=25),
@@ -2161,7 +2210,7 @@ async def download_resume_pdf(
                 "GET /resumes/{resume_id}/tex/pdf."
             ),
         )
-    resume = await db.get_resume(resume_id)
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
@@ -2196,9 +2245,19 @@ async def download_resume_pdf(
         "left": marginLeft,
     }
 
+    # Chromium fetches the Next print route over loopback, bypassing the
+    # gateway, so it carries no `X-Apps-*` of its own. Without these the print
+    # page's own fetch comes back unscoped (in header mode, 404) and the export
+    # fails only in the deployed configuration.
+    render_headers = {"X-Workspace-Id": workspace_id}
+    if tenant.tenant_ref:
+        render_headers["X-Apps-Tenant"] = tenant.tenant_ref
+
     # Render PDF with margins applied to every page
     try:
-        pdf_bytes = await render_resume_pdf(url, pageSize, margins=pdf_margins)
+        pdf_bytes = await render_resume_pdf(
+            url, pageSize, margins=pdf_margins, headers=render_headers
+        )
     except PDFRenderError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -2207,23 +2266,25 @@ async def download_resume_pdf(
 
 
 @router.delete("/{resume_id}")
-async def delete_resume(resume_id: str) -> dict:
+async def delete_resume(resume_id: str, workspace_id: WorkspaceId) -> dict:
     """Delete a resume by ID."""
-    if not await db.delete_resume(resume_id):
+    if not await db.delete_resume(resume_id, workspace_id=workspace_id):
         raise HTTPException(status_code=404, detail="Resume not found")
 
     return {"message": "Resume deleted successfully"}
 
 
 @router.post("/{resume_id}/retry-processing", response_model=ResumeUploadResponse)
-async def retry_processing(resume_id: str) -> ResumeUploadResponse:
+async def retry_processing(
+    resume_id: str, workspace_id: WorkspaceId
+) -> ResumeUploadResponse:
     """Retry AI processing for a failed or stuck resume.
 
     Re-runs parse_resume_to_json() on the stored markdown content.
     Works for failed/in-progress resumes and legacy ``ready`` records whose
     structured data is empty due to an earlier parser false positive.
     """
-    resume = await db.get_resume(resume_id)
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
@@ -2250,6 +2311,7 @@ async def retry_processing(resume_id: str) -> ResumeUploadResponse:
     try:
         processing_token = await _claim_processing(
             resume_id,
+            workspace_id=workspace_id,
             allow_ready_at=allow_ready_at,
         )
     except ResumeNotFoundError as e:
@@ -2272,6 +2334,7 @@ async def retry_processing(resume_id: str) -> ResumeUploadResponse:
             outcome = await db.finish_resume_processing(
                 resume_id,
                 processing_token,
+                workspace_id=workspace_id,
                 processing_status="failed",
             )
             _require_processing_commit(
@@ -2289,6 +2352,7 @@ async def retry_processing(resume_id: str) -> ResumeUploadResponse:
             outcome = await db.finish_resume_processing(
                 resume_id,
                 processing_token,
+                workspace_id=workspace_id,
                 processing_status="ready",
                 processed_data=processed_data,
             )
@@ -2296,7 +2360,9 @@ async def retry_processing(resume_id: str) -> ResumeUploadResponse:
                 outcome,
                 deleted_detail="Resume was deleted during retry.",
             )
-            await db.seed_resume_version(resume_id, origin="import")
+            await db.seed_resume_version(
+                resume_id, workspace_id=workspace_id, origin="import"
+            )
             return ResumeUploadResponse(
                 message="Resume processing succeeded on retry",
                 request_id=str(uuid4()),
@@ -2310,52 +2376,62 @@ async def retry_processing(resume_id: str) -> ResumeUploadResponse:
         PromptSizeError,
         DatabaseBusyError,
     ):
-        await _finish_cancelled_processing(resume_id, processing_token)
+        await _finish_cancelled_processing(
+            resume_id, processing_token, workspace_id=workspace_id
+        )
         raise
 
 
 @router.patch("/{resume_id}/cover-letter")
 async def update_cover_letter(
-    resume_id: str, request: UpdateCoverLetterRequest
+    resume_id: str, request: UpdateCoverLetterRequest, workspace_id: WorkspaceId
 ) -> dict:
     """Update the cover letter for a resume."""
-    resume = await db.get_resume(resume_id)
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
-    await db.update_resume(resume_id, {"cover_letter": request.content})
+    await db.update_resume(
+        resume_id, {"cover_letter": request.content}, workspace_id=workspace_id
+    )
     return {"message": "Cover letter updated successfully"}
 
 
 @router.patch("/{resume_id}/outreach-message")
 async def update_outreach_message(
-    resume_id: str, request: UpdateOutreachMessageRequest
+    resume_id: str, request: UpdateOutreachMessageRequest, workspace_id: WorkspaceId
 ) -> dict:
     """Update the outreach message for a resume."""
-    resume = await db.get_resume(resume_id)
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
-    await db.update_resume(resume_id, {"outreach_message": request.content})
+    await db.update_resume(
+        resume_id, {"outreach_message": request.content}, workspace_id=workspace_id
+    )
     return {"message": "Outreach message updated successfully"}
 
 
 @router.patch("/{resume_id}/title")
-async def update_title(resume_id: str, request: UpdateTitleRequest) -> dict:
+async def update_title(
+    resume_id: str, request: UpdateTitleRequest, workspace_id: WorkspaceId
+) -> dict:
     """Update the title for a resume."""
-    resume = await db.get_resume(resume_id)
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
     title = request.title.strip()[:80]
-    await db.update_resume(resume_id, {"title": title})
+    await db.update_resume(resume_id, {"title": title}, workspace_id=workspace_id)
     return {"message": "Title updated successfully"}
 
 
 @router.post(
     "/{resume_id}/generate-cover-letter", response_model=GenerateContentResponse
 )
-async def generate_cover_letter_endpoint(resume_id: str) -> GenerateContentResponse:
+async def generate_cover_letter_endpoint(
+    resume_id: str, workspace_id: WorkspaceId
+) -> GenerateContentResponse:
     """Generate a cover letter on-demand for an existing tailored resume.
 
     This endpoint allows users to generate a cover letter after a resume has been
@@ -2364,7 +2440,7 @@ async def generate_cover_letter_endpoint(resume_id: str) -> GenerateContentRespo
     - The resume must have an associated job context in the improvements table
     """
     # Get the resume
-    resume = await db.get_resume(resume_id)
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
@@ -2377,7 +2453,9 @@ async def generate_cover_letter_endpoint(resume_id: str) -> GenerateContentRespo
         )
 
     # Get improvement record to find the job_id
-    improvement = await db.get_improvement_by_tailored_resume(resume_id)
+    improvement = await db.get_improvement_by_tailored_resume(
+        resume_id, workspace_id=workspace_id
+    )
     if not improvement:
         raise HTTPException(
             status_code=400,
@@ -2386,7 +2464,7 @@ async def generate_cover_letter_endpoint(resume_id: str) -> GenerateContentRespo
         )
 
     # Get the job description
-    job = await db.get_job(improvement["job_id"])
+    job = await db.get_job(improvement["job_id"], workspace_id=workspace_id)
     if not job:
         raise HTTPException(
             status_code=404,
@@ -2420,7 +2498,9 @@ async def generate_cover_letter_endpoint(resume_id: str) -> GenerateContentRespo
         )
 
     # Save to resume record
-    await db.update_resume(resume_id, {"cover_letter": cover_letter_content})
+    await db.update_resume(
+        resume_id, {"cover_letter": cover_letter_content}, workspace_id=workspace_id
+    )
 
     return GenerateContentResponse(
         content=cover_letter_content,
@@ -2429,7 +2509,9 @@ async def generate_cover_letter_endpoint(resume_id: str) -> GenerateContentRespo
 
 
 @router.post("/{resume_id}/generate-outreach", response_model=GenerateContentResponse)
-async def generate_outreach_endpoint(resume_id: str) -> GenerateContentResponse:
+async def generate_outreach_endpoint(
+    resume_id: str, workspace_id: WorkspaceId
+) -> GenerateContentResponse:
     """Generate an outreach message on-demand for an existing tailored resume.
 
     This endpoint allows users to generate a cold outreach message after a resume
@@ -2438,7 +2520,7 @@ async def generate_outreach_endpoint(resume_id: str) -> GenerateContentResponse:
     - The resume must have an associated job context in the improvements table
     """
     # Get the resume
-    resume = await db.get_resume(resume_id)
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
@@ -2451,7 +2533,9 @@ async def generate_outreach_endpoint(resume_id: str) -> GenerateContentResponse:
         )
 
     # Get improvement record to find the job_id
-    improvement = await db.get_improvement_by_tailored_resume(resume_id)
+    improvement = await db.get_improvement_by_tailored_resume(
+        resume_id, workspace_id=workspace_id
+    )
     if not improvement:
         raise HTTPException(
             status_code=400,
@@ -2460,7 +2544,7 @@ async def generate_outreach_endpoint(resume_id: str) -> GenerateContentResponse:
         )
 
     # Get the job description
-    job = await db.get_job(improvement["job_id"])
+    job = await db.get_job(improvement["job_id"], workspace_id=workspace_id)
     if not job:
         raise HTTPException(
             status_code=404,
@@ -2494,7 +2578,9 @@ async def generate_outreach_endpoint(resume_id: str) -> GenerateContentResponse:
         )
 
     # Save to resume record
-    await db.update_resume(resume_id, {"outreach_message": outreach_content})
+    await db.update_resume(
+        resume_id, {"outreach_message": outreach_content}, workspace_id=workspace_id
+    )
 
     return GenerateContentResponse(
         content=outreach_content,
@@ -2507,10 +2593,10 @@ async def generate_outreach_endpoint(resume_id: str) -> GenerateContentResponse:
     response_model=GenerateInterviewPrepResponse,
 )
 async def generate_interview_prep_endpoint(
-    resume_id: str,
+    resume_id: str, workspace_id: WorkspaceId
 ) -> GenerateInterviewPrepResponse:
     """Generate interview preparation on-demand for an existing tailored resume."""
-    resume = await db.get_resume(resume_id)
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
@@ -2521,7 +2607,9 @@ async def generate_interview_prep_endpoint(
             "Please tailor this resume to a job description first.",
         )
 
-    improvement = await db.get_improvement_by_tailored_resume(resume_id)
+    improvement = await db.get_improvement_by_tailored_resume(
+        resume_id, workspace_id=workspace_id
+    )
     if not improvement:
         raise HTTPException(
             status_code=400,
@@ -2529,7 +2617,7 @@ async def generate_interview_prep_endpoint(
             "The resume may have been created before job tracking was implemented.",
         )
 
-    job = await db.get_job(improvement["job_id"])
+    job = await db.get_job(improvement["job_id"], workspace_id=workspace_id)
     if not job:
         raise HTTPException(
             status_code=404,
@@ -2564,6 +2652,7 @@ async def generate_interview_prep_endpoint(
     await db.update_resume(
         resume_id,
         {"interview_prep": _serialize_interview_prep(interview_prep)},
+        workspace_id=workspace_id,
     )
 
     return GenerateInterviewPrepResponse(
@@ -2573,14 +2662,16 @@ async def generate_interview_prep_endpoint(
 
 
 @router.get("/{resume_id}/job-description")
-async def get_job_description_for_resume(resume_id: str) -> dict:
+async def get_job_description_for_resume(
+    resume_id: str, workspace_id: WorkspaceId
+) -> dict:
     """Get the job description used to tailor this resume.
 
     This endpoint retrieves the original job description that was used
     to tailor a resume. Only works for tailored resumes (those with parent_id).
     """
     # Get the resume
-    resume = await db.get_resume(resume_id)
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
@@ -2592,7 +2683,9 @@ async def get_job_description_for_resume(resume_id: str) -> dict:
         )
 
     # Get improvement record to find the job_id
-    improvement = await db.get_improvement_by_tailored_resume(resume_id)
+    improvement = await db.get_improvement_by_tailored_resume(
+        resume_id, workspace_id=workspace_id
+    )
     if not improvement:
         raise HTTPException(
             status_code=400,
@@ -2601,7 +2694,7 @@ async def get_job_description_for_resume(resume_id: str) -> dict:
         )
 
     # Get the job description
-    job = await db.get_job(improvement["job_id"])
+    job = await db.get_job(improvement["job_id"], workspace_id=workspace_id)
     if not job:
         raise HTTPException(
             status_code=404,
@@ -2617,6 +2710,8 @@ async def get_job_description_for_resume(resume_id: str) -> dict:
 @router.get("/{resume_id}/cover-letter/pdf")
 async def download_cover_letter_pdf(
     resume_id: str,
+    workspace_id: WorkspaceId,
+    tenant: ActiveTenantDep,
     pageSize: str = Query("A4", pattern="^(A4|LETTER)$"),
     lang: str | None = Query(None, pattern="^[a-z]{2}(-[A-Z]{2})?$"),
 ) -> Response:
@@ -2627,7 +2722,7 @@ async def download_cover_letter_pdf(
         pageSize: A4 or LETTER
         lang: locale used for print page translations
     """
-    resume = await db.get_resume(resume_id)
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
@@ -2642,10 +2737,16 @@ async def download_cover_letter_pdf(
     if lang:
         url = f"{url}&lang={lang}"
 
+    # Same reason as the resume PDF: Chromium reaches the print route over
+    # loopback with no gateway headers of its own.
+    render_headers = {"X-Workspace-Id": workspace_id}
+    if tenant.tenant_ref:
+        render_headers["X-Apps-Tenant"] = tenant.tenant_ref
+
     # Render PDF with cover letter selector
     try:
         pdf_bytes = await render_resume_pdf(
-            url, pageSize, selector=".cover-letter-print"
+            url, pageSize, selector=".cover-letter-print", headers=render_headers
         )
     except PDFRenderError as e:
         raise HTTPException(status_code=503, detail=str(e))

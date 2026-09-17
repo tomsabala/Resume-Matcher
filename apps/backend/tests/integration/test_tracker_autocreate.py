@@ -149,4 +149,5 @@ class TestTrackerAutoCreate:
         async with _new_client() as client:
             board = (await client.get("/api/v1/applications")).json()["columns"]
         assert len(board["applied"]) == 1
-        assert len(await isolated_db.list_resumes()) == 2
+        workspace_id = await isolated_db.default_workspace_id()
+        assert len(await isolated_db.list_resumes(workspace_id)) == 2

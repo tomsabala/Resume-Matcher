@@ -152,6 +152,7 @@ async def test_partial_final_writer_preview_confirms_and_reads_back_without_loss
         )
     )
     resume_id, job_id = await _seed(isolated_db, source)
+    workspace_id = await isolated_db.default_workspace_id()
     initial = copy.deepcopy(source)
     _section(initial, "summary")["text"] = "Python backend engineer."
     partial = {
@@ -209,7 +210,7 @@ async def test_partial_final_writer_preview_confirms_and_reads_back_without_loss
         assert confirm.status_code == 200, confirm.text
 
     tailored_id = confirm.json()["data"]["resume_id"]
-    stored = await isolated_db.get_resume(tailored_id)
+    stored = await isolated_db.get_resume(tailored_id, workspace_id=workspace_id)
     assert stored is not None
     for key in preserved:
         assert _section(stored["processed_data"], key) == _section(source, key)
@@ -249,6 +250,7 @@ async def test_schema_round_trip_preview_preserves_rows_styles_and_list_multipli
     _section(destructive, "skills")["groups"] = []
     _section(destructive, "topics")["tags"] = []
     resume_id, job_id = await _seed(isolated_db, source)
+    workspace_id = await isolated_db.default_workspace_id()
 
     with ExitStack() as stack:
         for pipeline_patch in _pipeline_patches(
@@ -286,7 +288,7 @@ async def test_schema_round_trip_preview_preserves_rows_styles_and_list_multipli
     assert _section(preview_resume, "talks") == _section(source, "talks")
     assert _section(preview_resume, "topics")["tags"] == ["Reliability", "Reliability"]
     tailored_id = confirm.json()["data"]["resume_id"]
-    stored = await isolated_db.get_resume(tailored_id)
+    stored = await isolated_db.get_resume(tailored_id, workspace_id=workspace_id)
     assert stored is not None
     assert stored["processed_data"] == preview_resume
 
@@ -414,6 +416,7 @@ async def test_legacy_direct_improve_restores_unapproved_narrative_before_save(
         "Owned moon missions"
     )
     resume_id, job_id = await _seed(isolated_db, source)
+    workspace_id = await isolated_db.default_workspace_id()
 
     with ExitStack() as stack:
         for pipeline_patch in _pipeline_patches(source, _refinement_result(candidate)):
@@ -432,7 +435,9 @@ async def test_legacy_direct_improve_restores_unapproved_narrative_before_save(
     assert not any(
         warning.startswith("GROUNDING_REVIEW_REQUIRED:") for warning in data["warnings"]
     )
-    stored = await isolated_db.get_resume(data["resume_id"])
+    stored = await isolated_db.get_resume(
+        data["resume_id"], workspace_id=workspace_id
+    )
     assert stored is not None
     assert _section(stored["processed_data"], "experience")["entries"][0]["bullets"][0][
         "text"
@@ -496,6 +501,7 @@ async def test_preview_warning_allows_explicit_confirmation_of_narrative_rewrite
         "Owned moon missions"
     )
     resume_id, job_id = await _seed(isolated_db, source)
+    workspace_id = await isolated_db.default_workspace_id()
 
     with ExitStack() as stack:
         for pipeline_patch in _pipeline_patches(source, _refinement_result(candidate)):
@@ -532,7 +538,9 @@ async def test_preview_warning_allows_explicit_confirmation_of_narrative_rewrite
         warning.startswith("GROUNDING_REVIEW_REQUIRED:")
         for warning in confirm_data["warnings"]
     )
-    stored = await isolated_db.get_resume(confirm_data["resume_id"])
+    stored = await isolated_db.get_resume(
+        confirm_data["resume_id"], workspace_id=workspace_id
+    )
     assert stored is not None
     assert _section(stored["processed_data"], "experience")["entries"][0]["bullets"][0][
         "text"

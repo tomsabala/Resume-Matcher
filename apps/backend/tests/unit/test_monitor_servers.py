@@ -58,6 +58,7 @@ def test_owned_backend_reads_seed_and_selected_credentials_then_tears_down(
     source: str,
     monkeypatch: pytest.MonkeyPatch,
     loopback_only: None,
+    isolated_backend_state: Any,
 ) -> None:
     del loopback_only
     key = "" if source == "local" else "synthetic-monitor-key"
@@ -73,7 +74,8 @@ def test_owned_backend_reads_seed_and_selected_credentials_then_tears_down(
     )
     if source == "encrypted":
         save_api_keys_to_config(
-            {"openai": key, "anthropic": "synthetic-unselected-key"}
+            {"openai": key, "anthropic": "synthetic-unselected-key"},
+            isolated_backend_state.default_workspace_id_sync(),
         )
     monkeypatch.setattr(
         settings, "llm_api_key", key if source == "environment" else "unrelated-env-key"
@@ -135,6 +137,7 @@ def test_public_sweep_runs_real_http_flow_with_owned_backend(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     loopback_only: None,
+    isolated_backend_state: Any,
 ) -> None:
     del loopback_only
     from e2e_monitor import __main__ as cli, servers as server_module
@@ -148,7 +151,10 @@ def test_public_sweep_runs_real_http_flow_with_owned_backend(
             "reasoning_effort": "",
         }
     )
-    save_api_keys_to_config({"openai": "synthetic-monitor-key"})
+    save_api_keys_to_config(
+        {"openai": "synthetic-monitor-key"},
+        isolated_backend_state.default_workspace_id_sync(),
+    )
     monkeypatch.setenv("RM_E2E_MONITOR", "1")
     monkeypatch.setattr(cli, "_ARTIFACTS", tmp_path / "bundles")
     monkeypatch.setattr(cli, "_jds", lambda: [("synthetic", "Python backend engineer")])

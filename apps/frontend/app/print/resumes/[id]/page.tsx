@@ -15,6 +15,7 @@ import { emptyDocument, type ResumeDocument } from '@/lib/types/document';
 import { API_BASE } from '@/lib/api/client';
 import { translate } from '@/lib/i18n/server';
 import { resolveLocale } from '@/lib/i18n/locale';
+import { headers } from 'next/headers';
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -78,9 +79,28 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
   return defaultValue;
 }
 
+/**
+ * Tenant identity to replay on this page's own API call.
+ *
+ * Chromium loads this route over loopback during a PDF export, so the request never passes
+ * through the gateway that injects tenant identity, and a server-side `fetch` bypasses the
+ * `X-Workspace-Id` injector in `lib/api/client.ts`. Unforwarded, the call below is unscoped:
+ * the export renders another tenant's resume, or 404s.
+ */
+async function forwardedTenantHeaders(): Promise<Record<string, string>> {
+  const incoming = await headers();
+  const forwarded: Record<string, string> = {};
+  for (const name of ['x-apps-tenant', 'x-workspace-id']) {
+    const value = incoming.get(name);
+    if (value) forwarded[name] = value;
+  }
+  return forwarded;
+}
+
 async function fetchResumeDocument(id: string): Promise<ResumeDocument> {
   const res = await fetch(`${API_BASE}/resumes?resume_id=${encodeURIComponent(id)}`, {
     cache: 'no-store',
+    headers: await forwardedTenantHeaders(),
   });
   if (!res.ok) {
     throw new Error(`Failed to load resume (status ${res.status}).`);

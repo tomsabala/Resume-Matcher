@@ -9,6 +9,14 @@ Deliberately **in-process and bounded**: this is a diagnostic tail, not an
 audit log. It does not survive a restart and it must never grow unbounded, so
 a failing provider cannot fill memory with error text.
 
+Records are **scoped**: each one carries the workspace that was active when it
+was made, and the diagnostics endpoints serve only their caller's own. Without
+that filter one tenant would read another's provider error text, which can
+quote fragments of that tenant's prompt. The bound, though, stays global —
+``maxlen`` counts every workspace's records together, so a busy tenant can
+evict another tenant's history. That is acceptable for a best-effort
+diagnostics tail, and not worth a deque per workspace.
+
 **No model output, prompt, resume or job text is ever recorded** — only the
 shape of the failure: which operation, which category, which model, and the
 budget it ran into. Everything stored here is safe to show a client.
@@ -23,6 +31,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
+
+from app.tenancy import current_workspace_id
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +62,7 @@ class AIFailure:
 
     id: str
     at: str  # ISO-8601 UTC
+    workspace_id: str  # the scope the failure happened in; never sent to a client
     operation: str  # the schema the call was producing: resume, diff, …
     kind: AIFailureKind
     detail: str
@@ -61,7 +72,14 @@ class AIFailure:
     max_tokens: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """The client-facing fields.
+
+        ``workspace_id`` is how the tail is filtered, not something a client is
+        told about — the response model has no such field.
+        """
+        fields = asdict(self)
+        fields.pop("workspace_id")
+        return fields
 
 
 _failures: deque[AIFailure] = deque(maxlen=MAX_TRACKED_AI_FAILURES)
@@ -101,10 +119,15 @@ def record_ai_failure(
     attempts: int | None = None,
     max_tokens: int | None = None,
 ) -> AIFailure:
-    """Append one failure to the tail and return it."""
+    """Append one failure to the tail and return it.
+
+    A caller with no request tenant — a background task, a startup migration,
+    a script — records against ``""``, which no endpoint can ask for.
+    """
     failure = AIFailure(
         id=str(uuid4()),
         at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        workspace_id=current_workspace_id() or "",
         operation=operation,
         kind=kind,
         detail=detail.strip()[:MAX_FAILURE_DETAIL_CHARS],
@@ -118,15 +141,27 @@ def record_ai_failure(
     return failure
 
 
-def recent_ai_failures() -> list[AIFailure]:
-    """The tracked failures, newest first."""
+def recent_ai_failures(workspace_id: str) -> list[AIFailure]:
+    """One workspace's tracked failures, newest first."""
     with _lock:
-        return list(reversed(_failures))
+        return [
+            failure
+            for failure in reversed(_failures)
+            if failure.workspace_id == workspace_id
+        ]
 
 
-def clear_ai_failures() -> int:
-    """Drop every tracked failure and return how many were dismissed."""
+def clear_ai_failures(workspace_id: str) -> int:
+    """Drop one workspace's failures and return how many were dismissed.
+
+    Other workspaces' entries stay: one user emptying their panel must not
+    blind another.
+    """
     with _lock:
-        dismissed = len(_failures)
+        kept = [
+            failure for failure in _failures if failure.workspace_id != workspace_id
+        ]
+        dismissed = len(_failures) - len(kept)
         _failures.clear()
+        _failures.extend(kept)
     return dismissed

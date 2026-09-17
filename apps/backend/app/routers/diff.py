@@ -53,35 +53,34 @@ class TexDiffResponse(BaseModel):
 
 
 class ResolvedRef(BaseModel):
-    """A ref's document plus the workspace it belongs to."""
+    """A ref's document, plus its saved LaTeX override if it has one."""
 
     document: ResumeDocument
-    workspace_id: str
     tex_source: str | None = None
 
 
-async def _resolve(ref: DiffRef) -> ResolvedRef:
+async def _resolve(ref: DiffRef, workspace_id: str) -> ResolvedRef:
     """Load the document a ref names, or 404."""
     if ref.version_id is not None:
-        version = await db.get_resume_version(ref.version_id)
+        version = await db.get_resume_version(
+            ref.version_id, workspace_id=workspace_id
+        )
         if version is None:
             raise HTTPException(
                 status_code=404, detail=f"Version not found: {ref.version_id}"
             )
         return ResolvedRef(
             document=migrate_document(version["document"]),
-            workspace_id=version["workspace_id"],
             tex_source=version.get("tex_source"),
         )
 
-    resume = await db.get_resume(ref.resume_id or "")
+    resume = await db.get_resume(ref.resume_id or "", workspace_id=workspace_id)
     if resume is None:
         raise HTTPException(
             status_code=404, detail=f"Resume not found: {ref.resume_id}"
         )
     return ResolvedRef(
         document=migrate_document(resume.get("processed_data")),
-        workspace_id=str(resume.get("workspace_id") or ""),
         tex_source=resume.get("tex_source"),
     )
 
@@ -105,16 +104,12 @@ async def compare(
     """Compare two documents, or their LaTeX sources.
 
     Both refs must live in the active workspace: a diff is a read of two
-    documents at once, and workspaces are separate namespaces.
+    documents at once, and workspaces are separate namespaces. A ref naming
+    another workspace's document is indistinguishable from an unknown one, so
+    it 404s rather than reporting that it exists elsewhere.
     """
-    base = await _resolve(request.base)
-    head = await _resolve(request.head)
-
-    for side in (base, head):
-        if side.workspace_id and side.workspace_id != workspace_id:
-            raise HTTPException(
-                status_code=403, detail="Cannot compare across workspaces"
-            )
+    base = await _resolve(request.base, workspace_id)
+    head = await _resolve(request.head, workspace_id)
 
     if request.mode == "tex":
         return TexDiffResponse(

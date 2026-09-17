@@ -15,6 +15,10 @@ from app.schemas.enrichment import (
     RegenerateRequest,
 )
 
+# These tests call the endpoint functions directly against a mocked facade, so
+# the scope only has to be the value the handler forwards.
+WORKSPACE_ID = "ws-test"
+
 
 def _entry(
     entry_id: str, title: str, subtitle: str, bullets: list[str]
@@ -160,7 +164,7 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(return_value=values_item),
             ) as mock_regenerate_skills,
         ):
-            response = await enrichment_router.regenerate_items(request)
+            response = await enrichment_router.regenerate_items(request, WORKSPACE_ID)
 
         self.assertEqual(
             [item.item_id for item in response.regenerated_items],
@@ -216,7 +220,7 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(return_value=values_item),
             ),
         ):
-            response = await enrichment_router.regenerate_items(request)
+            response = await enrichment_router.regenerate_items(request, WORKSPACE_ID)
 
         self.assertEqual(
             [item.item_id for item in response.regenerated_items], ["skills:#group:0"]
@@ -262,16 +266,14 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(return_value={"new_bullets": ["Rewritten bullet"]}),
             ),
         ):
-            regenerated = await enrichment_router.regenerate_items(request)
+            regenerated = await enrichment_router.regenerate_items(request, WORKSPACE_ID)
 
             # The user reorders the resume before accepting the proposal.
             reordered = copy.deepcopy(stored)
             _section(reordered, "experience")["entries"].reverse()
             mock_db.get_resume.return_value = {"processed_data": reordered}
 
-            result = await enrichment_router.apply_regenerated_items(
-                resume_id, regenerated.regenerated_items
-            )
+            result = await enrichment_router.apply_regenerated_items(resume_id, WORKSPACE_ID, regenerated.regenerated_items)
 
         self.assertEqual(result["updated_items"], 1)
         updated = mock_db.commit_resume_version.call_args.args[1]
@@ -313,9 +315,7 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
         ]
 
         with patch.object(enrichment_router, "db", mock_db):
-            result = await enrichment_router.apply_regenerated_items(
-                resume_id, regenerated_items
-            )
+            result = await enrichment_router.apply_regenerated_items(resume_id, WORKSPACE_ID, regenerated_items)
 
         self.assertEqual(result["updated_items"], 1)
         updated = mock_db.commit_resume_version.call_args.args[1]
@@ -347,9 +347,7 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(enrichment_router, "db", mock_db):
             with self.assertRaises(HTTPException) as ctx:
-                await enrichment_router.apply_regenerated_items(
-                    resume_id, regenerated_items
-                )
+                await enrichment_router.apply_regenerated_items(resume_id, WORKSPACE_ID, regenerated_items)
 
         self.assertEqual(ctx.exception.status_code, 409)
         mock_db.commit_resume_version.assert_not_called()
@@ -381,9 +379,7 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
         ]
 
         with patch.object(enrichment_router, "db", mock_db):
-            result = await enrichment_router.apply_regenerated_items(
-                resume_id, regenerated_items
-            )
+            result = await enrichment_router.apply_regenerated_items(resume_id, WORKSPACE_ID, regenerated_items)
 
         self.assertEqual(result["updated_items"], 2)
         updated = mock_db.commit_resume_version.call_args.args[1]
@@ -414,9 +410,7 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(enrichment_router, "db", mock_db):
             with self.assertRaises(HTTPException) as ctx:
-                await enrichment_router.apply_regenerated_items(
-                    resume_id, regenerated_items
-                )
+                await enrichment_router.apply_regenerated_items(resume_id, WORKSPACE_ID, regenerated_items)
 
         self.assertEqual(ctx.exception.status_code, 409)
         mock_db.commit_resume_version.assert_not_called()

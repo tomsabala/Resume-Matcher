@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from app.database import DatabaseBusyError, db
+from app.database import DatabaseBusyError, ResumeNotFoundError, db
 from app.deps import WorkspaceId
 from app.services.improver import extract_job_keywords
 from app.schemas import (
@@ -83,6 +83,8 @@ async def create_application(
         )
     except DatabaseBusyError:
         raise
+    except ResumeNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Resume not found") from e
     except Exception as e:
         logger.exception("Failed to create manual application")
         raise HTTPException(
@@ -94,22 +96,24 @@ async def create_application(
 
 
 @router.get("/{application_id}", response_model=ApplicationDetailResponse)
-async def get_application_detail(application_id: str) -> ApplicationDetailResponse:
+async def get_application_detail(
+    application_id: str, workspace_id: WorkspaceId
+) -> ApplicationDetailResponse:
     """Get a card with its embedded JD and applied resume (one round-trip).
 
     Tolerates a deleted resume by returning ``resume: null`` rather than 500.
     """
-    application = await db.get_application(application_id)
+    application = await db.get_application(application_id, workspace_id=workspace_id)
     if application is None:
         raise HTTPException(status_code=404, detail="Application not found")
 
     job_content: str | None = None
     resume: dict[str, Any] | None = None
     try:
-        job = await db.get_job(application["job_id"])
+        job = await db.get_job(application["job_id"], workspace_id=workspace_id)
         if job:
             job_content = job.get("content")
-        resume = await db.get_resume(application["resume_id"])
+        resume = await db.get_resume(application["resume_id"], workspace_id=workspace_id)
     except DatabaseBusyError:
         raise
     except Exception as e:
@@ -120,10 +124,14 @@ async def get_application_detail(application_id: str) -> ApplicationDetailRespon
 
 
 @router.patch("/bulk", response_model=ApplicationActionResponse)
-async def bulk_update_applications(request: BulkStatusUpdate) -> ApplicationActionResponse:
+async def bulk_update_applications(
+    request: BulkStatusUpdate, workspace_id: WorkspaceId
+) -> ApplicationActionResponse:
     """Move many cards to one column."""
     try:
-        moved = await db.bulk_update_applications(request.application_ids, request.status.value)
+        moved = await db.bulk_update_applications(
+            request.application_ids, request.status.value, workspace_id=workspace_id
+        )
     except DatabaseBusyError:
         raise
     except Exception as e:
@@ -133,14 +141,16 @@ async def bulk_update_applications(request: BulkStatusUpdate) -> ApplicationActi
 
 
 @router.patch("/{application_id}", response_model=ApplicationResponse)
-async def update_application(application_id: str, request: ApplicationUpdate) -> ApplicationResponse:
+async def update_application(
+    application_id: str, request: ApplicationUpdate, workspace_id: WorkspaceId
+) -> ApplicationResponse:
     """Update a card (status/position/notes/company/role/applied_at)."""
     updates = request.model_dump(exclude_unset=True)
     # Normalize the enum to its stable string value for the data layer.
     if "status" in updates and updates["status"] is not None:
         updates["status"] = request.status.value
     try:
-        updated = await db.update_application(application_id, updates)
+        updated = await db.update_application(application_id, updates, workspace_id=workspace_id)
     except DatabaseBusyError:
         raise
     except Exception as e:
@@ -152,10 +162,12 @@ async def update_application(application_id: str, request: ApplicationUpdate) ->
 
 
 @router.delete("/{application_id}", response_model=ApplicationActionResponse)
-async def delete_application(application_id: str) -> ApplicationActionResponse:
+async def delete_application(
+    application_id: str, workspace_id: WorkspaceId
+) -> ApplicationActionResponse:
     """Delete a card."""
     try:
-        deleted = await db.delete_application(application_id)
+        deleted = await db.delete_application(application_id, workspace_id=workspace_id)
     except DatabaseBusyError:
         raise
     except Exception as e:
@@ -167,10 +179,14 @@ async def delete_application(application_id: str) -> ApplicationActionResponse:
 
 
 @router.post("/bulk-delete", response_model=ApplicationActionResponse)
-async def bulk_delete_applications(request: BulkDelete) -> ApplicationActionResponse:
+async def bulk_delete_applications(
+    request: BulkDelete, workspace_id: WorkspaceId
+) -> ApplicationActionResponse:
     """Delete many cards."""
     try:
-        deleted = await db.bulk_delete_applications(request.application_ids)
+        deleted = await db.bulk_delete_applications(
+            request.application_ids, workspace_id=workspace_id
+        )
     except DatabaseBusyError:
         raise
     except Exception as e:

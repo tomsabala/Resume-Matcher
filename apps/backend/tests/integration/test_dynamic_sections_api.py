@@ -125,7 +125,10 @@ async def _client() -> AsyncClient:
 async def test_a_document_with_user_sections_round_trips_unchanged(
     isolated_db: Any,
 ) -> None:
-    resume = await isolated_db.create_resume(content="{}", content_type="json")
+    workspace_id = await isolated_db.default_workspace_id()
+    resume = await isolated_db.create_resume(
+        content="{}", content_type="json", workspace_id=workspace_id
+    )
     document = owner_document()
 
     async with await _client() as client:
@@ -146,7 +149,10 @@ async def test_unknown_top_level_keys_are_rejected_not_silently_dropped(
     isolated_db: Any,
 ) -> None:
     """The v1 model ignored extras, so a whole section could vanish on save."""
-    resume = await isolated_db.create_resume(content="{}", content_type="json")
+    workspace_id = await isolated_db.default_workspace_id()
+    resume = await isolated_db.create_resume(
+        content="{}", content_type="json", workspace_id=workspace_id
+    )
     payload = owner_document() | {"customSections": {"Ghost": {"sectionType": "text"}}}
 
     async with await _client() as client:
@@ -184,7 +190,10 @@ async def test_a_legacy_row_is_projected_on_read(isolated_db: Any) -> None:
         ],
     }
     resume = await isolated_db.create_resume(
-        content="{}", content_type="json", processed_data=legacy
+        content="{}",
+        content_type="json",
+        processed_data=legacy,
+        workspace_id=await isolated_db.default_workspace_id(),
     )
 
     async with await _client() as client:

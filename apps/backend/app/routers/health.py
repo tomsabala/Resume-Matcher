@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.ai_events import AIFailure, clear_ai_failures, recent_ai_failures
 from app.database import db
+from app.deps import WorkspaceId
 from app.llm import check_llm_health, get_llm_config
 from app.schemas import HealthResponse, StatusResponse
 
@@ -60,7 +61,7 @@ async def health_check() -> HealthResponse:
 
 
 @router.get("/status", response_model=StatusResponse)
-async def get_status() -> StatusResponse:
+async def get_status(workspace_id: WorkspaceId) -> StatusResponse:
     """Get comprehensive application status.
 
     Each subsystem check is isolated: a failure in the LLM health probe or the
@@ -80,7 +81,7 @@ async def get_status() -> StatusResponse:
 
     db_stats: dict = dict(_EMPTY_DB_STATS)
     try:
-        db_stats = await db.get_stats()
+        db_stats = await db.get_stats(workspace_id)
     except Exception:
         logger.exception("Status: database stats failed")
 
@@ -96,19 +97,19 @@ async def get_status() -> StatusResponse:
 
 
 @router.get("/diagnostics/ai-failures", response_model=AIFailureListResponse)
-async def list_ai_failures() -> AIFailureListResponse:
-    """Recent AI failures, newest first.
+async def list_ai_failures(workspace_id: WorkspaceId) -> AIFailureListResponse:
+    """This workspace's recent AI failures, newest first.
 
     The dashboard shows these so a truncated or rejected model answer is
     visible as a cause instead of a generic "please try again". The records
     carry no prompt, resume or model output — only the shape of the failure.
     """
     return AIFailureListResponse(
-        failures=[_to_item(failure) for failure in recent_ai_failures()]
+        failures=[_to_item(failure) for failure in recent_ai_failures(workspace_id)]
     )
 
 
 @router.delete("/diagnostics/ai-failures", response_model=AIFailureListResponse)
-async def dismiss_ai_failures() -> AIFailureListResponse:
+async def dismiss_ai_failures(workspace_id: WorkspaceId) -> AIFailureListResponse:
     """Drop the tracked failures once the user has read them."""
-    return AIFailureListResponse(dismissed=clear_ai_failures())
+    return AIFailureListResponse(dismissed=clear_ai_failures(workspace_id))

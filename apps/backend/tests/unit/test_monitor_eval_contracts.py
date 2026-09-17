@@ -22,7 +22,9 @@ async def test_monitor_seed_is_awaited_and_uses_the_app_database(
     resume_id = await seed_master_db(tmp_path, sample_resume)
     db = Database(db_path=tmp_path / "resume_matcher.db")
     try:
-        saved = await db.get_resume(resume_id)
+        saved = await db.get_resume(
+            resume_id, workspace_id=await db.default_workspace_id()
+        )
         assert saved is not None and saved["is_master"] is True
         assert saved["processed_data"] == sample_resume
         assert not (tmp_path / "database.json").exists()

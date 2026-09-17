@@ -360,6 +360,7 @@ async def _render_page_to_pdf(
     pdf_format: str,
     pdf_margins: dict,
     work_deadline: float | None = None,
+    headers: dict[str, str] | None = None,
 ) -> bytes:
     # NOTE: do NOT use wait_until="networkidle" here. The Next.js dev server
     # (HMR/Turbopack + RSC streaming) keeps the network busy, so "idle" may
@@ -371,6 +372,17 @@ async def _render_page_to_pdf(
     if work_deadline is None:
         work_deadline = (
             asyncio.get_running_loop().time() + (_NAV_TIMEOUT_MS / 1000)
+        )
+
+    if headers:
+        # Per page, not per browser context: the browser at module scope is
+        # process-wide and shared across tenants and up to
+        # _PDF_MAX_CONCURRENCY concurrent renders, so context-level headers
+        # would leak one caller's identity into another's export.
+        await _await_before_deadline(
+            page.set_extra_http_headers(headers),
+            work_deadline,
+            "header setup",
         )
 
     await _await_before_deadline(
@@ -419,6 +431,7 @@ async def _render_with_browser(
     pdf_margins: dict,
     work_deadline: float | None = None,
     total_deadline: float | None = None,
+    headers: dict[str, str] | None = None,
 ) -> bytes:
     if work_deadline is None or total_deadline is None:
         work_deadline, total_deadline = _render_deadlines()
@@ -435,6 +448,7 @@ async def _render_with_browser(
             pdf_format,
             pdf_margins,
             work_deadline,
+            headers,
         )
     except BaseException as error:
         render_error = error
@@ -495,6 +509,7 @@ def _render_resume_pdf_sync(
     pdf_format: str,
     pdf_margins: dict,
     monotonic_deadline: float,
+    headers: dict[str, str] | None = None,
 ) -> bytes:
     async def _run() -> bytes:
         remaining = max(0.0, monotonic_deadline - time.monotonic())
@@ -517,6 +532,7 @@ def _render_resume_pdf_sync(
                 pdf_margins,
                 work_deadline,
                 total_deadline,
+                headers,
             )
         finally:
             if browser is not None:
@@ -536,6 +552,7 @@ async def _render_resume_pdf_in_thread(
     pdf_format: str,
     pdf_margins: dict,
     total_deadline: float,
+    headers: dict[str, str] | None = None,
 ) -> asyncio.Task[bytes]:
     """Start a fallback worker whose lifetime can outlast its awaiting request."""
     monotonic_deadline = time.monotonic() + max(0.0, total_deadline - asyncio.get_running_loop().time())
@@ -547,6 +564,7 @@ async def _render_resume_pdf_in_thread(
             pdf_format,
             pdf_margins,
             monotonic_deadline,
+            headers,
         )
     )
 
@@ -797,6 +815,7 @@ async def _render_on_shared_browser(
     pdf_margins: dict,
     work_deadline: float,
     total_deadline: float,
+    headers: dict[str, str] | None = None,
 ) -> bytes:
     """Render once, retrying only when the owned browser disconnected."""
     browser = await _replace_disconnected_browser(work_deadline, total_deadline)
@@ -812,6 +831,7 @@ async def _render_on_shared_browser(
                     pdf_margins,
                     work_deadline,
                     total_deadline,
+                    headers,
                 )
             finally:
                 _release_browser_user(browser, users)
@@ -831,6 +851,7 @@ async def render_resume_pdf(
     page_size: str = "A4",
     selector: str = ".resume-print",
     margins: Optional[dict] = None,
+    headers: Optional[dict[str, str]] = None,
 ) -> bytes:
     """Render a URL to PDF bytes.
 
@@ -839,6 +860,10 @@ async def render_resume_pdf(
         page_size: Page size format - "A4" or "LETTER"
         selector: CSS selector to wait for before rendering (default: ".resume-print")
         margins: Page margins dict with top/right/bottom/left in mm (applied to every page)
+        headers: Extra request headers for every request the page makes. This
+            is how the caller's tenant reaches the print route: Chromium
+            fetches it over loopback, bypassing the gateway that would
+            otherwise inject the identity headers.
 
     Note:
         Margins are applied via Playwright's PDF margins, ensuring they appear
@@ -868,6 +893,7 @@ async def render_resume_pdf(
                     pdf_margins,
                     work_deadline,
                     total_deadline,
+                    headers,
                 )
             except NotImplementedError:
                 with _subprocess_lock:
@@ -876,7 +902,7 @@ async def render_resume_pdf(
 
         if not subprocess_supported:
             worker = await _render_resume_pdf_in_thread(
-                url, selector, pdf_format, pdf_margins, total_deadline
+                url, selector, pdf_format, pdf_margins, total_deadline, headers
             )
             try:
                 return await _await_before_deadline(

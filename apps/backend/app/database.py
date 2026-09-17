@@ -13,7 +13,6 @@ Two engines back one SQLite file:
 import copy
 import logging
 import re
-import shutil
 import sqlite3
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
@@ -38,6 +37,7 @@ from app.models import (
     ResumeVersion,
     TailoringPreview,
     Workspace,
+    WorkspaceSetting,
 )
 from app.preview import (
     PreviewBusyError,
@@ -48,6 +48,7 @@ from app.preview import (
     job_fingerprint,
     resume_fingerprint,
 )
+from app.tenancy import SINGLE_TENANT_REF, invalidate
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,18 @@ class ResumeNotFoundError(ValueError):
     def __init__(self, resume_id: str) -> None:
         self.resume_id = resume_id
         super().__init__(f"Resume not found: {resume_id}")
+
+
+class JobNotFoundError(ValueError):
+    """Raised when a write targets a job ID the caller's workspace does not own.
+
+    Same contract as :class:`ResumeNotFoundError`: a ``ValueError`` subclass so
+    existing handlers keep working, but distinguishable for a 404.
+    """
+
+    def __init__(self, job_id: str) -> None:
+        self.job_id = job_id
+        super().__init__(f"Job not found: {job_id}")
 
 
 def _now() -> str:
@@ -303,11 +316,18 @@ class Database:
 
     # -- Workspace operations -----------------------------------------------
 
-    async def list_workspaces(self) -> list[dict[str, Any]]:
-        """List workspaces oldest first."""
+    async def workspaces_for_tenant(self, tenant_ref: str) -> list[dict[str, Any]]:
+        """One tenant's workspaces, oldest first.
+
+        The only workspace listing the HTTP surface has: there is deliberately
+        no "every workspace" read, because a tenant must never learn that
+        another exists.
+        """
         async with self._session() as session:
             result = await session.execute(
-                select(Workspace).order_by(Workspace.created_at, Workspace.workspace_id)
+                select(Workspace)
+                .where(Workspace.tenant_ref == tenant_ref)
+                .order_by(Workspace.created_at, Workspace.workspace_id)
             )
             return [self._workspace_to_dict(row) for row in result.scalars().all()]
 
@@ -318,17 +338,27 @@ class Database:
             return self._workspace_to_dict(row) if row else None
 
     async def get_default_workspace(self) -> dict[str, Any]:
-        """Return the default workspace, creating it if the row is missing.
+        """Return the *instance* default workspace, creating it if it is missing.
 
-        Migration ``0002_workspaces`` seeds exactly one default row, so the
-        create branch only fires if a user deleted it out of band. Every
-        request path depends on this id existing, so it self-heals rather than
-        failing the request.
+        "Instance default" means the default workspace of the standalone tenant
+        (``tenant_ref = ""``) — in single mode the only tenant there is, and in
+        header mode the admin's, until the first admin request claims it. Every
+        tenant has a default of its own (``ux_workspaces_tenant_default``), so
+        this lookup must filter by tenant or it would return whichever
+        anonymous visitor's row the planner happened to reach first.
+
+        This is not the per-request workspace: that comes from
+        ``TenantMiddleware``. It is the fallback for the instance-level paths
+        that run with no request context at all — the legacy key migration and
+        the synchronous config reader.
         """
         async with self._session() as session:
             row = (
                 await session.execute(
-                    select(Workspace).where(Workspace.is_default.is_(True))
+                    select(Workspace).where(
+                        Workspace.tenant_ref == SINGLE_TENANT_REF,
+                        Workspace.is_default.is_(True),
+                    )
                 )
             ).scalars().first()
             if row is not None:
@@ -337,13 +367,19 @@ class Database:
         async with self._write_session() as session:
             row = (
                 await session.execute(
-                    select(Workspace).where(Workspace.is_default.is_(True))
+                    select(Workspace).where(
+                        Workspace.tenant_ref == SINGLE_TENANT_REF,
+                        Workspace.is_default.is_(True),
+                    )
                 )
             ).scalars().first()
             if row is None:
                 row = (
                     await session.execute(
-                        select(Workspace).order_by(Workspace.created_at).limit(1)
+                        select(Workspace)
+                        .where(Workspace.tenant_ref == SINGLE_TENANT_REF)
+                        .order_by(Workspace.created_at)
+                        .limit(1)
                     )
                 ).scalars().first()
                 if row is not None:
@@ -353,6 +389,7 @@ class Database:
                         session, name="Default", slug="default", is_default=True
                     )
             await session.commit()
+            invalidate(SINGLE_TENANT_REF)
             return self._workspace_to_dict(row)
 
     async def _insert_workspace(
@@ -363,6 +400,8 @@ class Database:
         slug: str,
         content_language: str = "en",
         is_default: bool = False,
+        tenant_ref: str = SINGLE_TENANT_REF,
+        is_anonymous: bool = False,
     ) -> Workspace:
         """Stage one workspace row with a slug unique across the table."""
         taken = set(
@@ -380,6 +419,9 @@ class Database:
             slug=candidate,
             content_language=content_language,
             is_default=is_default,
+            tenant_ref=tenant_ref,
+            is_anonymous=is_anonymous,
+            last_seen_at=now,
             created_at=now,
             updated_at=now,
         )
@@ -387,33 +429,56 @@ class Database:
         return row
 
     async def create_workspace(
-        self, *, name: str, content_language: str = "en"
+        self,
+        *,
+        name: str,
+        content_language: str = "en",
+        tenant_ref: str = SINGLE_TENANT_REF,
+        is_anonymous: bool = False,
     ) -> dict[str, Any]:
-        """Create a workspace; the first one ever created becomes the default."""
+        """Create a workspace; a tenant's first one becomes *its* default.
+
+        ``is_default`` is per tenant, not per instance: a new tenant's first
+        profile has to be its default, or nothing would resolve for it.
+        """
         async with self._write_session() as session:
-            any_existing = await session.scalar(select(Workspace.workspace_id).limit(1))
+            any_existing = await session.scalar(
+                select(Workspace.workspace_id)
+                .where(Workspace.tenant_ref == tenant_ref)
+                .limit(1)
+            )
             row = await self._insert_workspace(
                 session,
                 name=name,
                 slug=slugify_workspace_name(name),
                 content_language=content_language,
                 is_default=any_existing is None,
+                tenant_ref=tenant_ref,
+                is_anonymous=is_anonymous,
             )
             await session.commit()
             self._default_workspace_cache = None
+            invalidate(tenant_ref)
             return self._workspace_to_dict(row)
 
     async def update_workspace(
         self, workspace_id: str, updates: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """Update a workspace. Promoting a default demotes the previous one."""
+        """Update a workspace. Promoting a default demotes the previous one.
+
+        Demotion is confined to the row's own tenant: ``is_default`` is unique
+        *per tenant*, so demoting every default in the table would strip other
+        tenants of theirs.
+        """
         async with self._write_session() as session:
             row = await session.get(Workspace, workspace_id)
             if row is None:
                 return None
+            tenant_ref = row.tenant_ref
             if updates.get("is_default"):
                 previous = await session.execute(
                     select(Workspace).where(
+                        Workspace.tenant_ref == tenant_ref,
                         Workspace.is_default.is_(True),
                         Workspace.workspace_id != workspace_id,
                     )
@@ -430,14 +495,19 @@ class Database:
             row.updated_at = _now()
             await session.commit()
             self._default_workspace_cache = None
+            invalidate(tenant_ref)
             return self._workspace_to_dict(row)
 
     async def delete_workspace(self, workspace_id: str) -> dict[str, Any]:
-        """Delete a workspace and every document scoped to it.
+        """Delete a workspace and every row scoped to it.
 
-        Returns ``{"deleted": bool, "reason": str | None}``: the last workspace
-        and the default one are refused, so the app always has somewhere to
-        put documents.
+        Returns ``{"deleted": bool, "reason": str | None}``: a tenant's default
+        workspace and its last one are refused, so every tenant always has
+        somewhere to put documents. Both refusals are per tenant — "the last
+        workspace" means the last one *this* tenant owns.
+
+        There are no foreign keys in this schema, so nothing cascades: every
+        table is deleted explicitly, children before parents.
         """
         async with self._write_session() as session:
             row = await session.get(Workspace, workspace_id)
@@ -445,78 +515,244 @@ class Database:
                 return {"deleted": False, "reason": "not_found"}
             if row.is_default:
                 return {"deleted": False, "reason": "is_default"}
-            total = await session.scalar(select(func.count()).select_from(Workspace))
+            tenant_ref = row.tenant_ref
+            total = await session.scalar(
+                select(func.count())
+                .select_from(Workspace)
+                .where(Workspace.tenant_ref == tenant_ref)
+            )
             if int(total or 0) <= 1:
                 return {"deleted": False, "reason": "last_workspace"}
 
-            resume_ids = set(
-                (
-                    await session.execute(
-                        select(Resume.resume_id).where(
-                            Resume.workspace_id == workspace_id
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            job_ids = set(
-                (
-                    await session.execute(
-                        select(Job.job_id).where(Job.workspace_id == workspace_id)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            await session.execute(
-                delete(Application).where(Application.workspace_id == workspace_id)
-            )
-            if resume_ids:
-                await session.execute(
-                    delete(TailoringPreview).where(
-                        or_(
-                            TailoringPreview.source_id.in_(resume_ids),
-                            TailoringPreview.result_resume_id.in_(resume_ids),
-                        )
-                    )
-                )
-                await session.execute(
-                    delete(Improvement).where(
-                        or_(
-                            Improvement.original_resume_id.in_(resume_ids),
-                            Improvement.tailored_resume_id.in_(resume_ids),
-                        )
-                    )
-                )
-            if job_ids:
-                await session.execute(
-                    delete(TailoringPreview).where(TailoringPreview.job_id.in_(job_ids))
-                )
-                await session.execute(
-                    delete(Improvement).where(Improvement.job_id.in_(job_ids))
-                )
-            await session.execute(delete(Job).where(Job.workspace_id == workspace_id))
-            await session.execute(
-                delete(Resume).where(Resume.workspace_id == workspace_id)
-            )
+            await self._delete_workspace_rows(session, workspace_id)
             await session.delete(row)
             await session.commit()
             self._default_workspace_cache = None
+            invalidate(tenant_ref)
             return {"deleted": True, "reason": None}
+
+    @staticmethod
+    async def _delete_workspace_rows(
+        session: AsyncSession, workspace_id: str
+    ) -> dict[str, int]:
+        """Delete every row one workspace owns, children before parents.
+
+        Shared by ``delete_workspace`` and ``purge_idle_anonymous`` so a purged
+        tenant cannot leave document history behind. ``api_keys`` and
+        ``workspace_settings`` are included: both are per workspace, and both
+        outliving their workspace would be a data-retention leak.
+        """
+        counts: dict[str, int] = {}
+        for model in (
+            TailoringPreview,
+            Improvement,
+            Application,
+            ResumeVersion,
+            Resume,
+            Job,
+            ApiKey,
+            WorkspaceSetting,
+        ):
+            result = await session.execute(
+                delete(model).where(model.workspace_id == workspace_id)
+            )
+            counts[model.__tablename__] = int(result.rowcount or 0)
+        return counts
+
+    async def claim_unowned_workspaces(self, tenant_ref: str) -> int:
+        """Stamp every still-unowned workspace with ``tenant_ref``.
+
+        How a standalone instance's existing data becomes the admin's when it
+        is flipped to header mode: without it, every resume already on disk
+        would belong to a tenant nobody can present. Only ever called for an
+        ``admin`` role, and only while the admin owns nothing yet, so it cannot
+        transfer one tenant's data to another. Claiming ``""`` for itself is a
+        no-op by construction.
+        """
+        if tenant_ref == SINGLE_TENANT_REF:
+            return 0
+        async with self._write_session() as session:
+            result = await session.execute(
+                update(Workspace)
+                .where(Workspace.tenant_ref == SINGLE_TENANT_REF)
+                .values(tenant_ref=tenant_ref, is_anonymous=False, updated_at=_now())
+            )
+            await session.commit()
+        claimed = int(result.rowcount or 0)
+        if claimed:
+            self._default_workspace_cache = None
+            invalidate(SINGLE_TENANT_REF)
+            invalidate(tenant_ref)
+        return claimed
+
+    async def touch_tenant(self, tenant_ref: str, when: str) -> None:
+        """Record that a tenant is still alive, for the anonymous purge."""
+        async with self._write_session() as session:
+            await session.execute(
+                update(Workspace)
+                .where(Workspace.tenant_ref == tenant_ref)
+                .values(last_seen_at=when)
+            )
+            await session.commit()
+
+    async def purge_idle_anonymous(self, idle_before: str) -> dict[str, int]:
+        """Delete every anonymous workspace not seen since ``idle_before``.
+
+        Anonymous tenants are disposable by design: a visitor's slate lives as
+        long as they keep using it. Timestamps are ISO-8601 UTC strings and
+        compare lexically, which is why the column is a string everywhere else
+        in this schema too.
+
+        Returns per-table deletion counts (including ``workspaces``), all of
+        which are zero when nothing was idle.
+        """
+        totals: dict[str, int] = {}
+        async with self._write_session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(Workspace).where(
+                            Workspace.is_anonymous.is_(True),
+                            Workspace.last_seen_at < idle_before,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if not rows:
+                return totals
+            tenant_refs = {row.tenant_ref for row in rows}
+            for row in rows:
+                counts = await self._delete_workspace_rows(session, row.workspace_id)
+                for table, count in counts.items():
+                    totals[table] = totals.get(table, 0) + count
+                await session.delete(row)
+            totals["workspaces"] = len(rows)
+            await session.commit()
+        self._default_workspace_cache = None
+        for tenant_ref in tenant_refs:
+            invalidate(tenant_ref)
+        return totals
+
+    # -- Per-workspace settings ---------------------------------------------
+
+    async def get_workspace_settings(self, workspace_id: str) -> dict[str, Any]:
+        """One workspace's ``config.json`` overrides as ``{key: value}``."""
+        async with self._session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(WorkspaceSetting).where(
+                            WorkspaceSetting.workspace_id == workspace_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            return {row.key: row.value for row in rows}
+
+    def get_workspace_settings_sync(self, workspace_id: str) -> dict[str, Any]:
+        """Synchronous twin of :meth:`get_workspace_settings`.
+
+        The LLM path reaches config through ``get_llm_config`` →
+        ``load_config_file``, which is synchronous and has no event loop to
+        borrow. Same reason ``api_keys`` has a sync engine.
+        """
+        with self._sync() as session:
+            rows = (
+                session.execute(
+                    select(WorkspaceSetting).where(
+                        WorkspaceSetting.workspace_id == workspace_id
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            return {row.key: row.value for row in rows}
+
+    async def set_workspace_setting(
+        self, workspace_id: str, key: str, value: Any
+    ) -> None:
+        """Upsert one override. Writing the instance default is still an override."""
+        async with self._write_session() as session:
+            row = await session.get(WorkspaceSetting, (workspace_id, key))
+            if row is None:
+                session.add(
+                    WorkspaceSetting(
+                        workspace_id=workspace_id,
+                        key=key,
+                        value=value,
+                        updated_at=_now(),
+                    )
+                )
+            else:
+                row.value = value
+                row.updated_at = _now()
+            await session.commit()
+
+    async def clear_workspace_settings(self, workspace_id: str) -> int:
+        """Drop every override, returning the workspace to instance defaults."""
+        async with self._write_session() as session:
+            result = await session.execute(
+                delete(WorkspaceSetting).where(
+                    WorkspaceSetting.workspace_id == workspace_id
+                )
+            )
+            await session.commit()
+            return int(result.rowcount or 0)
 
     # -- Resume operations --------------------------------------------------
 
     async def default_workspace_id(self) -> str:
-        """Id of the fallback workspace used when a caller supplies none."""
+        """Id of the standalone tenant's default workspace.
+
+        The *instance* default, for the paths that run outside a request: the
+        legacy API-key migration and the synchronous config reader. It is
+        deliberately **not** a fallback for a request that failed to supply a
+        scope — a request's workspace comes from ``TenantMiddleware``, and
+        defaulting one that arrived without a tenant is the cross-tenant read
+        this layer exists to prevent.
+        """
         if self._default_workspace_cache is None:
             self._default_workspace_cache = str(
                 (await self.get_default_workspace())["workspace_id"]
             )
         return self._default_workspace_cache
 
-    async def _resolve_workspace_id(self, workspace_id: str | None) -> str:
-        return workspace_id or await self.default_workspace_id()
+    def default_workspace_id_sync(self) -> str:
+        """Sync twin of :meth:`default_workspace_id`, for the LLM key path.
+
+        ``get_llm_config`` → ``load_config_file`` is synchronous and can run
+        with no request tenant at all (startup migrations, scripts), so it
+        needs the instance default without an event loop. Returns ``""`` when
+        the table is empty rather than creating a row: a read on a database
+        that has not been seeded yet should fall back to instance defaults, not
+        take a write lock.
+        """
+        if self._default_workspace_cache is not None:
+            return self._default_workspace_cache
+        with self._sync() as session:
+            found = session.execute(
+                select(Workspace.workspace_id)
+                .where(
+                    Workspace.tenant_ref == SINGLE_TENANT_REF,
+                    Workspace.is_default.is_(True),
+                )
+                .limit(1)
+            ).scalar()
+            if found is None:
+                found = session.execute(
+                    select(Workspace.workspace_id)
+                    .where(Workspace.tenant_ref == SINGLE_TENANT_REF)
+                    .order_by(Workspace.created_at)
+                    .limit(1)
+                ).scalar()
+        if found is None:
+            return ""
+        self._default_workspace_cache = str(found)
+        return self._default_workspace_cache
 
     async def create_resume(
         self,
@@ -532,14 +768,15 @@ class Database:
         title: str | None = None,
         original_markdown: str | None = None,
         interview_prep: str | None = None,
-        workspace_id: str | None = None,
+        *,
+        workspace_id: str,
     ) -> dict[str, Any]:
         """Create a new resume entry.
 
         processing_status: "pending", "processing", "ready", "failed"
         """
         row = self._new_resume(
-            workspace_id=await self._resolve_workspace_id(workspace_id),
+            workspace_id=workspace_id,
             content=content,
             content_type=content_type,
             filename=filename,
@@ -576,19 +813,20 @@ class Database:
         original_markdown: str | None = None,
         title: str | None = None,
         interview_prep: str | None = None,
-        workspace_id: str | None = None,
+        *,
+        workspace_id: str,
     ) -> dict[str, Any]:
         """Create a resume and replace a failed master in one transaction.
 
         Mastership is per workspace: the demotion candidate is looked up inside
         the target workspace only.
         """
-        scope = await self._resolve_workspace_id(workspace_id)
         async with self._write_session() as session:
             current_master = (
                 await session.execute(
                     select(Resume).where(
-                        Resume.workspace_id == scope, Resume.is_master.is_(True)
+                        Resume.workspace_id == workspace_id,
+                        Resume.is_master.is_(True),
                     )
                 )
             ).scalar_one_or_none()
@@ -603,7 +841,7 @@ class Database:
                 await session.flush()
                 is_master = True
             row = self._new_resume(
-                workspace_id=scope,
+                workspace_id=workspace_id,
                 content=content,
                 content_type=content_type,
                 filename=filename,
@@ -620,28 +858,34 @@ class Database:
             await session.commit()
             return self._resume_to_dict(row)
 
-    async def get_resume(self, resume_id: str) -> dict[str, Any] | None:
-        """Get resume by ID."""
+    async def get_resume(
+        self, resume_id: str, *, workspace_id: str
+    ) -> dict[str, Any] | None:
+        """Get one of the workspace's resumes by id."""
         async with self._session() as session:
-            row = await session.get(Resume, resume_id)
+            row = (
+                await session.execute(
+                    select(Resume).where(
+                        Resume.resume_id == resume_id,
+                        Resume.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             return self._resume_to_dict(row) if row else None
 
-    async def get_master_resume(
-        self, workspace_id: str | None = None
-    ) -> dict[str, Any] | None:
+    async def get_master_resume(self, workspace_id: str) -> dict[str, Any] | None:
         """Get the workspace's master resume if one exists."""
-        scope = await self._resolve_workspace_id(workspace_id)
         async with self._session() as session:
             result = await session.execute(
                 select(Resume).where(
-                    Resume.workspace_id == scope, Resume.is_master.is_(True)
+                    Resume.workspace_id == workspace_id, Resume.is_master.is_(True)
                 )
             )
             row = result.scalars().first()
             return self._resume_to_dict(row) if row else None
 
     async def update_resume(
-        self, resume_id: str, updates: dict[str, Any]
+        self, resume_id: str, updates: dict[str, Any], *, workspace_id: str
     ) -> dict[str, Any]:
         """Update resume by ID.
 
@@ -651,7 +895,14 @@ class Database:
                 unaffected.
         """
         async with self._write_session() as session:
-            row = await session.get(Resume, resume_id)
+            row = (
+                await session.execute(
+                    select(Resume).where(
+                        Resume.resume_id == resume_id,
+                        Resume.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             if row is None:
                 raise ResumeNotFoundError(resume_id)
             for key, value in updates.items():
@@ -667,6 +918,7 @@ class Database:
         self,
         resume_id: str,
         *,
+        workspace_id: str,
         allow_ready_at: str | None = None,
     ) -> str | None:
         """Rotate processing ownership and return its opaque operation token.
@@ -690,7 +942,11 @@ class Database:
         async with self._write_session() as session:
             result = await session.execute(
                 update(Resume)
-                .where(Resume.resume_id == resume_id, eligible)
+                .where(
+                    Resume.resume_id == resume_id,
+                    Resume.workspace_id == workspace_id,
+                    eligible,
+                )
                 .values(
                     processing_status="processing",
                     processing_token=token,
@@ -702,7 +958,10 @@ class Database:
                 return token
 
             exists = await session.scalar(
-                select(Resume.resume_id).where(Resume.resume_id == resume_id)
+                select(Resume.resume_id).where(
+                    Resume.resume_id == resume_id,
+                    Resume.workspace_id == workspace_id,
+                )
             )
             if exists is None:
                 raise ResumeNotFoundError(resume_id)
@@ -713,6 +972,7 @@ class Database:
         resume_id: str,
         token: str | None,
         *,
+        workspace_id: str,
         processing_status: Literal["ready", "failed"],
         processed_data: dict[str, Any] | None = None,
     ) -> ProcessingFinishOutcome:
@@ -733,6 +993,7 @@ class Database:
                 update(Resume)
                 .where(
                     Resume.resume_id == resume_id,
+                    Resume.workspace_id == workspace_id,
                     Resume.processing_token == token,
                     Resume.processing_status == "processing",
                 )
@@ -743,14 +1004,24 @@ class Database:
                 return "committed"
 
             exists = await session.scalar(
-                select(Resume.resume_id).where(Resume.resume_id == resume_id)
+                select(Resume.resume_id).where(
+                    Resume.resume_id == resume_id,
+                    Resume.workspace_id == workspace_id,
+                )
             )
             return "stale" if exists is not None else "missing"
 
-    async def delete_resume(self, resume_id: str) -> bool:
-        """Delete resume by ID."""
+    async def delete_resume(self, resume_id: str, *, workspace_id: str) -> bool:
+        """Delete one of the workspace's resumes and its version history."""
         async with self._write_session() as session:
-            row = await session.get(Resume, resume_id)
+            row = (
+                await session.execute(
+                    select(Resume).where(
+                        Resume.resume_id == resume_id,
+                        Resume.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             if row is None:
                 return False
             # Keep a content-free consumed marker for deleted results so retries
@@ -758,47 +1029,63 @@ class Database:
             previews = await session.execute(
                 select(TailoringPreview).where(
                     TailoringPreview.result_resume_id == resume_id,
+                    TailoringPreview.workspace_id == workspace_id,
                 )
             )
             for preview in previews.scalars():
                 preview.response_data = None
             await session.execute(
-                delete(TailoringPreview).where(TailoringPreview.source_id == resume_id)
+                delete(TailoringPreview).where(
+                    TailoringPreview.source_id == resume_id,
+                    TailoringPreview.workspace_id == workspace_id,
+                )
+            )
+            # The version timeline is the resume's own history and has no other
+            # owner, so it goes with it. Leaving it behind kept a full copy of
+            # every document a user thought they had deleted.
+            await session.execute(
+                delete(ResumeVersion).where(
+                    ResumeVersion.resume_id == resume_id,
+                    ResumeVersion.workspace_id == workspace_id,
+                )
             )
             await session.delete(row)
             await session.commit()
             return True
 
-    async def list_resumes(
-        self, workspace_id: str | None = None
-    ) -> list[dict[str, Any]]:
+    async def list_resumes(self, workspace_id: str) -> list[dict[str, Any]]:
         """List the workspace's resumes, oldest first."""
-        scope = await self._resolve_workspace_id(workspace_id)
         async with self._session() as session:
             result = await session.execute(
                 select(Resume)
-                .where(Resume.workspace_id == scope)
+                .where(Resume.workspace_id == workspace_id)
                 .order_by(Resume.created_at)
             )
             return [self._resume_to_dict(row) for row in result.scalars().all()]
 
-    async def set_master_resume(self, resume_id: str) -> bool:
+    async def set_master_resume(self, resume_id: str, *, workspace_id: str) -> bool:
         """Set a resume as its workspace's master, unsetting the previous one.
 
-        Returns False if the resume doesn't exist. Demote-then-promote happens
-        in a single transaction so the partial unique index is never violated.
-        Scoping is taken from the target row, so promoting in one workspace
-        never touches another's master.
+        Returns False if the resume does not exist *in this workspace*.
+        Demote-then-promote happens in a single transaction so the partial
+        unique index is never violated.
         """
         async with self._write_session() as session:
-            target = await session.get(Resume, resume_id)
+            target = (
+                await session.execute(
+                    select(Resume).where(
+                        Resume.resume_id == resume_id,
+                        Resume.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             if target is None:
                 logger.warning("Cannot set master: resume %s not found", resume_id)
                 return False
 
             current = await session.execute(
                 select(Resume).where(
-                    Resume.workspace_id == target.workspace_id,
+                    Resume.workspace_id == workspace_id,
                     Resume.is_master.is_(True),
                 )
             )
@@ -812,7 +1099,12 @@ class Database:
             return True
 
     async def seed_resume_version(
-        self, resume_id: str, *, origin: str, origin_ref: str | None = None
+        self,
+        resume_id: str,
+        *,
+        workspace_id: str,
+        origin: str,
+        origin_ref: str | None = None,
     ) -> dict[str, Any] | None:
         """Record a freshly created resume's content as its first version.
 
@@ -821,14 +1113,18 @@ class Database:
         a history entry. A no-op when the resume already has one, so a retried
         request cannot double-seed.
         """
-        resume = await self.get_resume(resume_id)
+        resume = await self.get_resume(resume_id, workspace_id=workspace_id)
         if resume is None or resume.get("head_version_id"):
             return None
         document = resume.get("processed_data")
         if not document:
             return None
         return await self.commit_resume_version(
-            resume_id, document, origin=origin, origin_ref=origin_ref
+            resume_id,
+            document,
+            workspace_id=workspace_id,
+            origin=origin,
+            origin_ref=origin_ref,
         )
 
     # -- Resume version history ---------------------------------------------
@@ -857,6 +1153,7 @@ class Database:
         resume_id: str,
         document: dict[str, Any],
         *,
+        workspace_id: str,
         origin: str,
         origin_ref: str | None = None,
         label: str | None = None,
@@ -887,12 +1184,26 @@ class Database:
         now = _now()
 
         async with self._write_session() as session:
-            resume = await session.get(Resume, resume_id)
+            resume = (
+                await session.execute(
+                    select(Resume).where(
+                        Resume.resume_id == resume_id,
+                        Resume.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             if resume is None:
                 raise ResumeNotFoundError(resume_id)
 
             head = (
-                await session.get(ResumeVersion, resume.head_version_id)
+                (
+                    await session.execute(
+                        select(ResumeVersion).where(
+                            ResumeVersion.version_id == resume.head_version_id,
+                            ResumeVersion.workspace_id == workspace_id,
+                        )
+                    )
+                ).scalar_one_or_none()
                 if resume.head_version_id
                 else None
             )
@@ -914,7 +1225,7 @@ class Database:
                 row = ResumeVersion(
                     version_id=str(uuid4()),
                     resume_id=resume_id,
-                    workspace_id=resume.workspace_id,
+                    workspace_id=workspace_id,
                     parent_version_id=head.version_id if head else None,
                     created_at=now,
                 )
@@ -964,14 +1275,29 @@ class Database:
         return head if 0 <= age <= window else None
 
     async def list_resume_versions(
-        self, resume_id: str, *, limit: int = 50, cursor: str | None = None
+        self,
+        resume_id: str,
+        *,
+        workspace_id: str,
+        limit: int = 50,
+        cursor: str | None = None,
     ) -> list[dict[str, Any]]:
         """Version metadata for a resume, newest first. No document payloads."""
         async with self._session() as session:
-            resume = await session.get(Resume, resume_id)
+            resume = (
+                await session.execute(
+                    select(Resume).where(
+                        Resume.resume_id == resume_id,
+                        Resume.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             if resume is None:
                 raise ResumeNotFoundError(resume_id)
-            stmt = select(ResumeVersion).where(ResumeVersion.resume_id == resume_id)
+            stmt = select(ResumeVersion).where(
+                ResumeVersion.resume_id == resume_id,
+                ResumeVersion.workspace_id == workspace_id,
+            )
             if cursor:
                 stmt = stmt.where(ResumeVersion.created_at < cursor)
             stmt = stmt.order_by(
@@ -989,22 +1315,49 @@ class Database:
                 for row in rows
             ]
 
-    async def get_resume_version(self, version_id: str) -> dict[str, Any] | None:
+    async def get_resume_version(
+        self, version_id: str, *, workspace_id: str
+    ) -> dict[str, Any] | None:
         """One version, document included."""
         async with self._session() as session:
-            row = await session.get(ResumeVersion, version_id)
+            row = (
+                await session.execute(
+                    select(ResumeVersion).where(
+                        ResumeVersion.version_id == version_id,
+                        ResumeVersion.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             if row is None:
                 return None
-            resume = await session.get(Resume, row.resume_id)
-            head = resume.head_version_id if resume else None
+            head = await self._head_version_id(session, row.resume_id, workspace_id)
             return self._version_to_dict(row, head_version_id=head)
 
+    @staticmethod
+    async def _head_version_id(
+        session: AsyncSession, resume_id: str, workspace_id: str
+    ) -> str | None:
+        """The resume's head pointer, for marking a version ``is_head``."""
+        return await session.scalar(
+            select(Resume.head_version_id).where(
+                Resume.resume_id == resume_id,
+                Resume.workspace_id == workspace_id,
+            )
+        )
+
     async def update_resume_version(
-        self, version_id: str, updates: dict[str, Any]
+        self, version_id: str, updates: dict[str, Any], *, workspace_id: str
     ) -> dict[str, Any] | None:
         """Set a version's user label or pin. Content is immutable."""
         async with self._write_session() as session:
-            row = await session.get(ResumeVersion, version_id)
+            row = (
+                await session.execute(
+                    select(ResumeVersion).where(
+                        ResumeVersion.version_id == version_id,
+                        ResumeVersion.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             if row is None:
                 return None
             if "label" in updates:
@@ -1012,19 +1365,27 @@ class Database:
                 row.label = label.strip() or None if isinstance(label, str) else None
             if "is_pinned" in updates:
                 row.is_pinned = bool(updates["is_pinned"])
-            resume = await session.get(Resume, row.resume_id)
-            head = resume.head_version_id if resume else None
+            head = await self._head_version_id(session, row.resume_id, workspace_id)
             await session.commit()
             return self._version_to_dict(row, head_version_id=head)
 
-    async def delete_resume_version(self, version_id: str) -> dict[str, Any]:
+    async def delete_resume_version(
+        self, version_id: str, *, workspace_id: str
+    ) -> dict[str, Any]:
         """Delete one version. The head and pinned versions are refused."""
         async with self._write_session() as session:
-            row = await session.get(ResumeVersion, version_id)
+            row = (
+                await session.execute(
+                    select(ResumeVersion).where(
+                        ResumeVersion.version_id == version_id,
+                        ResumeVersion.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             if row is None:
                 return {"deleted": False, "reason": "not_found"}
-            resume = await session.get(Resume, row.resume_id)
-            if resume is not None and resume.head_version_id == version_id:
+            head = await self._head_version_id(session, row.resume_id, workspace_id)
+            if head == version_id:
                 return {"deleted": False, "reason": "is_head"}
             if row.is_pinned:
                 return {"deleted": False, "reason": "is_pinned"}
@@ -1032,7 +1393,10 @@ class Database:
             # walkable instead of pointing at a missing id.
             await session.execute(
                 update(ResumeVersion)
-                .where(ResumeVersion.parent_version_id == version_id)
+                .where(
+                    ResumeVersion.parent_version_id == version_id,
+                    ResumeVersion.workspace_id == workspace_id,
+                )
                 .values(parent_version_id=row.parent_version_id)
             )
             await session.delete(row)
@@ -1045,23 +1409,26 @@ class Database:
         self,
         content: str,
         resume_id: str | None = None,
-        workspace_id: str | None = None,
+        *,
+        workspace_id: str,
     ) -> dict[str, Any]:
         """Create one job description using the atomic batch writer."""
-        return (await self.create_jobs([content], resume_id, workspace_id))[0]
+        return (
+            await self.create_jobs([content], resume_id, workspace_id=workspace_id)
+        )[0]
 
     async def create_jobs(
         self,
         contents: list[str],
         resume_id: str | None = None,
-        workspace_id: str | None = None,
+        *,
+        workspace_id: str,
     ) -> list[dict[str, Any]]:
         """Persist a validated job-description batch atomically, in input order."""
-        scope = await self._resolve_workspace_id(workspace_id)
         rows = [
             Job(
                 job_id=str(uuid4()),
-                workspace_id=scope,
+                workspace_id=workspace_id,
                 content=content,
                 resume_id=resume_id,
                 created_at=_now(),
@@ -1074,14 +1441,20 @@ class Database:
             await session.commit()
         return [self._job_to_dict(row) for row in rows]
 
-    async def get_job(self, job_id: str) -> dict[str, Any] | None:
-        """Get job by ID (dynamic fields flattened to top level)."""
+    async def get_job(self, job_id: str, *, workspace_id: str) -> dict[str, Any] | None:
+        """Get one of the workspace's jobs by id (dynamic fields flattened)."""
         async with self._session() as session:
-            row = await session.get(Job, job_id)
+            row = (
+                await session.execute(
+                    select(Job).where(
+                        Job.job_id == job_id, Job.workspace_id == workspace_id
+                    )
+                )
+            ).scalar_one_or_none()
             return self._job_to_dict(row) if row else None
 
     async def update_job(
-        self, job_id: str, updates: dict[str, Any]
+        self, job_id: str, updates: dict[str, Any], *, workspace_id: str
     ) -> dict[str, Any] | None:
         """Update a job by ID.
 
@@ -1091,7 +1464,13 @@ class Database:
         ``get_job`` as top-level keys.
         """
         async with self._write_session() as session:
-            row = await session.get(Job, job_id)
+            row = (
+                await session.execute(
+                    select(Job).where(
+                        Job.job_id == job_id, Job.workspace_id == workspace_id
+                    )
+                )
+            ).scalar_one_or_none()
             if row is None:
                 return None
             meta = dict(row.metadata_json or {})
@@ -1105,14 +1484,23 @@ class Database:
             await session.commit()
             return self._job_to_dict(row)
 
-    async def delete_job(self, job_id: str) -> bool:
+    async def delete_job(self, job_id: str, *, workspace_id: str) -> bool:
         """Delete a job by ID (used to clean up an orphaned manual-add job)."""
         async with self._write_session() as session:
-            row = await session.get(Job, job_id)
+            row = (
+                await session.execute(
+                    select(Job).where(
+                        Job.job_id == job_id, Job.workspace_id == workspace_id
+                    )
+                )
+            ).scalar_one_or_none()
             if row is None:
                 return False
             await session.execute(
-                delete(TailoringPreview).where(TailoringPreview.job_id == job_id)
+                delete(TailoringPreview).where(
+                    TailoringPreview.job_id == job_id,
+                    TailoringPreview.workspace_id == workspace_id,
+                )
             )
             await session.delete(row)
             await session.commit()
@@ -1125,8 +1513,28 @@ class Database:
         session: AsyncSession,
         preview: TailoringPreview,
     ) -> None:
-        source = await session.get(Resume, preview.source_id)
-        job = await session.get(Job, preview.job_id)
+        """Refuse a preview whose resume or job is not the one it was built on.
+
+        Both lookups are scoped to the preview's own workspace, so a preview
+        can never be validated against — or later applied to — another
+        tenant's document.
+        """
+        source = (
+            await session.execute(
+                select(Resume).where(
+                    Resume.resume_id == preview.source_id,
+                    Resume.workspace_id == preview.workspace_id,
+                )
+            )
+        ).scalar_one_or_none()
+        job = (
+            await session.execute(
+                select(Job).where(
+                    Job.job_id == preview.job_id,
+                    Job.workspace_id == preview.workspace_id,
+                )
+            )
+        ).scalar_one_or_none()
         if (
             source is None
             or job is None
@@ -1143,6 +1551,7 @@ class Database:
     async def register_preview(
         self,
         *,
+        workspace_id: str,
         source_id: str,
         job_id: str,
         payload_hash: str,
@@ -1156,6 +1565,7 @@ class Database:
         now = _now()
         row = TailoringPreview(
             preview_id=str(uuid4()),
+            workspace_id=workspace_id,
             improvements=copy.deepcopy(improvements or []),
             source_id=source_id,
             job_id=job_id,
@@ -1169,8 +1579,11 @@ class Database:
         )
         async with self._write_session() as session:
             await self._validate_preview_inputs(session, row)
+            # Sweep only *this* workspace's dead previews: a global GC would
+            # let any tenant's request collect another's expired rows.
             await session.execute(
                 delete(TailoringPreview).where(
+                    TailoringPreview.workspace_id == workspace_id,
                     TailoringPreview.expires_at <= now,
                     TailoringPreview.result_resume_id.is_(None),
                     or_(
@@ -1179,7 +1592,13 @@ class Database:
                     ),
                 )
             )
-            job = await session.get(Job, job_id)
+            job = (
+                await session.execute(
+                    select(Job).where(
+                        Job.job_id == job_id, Job.workspace_id == workspace_id
+                    )
+                )
+            ).scalar_one_or_none()
             assert job is not None  # Validated in the same reserved transaction.
             metadata = dict(job.metadata_json or {})
             hashes = metadata.get("preview_hashes")
@@ -1198,6 +1617,7 @@ class Database:
     async def claim_preview(
         self,
         *,
+        workspace_id: str,
         preview_id: str | None,
         source_id: str,
         job_id: str,
@@ -1207,13 +1627,21 @@ class Database:
         """Claim once across workers; committed retries bypass generation."""
         async with self._write_session() as session:
             if preview_id:
-                row = await session.get(TailoringPreview, preview_id)
+                row = (
+                    await session.execute(
+                        select(TailoringPreview).where(
+                            TailoringPreview.preview_id == preview_id,
+                            TailoringPreview.workspace_id == workspace_id,
+                        )
+                    )
+                ).scalar_one_or_none()
             else:
                 # Compatibility for clients that omit the new operation ID.
                 row = (
                     await session.execute(
                         select(TailoringPreview)
                         .where(
+                            TailoringPreview.workspace_id == workspace_id,
                             TailoringPreview.source_id == source_id,
                             TailoringPreview.job_id == job_id,
                             TailoringPreview.payload_hash == payload_hash,
@@ -1238,7 +1666,13 @@ class Database:
             if row.result_resume_id is not None:
                 if (
                     row.response_data is None
-                    or await session.get(Resume, row.result_resume_id) is None
+                    or await session.scalar(
+                        select(Resume.resume_id).where(
+                            Resume.resume_id == row.result_resume_id,
+                            Resume.workspace_id == workspace_id,
+                        )
+                    )
+                    is None
                 ):
                     raise PreviewConflictError(
                         "Confirmed resume was deleted. Please retry preview."
@@ -1261,12 +1695,21 @@ class Database:
             await session.commit()
             return PreviewClaim(row.preview_id, token=row.claim_token, improvements=copy.deepcopy(row.improvements or []))
 
-    async def release_preview_claim(self, claim: PreviewClaim) -> None:
+    async def release_preview_claim(
+        self, claim: PreviewClaim, *, workspace_id: str
+    ) -> None:
         """Release only this request's uncommitted claim, including on cancellation."""
         if not claim.token:
             return
         async with self._write_session() as session:
-            row = await session.get(TailoringPreview, claim.preview_id)
+            row = (
+                await session.execute(
+                    select(TailoringPreview).where(
+                        TailoringPreview.preview_id == claim.preview_id,
+                        TailoringPreview.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             if row is not None and claim.token and row.claim_token == claim.token:
                 row.claim_token = None
                 row.claim_expires_at = None
@@ -1275,6 +1718,7 @@ class Database:
     async def complete_preview(
         self,
         *,
+        workspace_id: str,
         claim: PreviewClaim,
         resume_fields: dict[str, Any],
         response_data: dict[str, Any],
@@ -1282,7 +1726,14 @@ class Database:
     ) -> dict[str, Any]:
         """Commit resume, required relation and replay snapshot atomically."""
         async with self._write_session() as session:
-            preview = await session.get(TailoringPreview, claim.preview_id)
+            preview = (
+                await session.execute(
+                    select(TailoringPreview).where(
+                        TailoringPreview.preview_id == claim.preview_id,
+                        TailoringPreview.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             now = _now()
             if (
                 preview is None
@@ -1295,7 +1746,10 @@ class Database:
                     "Confirmation ownership expired. Please retry preview."
                 )
             await self._validate_preview_inputs(session, preview)
-            row = self._new_resume(**resume_fields)
+            # The scope is stamped, never read from the payload: a caller that
+            # got `workspace_id` wrong in `resume_fields` would otherwise write
+            # the tailored resume into another tenant's workspace.
+            row = self._new_resume(**{**resume_fields, "workspace_id": workspace_id})
             result = copy.deepcopy(response_data)
             result.update(
                 resume_id=row.resume_id,
@@ -1306,6 +1760,7 @@ class Database:
             await session.flush()
             session.add(
                 Improvement(
+                    workspace_id=workspace_id,
                     request_id=result["request_id"],
                     original_resume_id=preview.source_id,
                     tailored_resume_id=row.resume_id,
@@ -1326,6 +1781,7 @@ class Database:
     async def create_tailored_resume(
         self,
         *,
+        workspace_id: str,
         request_id: str,
         original_resume_id: str,
         job_id: str,
@@ -1333,12 +1789,13 @@ class Database:
         improvements: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Commit a direct tailoring result and its required relation together."""
-        row = self._new_resume(**resume_fields)
+        row = self._new_resume(**{**resume_fields, "workspace_id": workspace_id})
         async with self._write_session() as session:
             session.add(row)
             await session.flush()
             session.add(
                 Improvement(
+                    workspace_id=workspace_id,
                     request_id=request_id,
                     original_resume_id=original_resume_id,
                     tailored_resume_id=row.resume_id,
@@ -1356,6 +1813,8 @@ class Database:
         tailored_resume_id: str,
         job_id: str,
         improvements: list[dict[str, Any]],
+        *,
+        workspace_id: str,
     ) -> dict[str, Any]:
         """Create an improvement result entry."""
         request_id = str(uuid4())
@@ -1363,6 +1822,7 @@ class Database:
         async with self._write_session() as session:
             session.add(
                 Improvement(
+                    workspace_id=workspace_id,
                     request_id=request_id,
                     original_resume_id=original_resume_id,
                     tailored_resume_id=tailored_resume_id,
@@ -1382,13 +1842,14 @@ class Database:
         }
 
     async def get_improvement_by_tailored_resume(
-        self, tailored_resume_id: str
+        self, tailored_resume_id: str, *, workspace_id: str
     ) -> dict[str, Any] | None:
         """Get improvement record by tailored resume ID."""
         async with self._session() as session:
             result = await session.execute(
                 select(Improvement).where(
-                    Improvement.tailored_resume_id == tailored_resume_id
+                    Improvement.tailored_resume_id == tailored_resume_id,
+                    Improvement.workspace_id == workspace_id,
                 )
             )
             row = result.scalars().first()
@@ -1462,6 +1923,34 @@ class Database:
         session.add(row)
         return row
 
+    @staticmethod
+    async def _require_resume(
+        session: AsyncSession, resume_id: str, workspace_id: str
+    ) -> None:
+        """Refuse an id the caller's workspace does not own."""
+        found = await session.scalar(
+            select(Resume.resume_id).where(
+                Resume.resume_id == resume_id,
+                Resume.workspace_id == workspace_id,
+            )
+        )
+        if found is None:
+            raise ResumeNotFoundError(resume_id)
+
+    @staticmethod
+    async def _require_job(
+        session: AsyncSession, job_id: str, workspace_id: str
+    ) -> None:
+        """Refuse an id the caller's workspace does not own."""
+        found = await session.scalar(
+            select(Job.job_id).where(
+                Job.job_id == job_id,
+                Job.workspace_id == workspace_id,
+            )
+        )
+        if found is None:
+            raise JobNotFoundError(job_id)
+
     async def create_manual_application(
         self,
         *,
@@ -1471,11 +1960,12 @@ class Database:
         company: str | None = None,
         role: str | None = None,
         notes: str | None = None,
-        workspace_id: str | None = None,
+        workspace_id: str,
     ) -> dict[str, Any]:
         """Commit a pasted job and its tracker card together, or roll back both."""
-        scope = await self._resolve_workspace_id(workspace_id)
+        scope = workspace_id
         async with self._write_session() as session:
+            await self._require_resume(session, resume_id, scope)
             job = Job(
                 job_id=str(uuid4()),
                 workspace_id=scope,
@@ -1511,46 +2001,45 @@ class Database:
         role: str | None = None,
         applied_at: str | None = None,
         notes: str | None = None,
+        *,
+        workspace_id: str,
     ) -> dict[str, Any]:
         """Create a tracker card, deduped on (job_id, resume_id).
 
         If a card for the same job+resume already exists it is returned as-is
         (survives double-submit / retried confirms).
         """
-        # A replay needs only a read. Recheck under the reservation before an
-        # insert so concurrent new cards still share the position allocation.
+        # Both ids are validated against the caller's scope *before* the dedup
+        # select, which is what keeps `uq_application_job_resume` — globally
+        # unique, and deliberately not rebuilt — reachable only within one
+        # workspace. Card ids are uuid4, so a cross-workspace collision on the
+        # pair is only possible by naming another tenant's rows, which now
+        # raises instead of resolving.
         async with self._session() as session:
+            await self._require_job(session, job_id, workspace_id)
+            await self._require_resume(session, resume_id, workspace_id)
             found = await session.scalar(select(Application).where(
-                Application.job_id == job_id, Application.resume_id == resume_id
+                Application.workspace_id == workspace_id,
+                Application.job_id == job_id,
+                Application.resume_id == resume_id,
             ))
             if found is not None:
                 return self._application_to_dict(found)
         async with self._write_session() as session:
             existing = await session.execute(
                 select(Application).where(
-                    Application.job_id == job_id, Application.resume_id == resume_id
+                    Application.workspace_id == workspace_id,
+                    Application.job_id == job_id,
+                    Application.resume_id == resume_id,
                 )
             )
             found = existing.scalars().first()
             if found is not None:
                 return self._application_to_dict(found)
 
-            # A card lives where its job does, so autocreate from any code path
-            # (including AI confirm, which has no request headers of its own)
-            # lands in the right workspace.
-            scope = await session.scalar(
-                select(Job.workspace_id).where(Job.job_id == job_id)
-            ) or await session.scalar(
-                select(Resume.workspace_id).where(Resume.resume_id == resume_id)
-            )
             row = await self._insert_application(
                 session,
-                workspace_id=scope
-                or await session.scalar(
-                    select(Workspace.workspace_id)
-                    .where(Workspace.is_default.is_(True))
-                    .limit(1)
-                ),
+                workspace_id=workspace_id,
                 job_id=job_id,
                 resume_id=resume_id,
                 master_resume_id=master_resume_id,
@@ -1568,6 +2057,7 @@ class Database:
                 await session.rollback()
                 dup = await session.execute(
                     select(Application).where(
+                        Application.workspace_id == workspace_id,
                         Application.job_id == job_id,
                         Application.resume_id == resume_id,
                     )
@@ -1584,26 +2074,34 @@ class Database:
             return self._application_to_dict(row)
 
     async def list_applications(
-        self, status: str | None = None, workspace_id: str | None = None
+        self, status: str | None = None, *, workspace_id: str
     ) -> list[dict[str, Any]]:
         """List one workspace's applications ordered by (status, position)."""
-        scope = await self._resolve_workspace_id(workspace_id)
         async with self._session() as session:
-            stmt = select(Application).where(Application.workspace_id == scope)
+            stmt = select(Application).where(Application.workspace_id == workspace_id)
             if status is not None:
                 stmt = stmt.where(Application.status == status)
             stmt = stmt.order_by(Application.status, Application.position)
             result = await session.execute(stmt)
             return [self._application_to_dict(row) for row in result.scalars().all()]
 
-    async def get_application(self, application_id: str) -> dict[str, Any] | None:
+    async def get_application(
+        self, application_id: str, *, workspace_id: str
+    ) -> dict[str, Any] | None:
         """Get an application by ID."""
         async with self._session() as session:
-            row = await session.get(Application, application_id)
+            row = (
+                await session.execute(
+                    select(Application).where(
+                        Application.application_id == application_id,
+                        Application.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             return self._application_to_dict(row) if row else None
 
     async def update_application(
-        self, application_id: str, updates: dict[str, Any]
+        self, application_id: str, updates: dict[str, Any], *, workspace_id: str
     ) -> dict[str, Any] | None:
         """Update an application; renumber columns when status/position change.
 
@@ -1612,7 +2110,14 @@ class Database:
         column stays a contiguous 0..n-1 sequence.
         """
         async with self._write_session() as session:
-            row = await session.get(Application, application_id)
+            row = (
+                await session.execute(
+                    select(Application).where(
+                        Application.application_id == application_id,
+                        Application.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             if row is None:
                 return None
 
@@ -1664,19 +2169,29 @@ class Database:
             return self._application_to_dict(row)
 
     async def bulk_update_applications(
-        self, application_ids: list[str], status: str
+        self, application_ids: list[str], status: str, *, workspace_id: str
     ) -> int:
-        """Move many applications to the end of ``status``. Returns count moved."""
+        """Move many applications to the end of ``status``. Returns count moved.
+
+        Ids that are not this workspace's are skipped, not rejected: a bulk
+        move is a best-effort batch, and the renumber must never reach another
+        workspace's column.
+        """
         moved = 0
         async with self._write_session() as session:
-            affected_old: set[tuple[str, str]] = set()
-            workspaces: set[str] = set()
+            affected_old: set[str] = set()
             for application_id in application_ids:
-                row = await session.get(Application, application_id)
+                row = (
+                    await session.execute(
+                        select(Application).where(
+                            Application.application_id == application_id,
+                            Application.workspace_id == workspace_id,
+                        )
+                    )
+                ).scalar_one_or_none()
                 if row is None:
                     continue
-                affected_old.add((row.workspace_id, row.status))
-                workspaces.add(row.workspace_id)
+                affected_old.add(row.status)
                 if (
                     row.status == "saved"
                     and status != "saved"
@@ -1687,109 +2202,175 @@ class Database:
                 row.position = 20_000_000 + moved  # provisional, renumbered below
                 row.updated_at = _now()
                 moved += 1
+            if not moved:
+                return 0
             await session.flush()
-            for workspace_id, old_status in affected_old - {(w, status) for w in workspaces}:
+            for old_status in affected_old - {status}:
                 await self._renumber(session, workspace_id, old_status)
-            for workspace_id in workspaces:
-                await self._renumber(session, workspace_id, status)
+            await self._renumber(session, workspace_id, status)
             await session.commit()
         return moved
 
-    async def delete_application(self, application_id: str) -> bool:
+    async def delete_application(
+        self, application_id: str, *, workspace_id: str
+    ) -> bool:
         """Delete an application; renumber its column."""
         async with self._write_session() as session:
-            row = await session.get(Application, application_id)
+            row = (
+                await session.execute(
+                    select(Application).where(
+                        Application.application_id == application_id,
+                        Application.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
             if row is None:
                 return False
             status = row.status
-            workspace_id = row.workspace_id
             await session.delete(row)
             await session.flush()
             await self._renumber(session, workspace_id, status)
             await session.commit()
             return True
 
-    async def bulk_delete_applications(self, application_ids: list[str]) -> int:
+    async def bulk_delete_applications(
+        self, application_ids: list[str], *, workspace_id: str
+    ) -> int:
         """Delete many applications; renumber affected columns. Returns count."""
         deleted = 0
         async with self._write_session() as session:
-            affected: set[tuple[str, str]] = set()
+            affected: set[str] = set()
             for application_id in application_ids:
-                row = await session.get(Application, application_id)
+                row = (
+                    await session.execute(
+                        select(Application).where(
+                            Application.application_id == application_id,
+                            Application.workspace_id == workspace_id,
+                        )
+                    )
+                ).scalar_one_or_none()
                 if row is None:
                     continue
-                affected.add((row.workspace_id, row.status))
+                affected.add(row.status)
                 await session.delete(row)
                 deleted += 1
             await session.flush()
-            for workspace_id, status in affected:
+            for status in affected:
                 await self._renumber(session, workspace_id, status)
             await session.commit()
         return deleted
 
     # -- Encrypted API key store (sync; read on the LLM hot path) -----------
 
-    def get_api_key_ciphertexts(self) -> dict[str, str]:
-        """Return ``{provider: ciphertext}`` for all stored keys (sync)."""
+    def get_api_key_ciphertexts(self, workspace_id: str) -> dict[str, str]:
+        """Return ``{provider: ciphertext}`` for one workspace's keys (sync)."""
         with self._sync() as session:
-            rows = session.execute(select(ApiKey)).scalars().all()
+            rows = (
+                session.execute(
+                    select(ApiKey).where(ApiKey.workspace_id == workspace_id)
+                )
+                .scalars()
+                .all()
+            )
             return {row.provider: row.ciphertext for row in rows}
 
-    def set_api_key_ciphertext(self, provider: str, ciphertext: str) -> None:
-        """Upsert one provider's ciphertext (sync)."""
+    def set_api_key_ciphertext(
+        self, workspace_id: str, provider: str, ciphertext: str
+    ) -> None:
+        """Upsert one provider's ciphertext for one workspace (sync)."""
         with self._sync_write_session() as session:
-            row = session.get(ApiKey, provider)
+            row = (
+                session.execute(
+                    select(ApiKey).where(
+                        ApiKey.workspace_id == workspace_id,
+                        ApiKey.provider == provider,
+                    )
+                )
+            ).scalar_one_or_none()
             if row is None:
                 session.add(
-                    ApiKey(provider=provider, ciphertext=ciphertext, updated_at=_now())
+                    ApiKey(
+                        workspace_id=workspace_id,
+                        provider=provider,
+                        ciphertext=ciphertext,
+                        updated_at=_now(),
+                    )
                 )
             else:
                 row.ciphertext = ciphertext
                 row.updated_at = _now()
             session.commit()
 
-    def delete_api_key(self, provider: str) -> None:
-        """Delete one provider's key (sync)."""
+    def delete_api_key(self, workspace_id: str, provider: str) -> None:
+        """Delete one provider's key for one workspace (sync)."""
         with self._sync_write_session() as session:
-            row = session.get(ApiKey, provider)
+            row = (
+                session.execute(
+                    select(ApiKey).where(
+                        ApiKey.workspace_id == workspace_id,
+                        ApiKey.provider == provider,
+                    )
+                )
+            ).scalar_one_or_none()
             if row is not None:
                 session.delete(row)
                 session.commit()
 
-    def clear_api_keys(self) -> None:
-        """Delete all stored keys (sync)."""
+    def clear_api_keys(self, workspace_id: str) -> None:
+        """Delete one workspace's stored keys (sync)."""
         with self._sync_write_session() as session:
-            session.execute(delete(ApiKey))
+            session.execute(delete(ApiKey).where(ApiKey.workspace_id == workspace_id))
             session.commit()
 
-    def replace_api_keys(self, ciphertexts: dict[str, str]) -> None:
-        """Atomically replace the whole key store (clear + insert in one txn).
+    def replace_api_keys(self, workspace_id: str, ciphertexts: dict[str, str]) -> None:
+        """Atomically replace one workspace's key store (clear + insert, one txn).
 
         A single transaction means a failure mid-write can't leave the store
-        half-cleared and wipe a user's previously saved keys.
+        half-cleared and wipe a user's previously saved keys. The delete is
+        scoped: unscoped, a settings save by any tenant wiped every tenant's
+        keys.
         """
         with self._sync_write_session() as session:
-            session.execute(delete(ApiKey))
+            session.execute(delete(ApiKey).where(ApiKey.workspace_id == workspace_id))
             now = _now()
             for provider, ciphertext in ciphertexts.items():
                 if ciphertext:
                     session.add(
-                        ApiKey(provider=provider, ciphertext=ciphertext, updated_at=now)
+                        ApiKey(
+                            workspace_id=workspace_id,
+                            provider=provider,
+                            ciphertext=ciphertext,
+                            updated_at=now,
+                        )
                     )
             session.commit()
 
     # -- Stats / maintenance ------------------------------------------------
 
-    async def get_stats(self) -> dict[str, Any]:
-        """Get database statistics."""
+    async def get_stats(self, workspace_id: str) -> dict[str, Any]:
+        """Row counts for one workspace, as ``GET /status`` reports them."""
         async with self._session() as session:
-            resumes = await session.scalar(select(func.count()).select_from(Resume))
-            jobs = await session.scalar(select(func.count()).select_from(Job))
+            resumes = await session.scalar(
+                select(func.count())
+                .select_from(Resume)
+                .where(Resume.workspace_id == workspace_id)
+            )
+            jobs = await session.scalar(
+                select(func.count())
+                .select_from(Job)
+                .where(Job.workspace_id == workspace_id)
+            )
             improvements = await session.scalar(
-                select(func.count()).select_from(Improvement)
+                select(func.count())
+                .select_from(Improvement)
+                .where(Improvement.workspace_id == workspace_id)
             )
             master = await session.execute(
-                select(Resume.resume_id).where(Resume.is_master.is_(True)).limit(1)
+                select(Resume.resume_id)
+                .where(
+                    Resume.workspace_id == workspace_id, Resume.is_master.is_(True)
+                )
+                .limit(1)
             )
             return {
                 "total_resumes": int(resumes or 0),
@@ -1798,26 +2379,28 @@ class Database:
                 "has_master_resume": master.first() is not None,
             }
 
-    async def reset_database(self) -> None:
-        """Reset by truncating user-document tables and clearing uploads.
+    async def reset_workspace(self, workspace_id: str) -> None:
+        """Truncate one workspace's documents, keeping its credentials.
 
-        Clears resumes/jobs/improvements, preview replay data, and tracker applications (leaving
-        orphaned cards after a full data reset would be a bug). Encrypted
-        ``api_keys`` are preserved — matching the pre-existing behavior where a
-        reset never wiped the user's stored credentials.
+        Clears resumes, their version history, jobs, improvements, preview
+        replay data and tracker cards (leaving orphaned cards after a reset
+        would be a bug). Encrypted ``api_keys`` and ``workspace_settings`` are
+        preserved — a reset has never wiped the user's stored credentials, and
+        wiping their provider choice with them would be a surprise.
         """
         async with self._write_session() as session:
-            await session.execute(delete(TailoringPreview))
-            await session.execute(delete(Application))
-            await session.execute(delete(Improvement))
-            await session.execute(delete(Job))
-            await session.execute(delete(Resume))
+            for model in (
+                TailoringPreview,
+                Application,
+                Improvement,
+                Job,
+                ResumeVersion,
+                Resume,
+            ):
+                await session.execute(
+                    delete(model).where(model.workspace_id == workspace_id)
+                )
             await session.commit()
-
-        uploads_dir = settings.data_dir / "uploads"
-        if uploads_dir.exists():
-            shutil.rmtree(uploads_dir)
-            uploads_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Global database instance

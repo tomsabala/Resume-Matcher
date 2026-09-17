@@ -30,10 +30,21 @@ class Base(DeclarativeBase):
 class Workspace(Base):
     """A named owner profile scoping resumes, jobs and tracker applications.
 
-    Single-user product: a workspace is a profile ("Tom", "Lior — Hebrew"),
-    not a tenant. Exactly one row carries ``is_default``; it is the fallback
-    for requests that arrive without an ``X-Workspace-Id`` header (notably the
-    Playwright print route, which Chromium fetches without app headers).
+    A workspace is a *profile* ("Tom", "Lior — Hebrew"), and ``workspace_id``
+    is the only scope predicate the seven document tables carry. ``tenant_ref``
+    groups the profiles that belong to one identity, so the multi-profile
+    feature survives per tenant: tenant → workspaces is one-to-many.
+
+    ``tenant_ref = ""`` is the standalone tenant — what every row carries under
+    ``TENANT_MODE=single``, and what the first ``X-Apps-Role: admin`` request
+    claims when the instance is flipped to ``header`` mode. It is NOT NULL with
+    an empty-string sentinel on purpose: ``ux_workspaces_tenant_default``
+    enforces one default per tenant, and SQLite treats NULLs as distinct, so a
+    nullable column would silently lose that guarantee.
+
+    ``is_anonymous`` marks a workspace the hourly purge may delete once
+    ``last_seen_at`` is older than ``ANONYMOUS_RETENTION_HOURS``. An admin's
+    workspaces are never purged.
     """
 
     __tablename__ = "workspaces"
@@ -43,17 +54,26 @@ class Workspace(Base):
     slug: Mapped[str] = mapped_column(String)
     content_language: Mapped[str] = mapped_column(String, default="en")
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    tenant_ref: Mapped[str] = mapped_column(String, default="", server_default="")
+    is_anonymous: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("0")
+    )
+    last_seen_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
     created_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
     updated_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
 
     __table_args__ = (
+        # Slugs stay unique across the whole table, not per tenant:
+        # ``_insert_workspace`` already de-duplicates them globally.
         Index("ux_workspaces_slug", "slug", unique=True),
         Index(
-            "ux_workspaces_single_default",
+            "ux_workspaces_tenant_default",
+            "tenant_ref",
             "is_default",
             unique=True,
             sqlite_where=text("is_default = 1"),
         ),
+        Index("ix_workspaces_tenant", "tenant_ref"),
     )
 
 
@@ -167,8 +187,10 @@ class Improvement(Base):
     """A tailoring result linking an original resume, a tailored resume, and a job."""
 
     __tablename__ = "improvements"
+    __table_args__ = (Index("ix_improvements_workspace", "workspace_id"),)
 
     request_id: Mapped[str] = mapped_column(String, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String, default="")
     original_resume_id: Mapped[str] = mapped_column(String)
     tailored_resume_id: Mapped[str] = mapped_column(String, index=True)
     job_id: Mapped[str] = mapped_column(String)
@@ -180,11 +202,15 @@ class TailoringPreview(Base):
     """An accepted preview, bounded confirmation claim and immutable result."""
 
     __tablename__ = "tailoring_previews"
-    __table_args__ = (Index("ix_preview_compatibility", "source_id", "job_id", "payload_hash", "created_at"),)
+    __table_args__ = (
+        Index("ix_preview_compatibility", "source_id", "job_id", "payload_hash", "created_at"),
+        Index("ix_previews_workspace", "workspace_id"),
+    )
 
     improvements: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
 
     preview_id: Mapped[str] = mapped_column(String, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String, default="")
     source_id: Mapped[str] = mapped_column(String, index=True)
     job_id: Mapped[str] = mapped_column(String, index=True)
     payload_hash: Mapped[str] = mapped_column(String)
@@ -229,15 +255,37 @@ class Application(Base):
 
 
 class ApiKey(Base):
-    """An encrypted LLM provider API key.
+    """One workspace's encrypted LLM provider API key.
 
     ``provider`` is the *key-store* provider name (e.g. ``google`` for the
     ``gemini`` LLM provider, via ``_PROVIDER_KEY_MAP``). Only ciphertext is
     stored; plaintext exists in memory only at call time.
+
+    The primary key is ``(workspace_id, provider)``: every tenant brings its
+    own keys, and an anonymous visitor with none gets "no API key configured"
+    rather than the operator's ``LLM_API_KEY`` (see ``llm.resolve_api_key``).
     """
 
     __tablename__ = "api_keys"
 
+    workspace_id: Mapped[str] = mapped_column(String, primary_key=True)
     provider: Mapped[str] = mapped_column(String, primary_key=True)
     ciphertext: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
+
+
+class WorkspaceSetting(Base):
+    """One workspace's override of an instance-wide ``config.json`` key.
+
+    Only the keys a tenant may own are ever written here (``llm``,
+    ``features``, ``language``, ``content_language``, ``prompts``,
+    ``feature_prompts``). An absent row means "use the instance default", so
+    an empty table is exactly right for a fresh tenant.
+    """
+
+    __tablename__ = "workspace_settings"
+
+    workspace_id: Mapped[str] = mapped_column(String, primary_key=True)
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[Any] = mapped_column(JSON, default=dict)
     updated_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)

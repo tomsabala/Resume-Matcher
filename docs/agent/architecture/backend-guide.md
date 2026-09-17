@@ -52,37 +52,65 @@ apps/backend/migrations/      # Alembic env.py + versions/
 same names/signatures as the old TinyDB wrapper but return **plain dicts** (never ORM
 rows). ORM models are in `models.py`; engine plumbing is in `db_engine.py`.
 
+Every method that touches a tenant-owned table takes a **required** `workspace_id` —
+keyword-only wherever the method has other positional arguments, so two id strings can
+never be swapped:
+
 ```python
-await db.create_resume(content, content_type, filename, is_master, processed_data)
-await db.get_resume(resume_id) → dict | None
-await db.list_resumes() → list[dict]
-await db.update_resume(resume_id, updates)
-await db.delete_resume(resume_id) → bool
-await db.set_master_resume(resume_id)            # Demote + promote in one transaction
-await db.claim_resume_processing(resume_id)      # Rotate private operation token
-await db.finish_resume_processing(...)           # Token-guarded ready/failed commit
-await db.create_job(content, resume_id)
-await db.create_application(...) / list_applications / bulk_update_applications
-get_api_key_ciphertexts() / replace_api_keys(...)  # sync; encrypted api_keys table
+await db.create_resume(content, content_type, …, workspace_id=ws)
+await db.get_resume(resume_id, workspace_id=ws) → dict | None
+await db.list_resumes(ws) → list[dict]
+await db.update_resume(resume_id, updates, workspace_id=ws)
+await db.delete_resume(resume_id, workspace_id=ws) → bool   # also drops its versions
+await db.set_master_resume(resume_id, workspace_id=ws)      # Demote + promote in one transaction
+await db.claim_resume_processing(resume_id, workspace_id=ws) # Rotate private operation token
+await db.finish_resume_processing(…, workspace_id=ws)        # Token-guarded ready/failed commit
+await db.create_job(content, resume_id, workspace_id=ws)
+await db.create_application(…, workspace_id=ws) / list_applications / bulk_update_applications
+await db.reset_workspace(ws)                                 # one workspace's documents only
+get_api_key_ciphertexts(ws) / replace_api_keys(ws, …)        # sync; encrypted api_keys table
 ```
 
-**Tables:** `workspaces`, `resumes`, `resume_versions`, `jobs`, `improvements`, `applications`, `tailoring_previews`, `api_keys` (encrypted).
-DB file: `data/resume_matcher.db`.
+There is no unscoped variant and no default: a missing scope is a `TypeError` at the call
+site. `db.default_workspace_id()` is the *instance* default (the standalone tenant's
+workspace) for the paths that run outside a request — the legacy key migration, the TinyDB
+import, the synchronous config reader — never a request fallback.
 
-### Workspaces
+**Tables:** `workspaces`, `workspace_settings`, `resumes`, `resume_versions`, `jobs`, `improvements`, `applications`, `tailoring_previews`, `api_keys` (encrypted, PK `(workspace_id, provider)`).
+DB file: `data/resume_matcher.db`. **There are no foreign keys**, so nothing cascades —
+every delete path enumerates its tables explicitly.
 
-A **workspace** is a named owner profile ("Tom", "Lior — Hebrew"), not a tenant — the
-product has no auth. `resumes`, `jobs` and `applications` each carry `workspace_id`;
-exactly one workspace row has `is_default = 1`.
+### Workspaces and tenants
 
-Requests select one with the `X-Workspace-Id` header, resolved by
-`app/deps.py::resolve_workspace_id`. A missing **or unknown** id falls back to the
-default workspace: the Playwright print route is fetched by Chromium without app
-headers, and the browser's stored id can outlive a deleted workspace.
+A **workspace** is a named owner profile ("Tom", "Lior — Hebrew"), and `workspace_id` is
+the only scope predicate the seven document tables carry. `workspaces.tenant_ref` groups
+the profiles one identity owns, so tenant → workspaces is **one-to-many** and the profile
+switcher survives per tenant. Exactly one workspace per tenant has `is_default = 1`
+(`ux_workspaces_tenant_default`).
 
-Scoping applies to list/create/master paths only; fetch-by-id is not filtered, so a
-direct link (or the print route) still resolves a document from any workspace.
-`ux_resumes_workspace_master` replaces the old database-global single-master index.
+`TENANT_MODE` selects where identity comes from:
+
+| mode | identity | behaviour |
+| ---- | -------- | --------- |
+| `single` (default) | none | One implicit tenant, `tenant_ref = ""`, `admin` role. The standalone app, unchanged. |
+| `header` | `X-Apps-Tenant` / `X-Apps-Role` from an upstream gateway | Every `/api/**` request without a tenant answers **404**. Never expose such an instance directly — the headers are the whole identity. |
+
+`TenantMiddleware` (`app/tenancy.py`) resolves it **once per request**, in ASGI middleware
+rather than a dependency, and publishes an `ActiveTenant` on a `ContextVar`. That is what
+lets the request-context-free paths see the tenant too: the synchronous config cache and
+the API-key lookup are reached through `get_llm_config` → `load_config_file`, which take no
+`Request`. `app/deps.py::resolve_workspace_id` is now a pure read of that ContextVar.
+
+`X-Workspace-Id` still selects a profile *within* the tenant, and is honoured only when it
+names one the caller owns — otherwise it degrades to the tenant's own default, because the
+header is browser localStorage that outlives a tenant.
+
+**Scoping is total, and enforced structurally.** Every facade method that touches a
+tenant-owned table requires `workspace_id` (keyword-only, never defaulted), there is no
+fetch-by-id that skips the filter, and `tests/unit/test_database_scoping.py` parses
+`database.py` to assert it. See
+[multi-tenancy](../features/multi-tenancy.md) for the full contract, the anonymous
+lifecycle and the deployment steps.
 
 ### The master resume
 
@@ -341,6 +369,19 @@ JSON settings use a same-directory temporary file and atomic replacement; key
 updates use the encrypted SQLite table. These are separate persistence operations.
 Tests install a temporary DATA_DIR before application imports and deny external
 network by default, so normal test runs do not read or overwrite developer settings.
+
+Runtime configuration has **two layers**: `config.json` is the instance default, and
+`workspace_settings` holds one optional override row per `(workspace_id, key)` merged over
+it. `config.json` is written only by the operator out of band and by the two startup
+migrations — a `/config/*` write goes to the caller's own override rows. The overridable
+keys are the flat allowlist `config_cache.OVERRIDABLE_CONFIG_KEYS`; everything else in the
+file stays instance-wide.
+
+Both readers must agree, or `GET /config` would report something other than what the LLM
+path uses: `config_cache.load_config()` (process cache keyed by `(path, workspace_id)`,
+300 s TTL) and `config.load_config_file()` (the same merge, plus the workspace's decrypted
+`api_keys`). The `LLM_API_KEY` env fallback is allowed only in `single` mode or for an
+`admin` role, so an anonymous visitor cannot spend the operator's key.
 
 ## LLM Features
 

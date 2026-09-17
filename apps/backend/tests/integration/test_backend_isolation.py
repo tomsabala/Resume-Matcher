@@ -51,12 +51,17 @@ async def test_real_startup_migrates_only_temporary_storage(
     )
 
     async with app.router.lifespan_context(app):
-        migrated = await isolated_backend_state.get_resume("legacy-resume")
+        workspace_id = await isolated_backend_state.default_workspace_id()
+        migrated = await isolated_backend_state.get_resume(
+            "legacy-resume", workspace_id=workspace_id
+        )
         assert migrated is not None
         assert migrated["content"] == "# Synthetic resume"
-        assert get_api_keys_from_config() == {"openai": "synthetic-legacy-key"}
+        assert get_api_keys_from_config(workspace_id) == {
+            "openai": "synthetic-legacy-key"
+        }
         assert crypto.decrypt(
-            isolated_backend_state.get_api_key_ciphertexts()["openai"]
+            isolated_backend_state.get_api_key_ciphertexts(workspace_id)["openai"]
         ) == "synthetic-legacy-key"
 
     assert not legacy_db_path.exists()

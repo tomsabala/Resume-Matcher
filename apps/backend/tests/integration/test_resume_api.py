@@ -356,9 +356,11 @@ class TestRetryProcessing:
         mock_db: AsyncMock,
         mock_parse: AsyncMock,
         client: AsyncClient,
+        isolated_db: Any,
         mock_resume_record: dict[str, Any],
         sample_resume: dict[str, Any],
     ) -> None:
+        workspace_id = await isolated_db.default_workspace_id()
         legacy_default_record = {
             **mock_resume_record,
             "processing_status": "ready",
@@ -394,6 +396,7 @@ class TestRetryProcessing:
         mock_db.finish_resume_processing.assert_awaited_once_with(
             "res-123",
             "token-1",
+            workspace_id=workspace_id,
             processing_status="ready",
             processed_data=sample_resume,
         )
@@ -471,8 +474,11 @@ class TestResumeNotFoundError:
 
         database = Database(db_path=tmp_path / "typed_error.db")
         try:
+            workspace_id = await database.default_workspace_id()
             with pytest.raises(ResumeNotFoundError):
-                await database.update_resume("does-not-exist", {"title": "X"})
+                await database.update_resume(
+                    "does-not-exist", {"title": "X"}, workspace_id=workspace_id
+                )
         finally:
             await database.close()
 

@@ -140,13 +140,25 @@ async def test_deleting_a_workspace_removes_its_documents(isolated_db: Any) -> N
             "workspace_id"
         ]
         resume = await isolated_db.create_resume(
-            content="{}", content_type="json", workspace_id=lior
+            content="{}",
+            content_type="json",
+            processed_data={"schemaVersion": 2, "header": {}, "sections": []},
+            workspace_id=lior,
+        )
+        version = await isolated_db.seed_resume_version(
+            resume["resume_id"], workspace_id=lior, origin="upload"
         )
         job = await isolated_db.create_job("jd text", workspace_id=lior)
         await client.delete(f"/api/v1/workspaces/{lior}")
 
-    assert await isolated_db.get_resume(resume["resume_id"]) is None
-    assert await isolated_db.get_job(job["job_id"]) is None
+    assert await isolated_db.get_resume(resume["resume_id"], workspace_id=lior) is None
+    assert await isolated_db.get_job(job["job_id"], workspace_id=lior) is None
+    # The version history is the bulk of a purged tenant's data; leaving it
+    # behind would outlive the workspace it belonged to.
+    assert (
+        await isolated_db.get_resume_version(version["version_id"], workspace_id=lior)
+        is None
+    )
 
 
 async def test_workspace_slugs_are_deduplicated(isolated_db: Any) -> None:

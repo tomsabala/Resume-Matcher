@@ -29,10 +29,16 @@ async def direct_case(
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[tuple[AsyncClient, dict[str, str]]]:
     source = ResumeDocument.model_validate(sample_resume).model_dump(mode="json")
+    workspace_id = await isolated_db.default_workspace_id()
     original = await isolated_db.create_resume_atomic_master(
-        content=json.dumps(source), processed_data=source, processing_status="ready"
+        content=json.dumps(source),
+        processed_data=source,
+        processing_status="ready",
+        workspace_id=workspace_id,
     )
-    job = await isolated_db.create_job("Python engineer at Synthetic Co")
+    job = await isolated_db.create_job(
+        "Python engineer at Synthetic Co", workspace_id=workspace_id
+    )
     monkeypatch.setattr(resumes, "_load_config", lambda: {})
     monkeypatch.setattr(resumes, "get_content_language", lambda: "en")
     monkeypatch.setattr(resumes, "_get_default_prompt_id", lambda: "nudge")
@@ -67,6 +73,7 @@ async def test_deadline_after_commit_never_leaves_unlinked_tailored_resume(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, payload = direct_case
+    workspace_id = await isolated_db.default_workspace_id()
     committed = asyncio.Event()
     original_commit = AsyncSession.commit
 
@@ -85,10 +92,12 @@ async def test_deadline_after_commit_never_leaves_unlinked_tailored_resume(
     response = await client.post("/api/v1/resumes/improve", json=payload)
     assert committed.is_set(), response.text
     assert response.status_code == 504, response.text
-    tailored = [row for row in await isolated_db.list_resumes() if row["parent_id"]]
+    tailored = [
+        row for row in await isolated_db.list_resumes(workspace_id) if row["parent_id"]
+    ]
     assert len(tailored) == 1
     relation = await isolated_db.get_improvement_by_tailored_resume(
-        tailored[0]["resume_id"]
+        tailored[0]["resume_id"], workspace_id=workspace_id
     )
     assert relation is not None, (
         "The deadline left a committed resume without its required relation"
@@ -103,6 +112,7 @@ async def test_cancellation_before_commit_rolls_back_flushed_required_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, payload = direct_case
+    workspace_id = await isolated_db.default_workspace_id()
     flushed = asyncio.Event()
     original_commit = AsyncSession.commit
 
@@ -129,9 +139,9 @@ async def test_cancellation_before_commit_rolls_back_flushed_required_rows(
     finally:
         request.cancel()
         await asyncio.gather(request, return_exceptions=True)
-    assert [row["resume_id"] for row in await isolated_db.list_resumes()] == [
-        payload["resume_id"]
-    ]
+    assert [
+        row["resume_id"] for row in await isolated_db.list_resumes(workspace_id)
+    ] == [payload["resume_id"]]
     async with isolated_db._session() as session:
         assert list((await session.execute(select(Improvement))).scalars()) == []
 
@@ -141,6 +151,7 @@ async def test_improvement_insert_failure_rolls_back_tailored_resume(
     direct_case: tuple[AsyncClient, dict[str, str]],
 ) -> None:
     client, payload = direct_case
+    workspace_id = await isolated_db.default_workspace_id()
 
     def fail_relation(
         _mapper: Mapper[Any], _connection: Connection, _row: Improvement
@@ -153,9 +164,9 @@ async def test_improvement_insert_failure_rolls_back_tailored_resume(
     finally:
         event.remove(Improvement, "before_insert", fail_relation)
     assert response.status_code == 500
-    assert [row["resume_id"] for row in await isolated_db.list_resumes()] == [
-        payload["resume_id"]
-    ]
+    assert [
+        row["resume_id"] for row in await isolated_db.list_resumes(workspace_id)
+    ] == [payload["resume_id"]]
     async with isolated_db._session() as session:
         assert list((await session.execute(select(Improvement))).scalars()) == []
 
@@ -168,6 +179,7 @@ async def test_direct_success_links_required_records_and_keeps_tracker_best_effo
     tracker_fails: bool,
 ) -> None:
     client, payload = direct_case
+    workspace_id = await isolated_db.default_workspace_id()
     if tracker_fails:
         monkeypatch.setattr(
             isolated_db,
@@ -178,15 +190,17 @@ async def test_direct_success_links_required_records_and_keeps_tracker_best_effo
     assert response.status_code == 200, response.text
     result = response.json()
     relation = await isolated_db.get_improvement_by_tailored_resume(
-        result["data"]["resume_id"]
+        result["data"]["resume_id"], workspace_id=workspace_id
     )
     assert relation is not None
     assert relation["request_id"] == result["request_id"] == result["data"]["request_id"]
     assert relation["improvements"] == result["data"]["improvements"]
-    saved = await isolated_db.get_resume(result["data"]["resume_id"])
+    saved = await isolated_db.get_resume(
+        result["data"]["resume_id"], workspace_id=workspace_id
+    )
     assert saved is not None and saved["title"] == "Synthetic engineer"
     assert saved["processed_data"] == result["data"]["resume_preview"]
-    cards = await isolated_db.list_applications()
+    cards = await isolated_db.list_applications(workspace_id=workspace_id)
     if tracker_fails:
         assert cards == []
     else:

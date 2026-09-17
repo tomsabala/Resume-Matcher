@@ -9,6 +9,7 @@ import { API_BASE } from '@/lib/api/client';
 import { translate } from '@/lib/i18n/server';
 import { resolveLocale } from '@/lib/i18n/locale';
 import { emptyHeader, type Header, type ResumeDocument } from '@/lib/types/document';
+import { headers } from 'next/headers';
 
 const PAGE_DIMENSIONS = {
   A4: { width: 210, height: 297 },
@@ -30,9 +31,28 @@ interface CoverLetterData {
   header: Header;
 }
 
+/**
+ * Tenant identity to replay on this page's own API call.
+ *
+ * Chromium loads this route over loopback during a PDF export, so the request never passes
+ * through the gateway that injects tenant identity, and a server-side `fetch` bypasses the
+ * `X-Workspace-Id` injector in `lib/api/client.ts`. Unforwarded, the call below is unscoped:
+ * the export renders another tenant's cover letter, or 404s.
+ */
+async function forwardedTenantHeaders(): Promise<Record<string, string>> {
+  const incoming = await headers();
+  const forwarded: Record<string, string> = {};
+  for (const name of ['x-apps-tenant', 'x-workspace-id']) {
+    const value = incoming.get(name);
+    if (value) forwarded[name] = value;
+  }
+  return forwarded;
+}
+
 async function fetchCoverLetterData(resumeId: string): Promise<CoverLetterData> {
   const res = await fetch(`${API_BASE}/resumes?resume_id=${encodeURIComponent(resumeId)}`, {
     cache: 'no-store',
+    headers: await forwardedTenantHeaders(),
   });
   if (!res.ok) {
     throw new Error(`Failed to load resume (status ${res.status}).`);

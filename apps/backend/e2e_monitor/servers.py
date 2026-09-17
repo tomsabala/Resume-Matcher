@@ -94,7 +94,8 @@ class Servers:
         db = Database(db_path=self.bundle.data_dir / "resume_matcher.db")
         self._credentials_prepared = True
         try:
-            db.clear_api_keys()
+            workspace_id = db.default_workspace_id_sync()
+            db.clear_api_keys(workspace_id)
             if selected.api_key:
                 secret = Fernet.generate_key()
                 _write_secret(self.bundle.data_dir / ".secret_key", secret)
@@ -102,6 +103,7 @@ class Servers:
                     selected.provider, selected.provider
                 )
                 db.set_api_key_ciphertext(
+                    workspace_id,
                     key_provider,
                     Fernet(secret).encrypt(selected.api_key.encode()).decode(),
                 )
@@ -245,7 +247,7 @@ class Servers:
 
             db = Database(db_path=self.bundle.data_dir / "resume_matcher.db")
             try:
-                db.clear_api_keys()
+                db.clear_api_keys(db.default_workspace_id_sync())
             finally:
                 asyncio.run(db.close())
                 (self.bundle.data_dir / ".secret_key").unlink(missing_ok=True)

@@ -44,9 +44,9 @@ def _response(content: str, finish_reason: str = "stop") -> Any:
 
 @pytest.fixture(autouse=True)
 def _clean_failure_tail() -> Any:
-    clear_ai_failures()
+    clear_ai_failures("")
     yield
-    clear_ai_failures()
+    clear_ai_failures("")
 
 
 class TestExtraction:
@@ -145,7 +145,7 @@ class TestRetryBehaviour:
 
         await complete_json("parse this", max_tokens=8192, retries=1)
 
-        assert recent_ai_failures() == []
+        assert recent_ai_failures("") == []
 
     @patch("app.llm.get_router")
     async def test_exhausted_retries_raise_truncation_and_record_it(
@@ -163,7 +163,7 @@ class TestRetryBehaviour:
                 "parse this", max_tokens=8192, retries=1, schema_type="resume"
             )
 
-        failures = recent_ai_failures()
+        failures = recent_ai_failures("")
         assert len(failures) == 1
         failure = failures[0]
         assert failure.kind == "truncated"
@@ -188,4 +188,4 @@ class TestRetryBehaviour:
                 "parse this", max_tokens=8192, retries=0, response_validator=reject
             )
 
-        assert [f.kind for f in recent_ai_failures()] == ["invalid"]
+        assert [f.kind for f in recent_ai_failures("")] == ["invalid"]

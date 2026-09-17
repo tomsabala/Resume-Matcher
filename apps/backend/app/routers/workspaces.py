@@ -1,8 +1,12 @@
 """Workspace management endpoints.
 
 A workspace is a named owner profile ("Tom", "Lior — Hebrew") that scopes
-resumes, job descriptions and tracker cards. Single-user product: there is no
-auth, and ``X-Workspace-Id`` is trusted.
+resumes, job descriptions and tracker cards. Each tenant owns its own set of
+them: identity arrives as ``X-Apps-Tenant`` from the gateway and is resolved
+once by ``TenantMiddleware``, so these endpoints are tenant-level — they act on
+the caller's own profiles, never on the whole table. ``X-Workspace-Id`` selects
+which of those profiles a request acts on, and is honoured only when it names
+one of them.
 """
 
 import logging
@@ -10,6 +14,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from app.database import DatabaseBusyError, db
+from app.deps import ActiveTenantDep
 from app.schemas.workspaces import (
     WorkspaceCreateRequest,
     WorkspaceListResponse,
@@ -28,24 +33,25 @@ _DELETE_CONFLICTS = {
 
 
 @router.get("", response_model=WorkspaceListResponse)
-async def list_workspaces() -> WorkspaceListResponse:
-    """List every workspace, oldest first."""
-    # Touch the default so a database that has never served a request still
-    # returns a usable workspace to the switcher.
-    await db.get_default_workspace()
-    workspaces = await db.list_workspaces()
+async def list_workspaces(tenant: ActiveTenantDep) -> WorkspaceListResponse:
+    """List the caller's workspaces, oldest first."""
+    workspaces = await db.workspaces_for_tenant(tenant.tenant_ref)
     return WorkspaceListResponse(
         workspaces=[WorkspaceResponse(**row) for row in workspaces]
     )
 
 
 @router.post("", response_model=WorkspaceResponse, status_code=201)
-async def create_workspace(request: WorkspaceCreateRequest) -> WorkspaceResponse:
+async def create_workspace(
+    request: WorkspaceCreateRequest, tenant: ActiveTenantDep
+) -> WorkspaceResponse:
     """Create a workspace; its slug is derived from the name and de-duplicated."""
     try:
         workspace = await db.create_workspace(
             name=request.name.strip(),
             content_language=request.content_language,
+            tenant_ref=tenant.tenant_ref,
+            is_anonymous=tenant.is_anonymous,
         )
     except DatabaseBusyError:
         raise
@@ -59,9 +65,14 @@ async def create_workspace(request: WorkspaceCreateRequest) -> WorkspaceResponse
 
 @router.patch("/{workspace_id}", response_model=WorkspaceResponse)
 async def update_workspace(
-    workspace_id: str, request: WorkspaceUpdateRequest
+    workspace_id: str, request: WorkspaceUpdateRequest, tenant: ActiveTenantDep
 ) -> WorkspaceResponse:
     """Rename a workspace, change its content language, or make it the default."""
+    # The id comes from the path rather than from the resolved tenant, so
+    # without this another tenant's profile would be renamable by anyone who
+    # learns its id.
+    if workspace_id not in tenant.workspace_ids:
+        raise HTTPException(status_code=404, detail="Workspace not found")
     updates = request.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -87,8 +98,12 @@ async def update_workspace(
 
 
 @router.delete("/{workspace_id}")
-async def delete_workspace(workspace_id: str) -> dict[str, str]:
+async def delete_workspace(
+    workspace_id: str, tenant: ActiveTenantDep
+) -> dict[str, str]:
     """Delete a workspace and everything scoped to it."""
+    if workspace_id not in tenant.workspace_ids:
+        raise HTTPException(status_code=404, detail="Workspace not found")
     try:
         result = await db.delete_workspace(workspace_id)
     except DatabaseBusyError:

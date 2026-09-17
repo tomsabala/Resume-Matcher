@@ -108,8 +108,9 @@ class TestPipelineCore:
         resume_id = body["resume_id"]
         assert resume_id
 
+        workspace_id = await isolated_db.default_workspace_id()
         # Inspect REAL persisted state via the yielded isolated db.
-        master = await isolated_db.get_master_resume()
+        master = await isolated_db.get_master_resume(workspace_id)
         assert master is not None
         assert master["resume_id"] == resume_id
         assert master["processing_status"] == "ready"
@@ -119,7 +120,7 @@ class TestPipelineCore:
         assert master["processed_data"]["header"]["name"] == "Jane Doe"
         assert _summary(master["processed_data"]) == _summary(sample_resume)
         # Exactly one resume exists, and it is the master.
-        assert len(await isolated_db.list_resumes()) == 1
+        assert len(await isolated_db.list_resumes(workspace_id)) == 1
 
     async def test_jobs_upload_persists_job_through_router(
         self, isolated_db, client
@@ -151,11 +152,12 @@ class TestPipelineCore:
         assert len(job_ids) == 1
         job_id = job_ids[0]
 
+        workspace_id = await isolated_db.default_workspace_id()
         # Real persistence check via the yielded db.
-        stored_job = await isolated_db.get_job(job_id)
+        stored_job = await isolated_db.get_job(job_id, workspace_id=workspace_id)
         assert stored_job is not None
         assert "FastAPI" in stored_job["content"]
-        assert (await isolated_db.get_stats())["total_jobs"] == 1
+        assert (await isolated_db.get_stats(workspace_id))["total_jobs"] == 1
 
     async def test_full_journey_upload_jobs_then_fetch(
         self, isolated_db, sample_resume
@@ -168,13 +170,14 @@ class TestPipelineCore:
         round trip out through the GET handler. Also confirms both the resume
         and the job coexist in the same isolated database.
         """
+        workspace_id = await isolated_db.default_workspace_id()
         # 1. Upload.
         upload_resp = await _upload_resume(isolated_db, sample_resume)
         assert upload_resp.status_code == 200
         resume_id = upload_resp.json()["resume_id"]
 
         # The resume_id is recoverable from the db too (anti-theater).
-        listed = await isolated_db.list_resumes()
+        listed = await isolated_db.list_resumes(workspace_id)
         assert resume_id in {r["resume_id"] for r in listed}
 
         # 2. Jobs upload.
@@ -185,7 +188,7 @@ class TestPipelineCore:
             )
         assert jobs_resp.status_code == 200
         job_id = jobs_resp.json()["job_id"][0]
-        assert await isolated_db.get_job(job_id) is not None
+        assert await isolated_db.get_job(job_id, workspace_id=workspace_id) is not None
 
         # 3. Fetch the resume back through the real GET handler.
         async with _new_client() as client:
@@ -202,7 +205,7 @@ class TestPipelineCore:
         assert _summary(processed) == _summary(sample_resume)
 
         # Both resume and job live in the same isolated db.
-        stats = await isolated_db.get_stats()
+        stats = await isolated_db.get_stats(workspace_id)
         assert stats["total_resumes"] == 1
         assert stats["total_jobs"] == 1
         assert stats["has_master_resume"] is True
@@ -215,7 +218,8 @@ class TestPipelineCore:
                 "/api/v1/resumes", params={"resume_id": "does-not-exist"}
             )
         assert resp.status_code == 404
-        assert await isolated_db.list_resumes() == []
+        workspace_id = await isolated_db.default_workspace_id()
+        assert await isolated_db.list_resumes(workspace_id) == []
 
 
 class TestTailoringPipeline:
@@ -238,6 +242,7 @@ class TestTailoringPipeline:
     async def test_preview_then_confirm_persists_tailored_resume(
         self, isolated_db, sample_resume
     ):
+        workspace_id = await isolated_db.default_workspace_id()
         # Seed a master resume (with processed_data so the diff path runs) and a
         # job, both through the real upload routers.
         upload_resp = await _upload_resume(isolated_db, sample_resume)
@@ -329,9 +334,11 @@ class TestTailoringPipeline:
             preview_resume = preview_data["resume_preview"]
             assert _summary(preview_resume) == _summary(improved)
             # Preview must NOT have persisted a tailored resume.
-            assert (await isolated_db.get_stats())["total_resumes"] == 1
+            assert (await isolated_db.get_stats(workspace_id))["total_resumes"] == 1
             # The preview_hash was persisted on the job for the confirm handshake.
-            job_after_preview = await isolated_db.get_job(job_id)
+            job_after_preview = await isolated_db.get_job(
+                job_id, workspace_id=workspace_id
+            )
             assert job_after_preview.get("preview_hash")
 
             # --- Confirm (echo the preview back, exactly as the client does) ---
@@ -354,7 +361,9 @@ class TestTailoringPipeline:
 
         # The tailored resume is REALLY persisted, as a non-master child of the
         # original, carrying the tailored summary.
-        stored_tailored = await isolated_db.get_resume(tailored_id)
+        stored_tailored = await isolated_db.get_resume(
+            tailored_id, workspace_id=workspace_id
+        )
         assert stored_tailored is not None
         assert stored_tailored["is_master"] is False
         assert stored_tailored["parent_id"] == resume_id
@@ -366,16 +375,18 @@ class TestTailoringPipeline:
         )
 
         # An improvements record links original -> tailored for this job.
-        improvement = await isolated_db.get_improvement_by_tailored_resume(tailored_id)
+        improvement = await isolated_db.get_improvement_by_tailored_resume(
+            tailored_id, workspace_id=workspace_id
+        )
         assert improvement is not None
         assert improvement["original_resume_id"] == resume_id
         assert improvement["job_id"] == job_id
 
         # Master + tailored both present; master unchanged.
-        stats = await isolated_db.get_stats()
+        stats = await isolated_db.get_stats(workspace_id)
         assert stats["total_resumes"] == 2
         assert stats["total_improvements"] == 1
-        master = await isolated_db.get_master_resume()
+        master = await isolated_db.get_master_resume(workspace_id)
         assert master["resume_id"] == resume_id
         assert _summary(master["processed_data"]) == _summary(sample_resume)
 
@@ -491,7 +502,11 @@ class TestTailoringPipeline:
         # The tailored resume really persisted as a child of the master.
         tailored_id = confirm_resp.json()["data"]["resume_id"]
         assert tailored_id is not None and tailored_id != resume_id
-        assert await isolated_db.get_resume(tailored_id) is not None
+        workspace_id = await isolated_db.default_workspace_id()
+        assert (
+            await isolated_db.get_resume(tailored_id, workspace_id=workspace_id)
+            is not None
+        )
 
 
 class TestConfigurableImproveTimeout:

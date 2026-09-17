@@ -18,13 +18,20 @@ from tests.integration.test_storage_busy_writes import fast_busy_database  # noq
 
 
 MANUAL_CARD = {
-    "resume_id": "synthetic-resume",
     "job_description": "Synthetic engineer job",
     "company": "Synthetic Company",
     "role": "Engineer",
     "status": "saved",
     "notes": "Synthetic note",
 }
+
+
+async def _manual_card(database: Database, workspace_id: str) -> dict[str, Any]:
+    """MANUAL_CARD bound to a real resume, which the facade now validates."""
+    resume = await database.create_resume(
+        content="Synthetic resume", workspace_id=workspace_id
+    )
+    return {**MANUAL_CARD, "resume_id": resume["resume_id"]}
 
 
 @pytest.fixture
@@ -41,6 +48,8 @@ async def test_manual_card_never_exposes_a_committed_job_without_its_card(
 ) -> None:
     """A writer arriving after any commit cannot prevent half an operation."""
     database = fast_busy_database
+    workspace_id = await database.default_workspace_id()
+    payload = await _manual_card(database, workspace_id)
     observer = sqlite3.connect(database.db_path, timeout=0.01)
     observed: list[tuple[int, int]] = []
 
@@ -56,7 +65,7 @@ async def test_manual_card_never_exposes_a_committed_job_without_its_card(
     try:
         async with client:
             response = await asyncio.wait_for(
-                client.post("/api/v1/applications", json=MANUAL_CARD), timeout=0.5
+                client.post("/api/v1/applications", json=payload), timeout=0.5
             )
     finally:
         event.remove(Session, "after_commit", contend_after_commit)
@@ -66,14 +75,14 @@ async def test_manual_card_never_exposes_a_committed_job_without_its_card(
     assert response.status_code == 200, response.text
     assert observed == [(1, 1)]
     card = response.json()
-    job = await database.get_job(card["job_id"])
+    job = await database.get_job(card["job_id"], workspace_id=workspace_id)
     assert job is not None
-    assert job["content"] == MANUAL_CARD["job_description"]
-    assert job["resume_id"] == MANUAL_CARD["resume_id"]
-    assert job["company"] == MANUAL_CARD["company"]
-    assert job["role"] == MANUAL_CARD["role"]
+    assert job["content"] == payload["job_description"]
+    assert job["resume_id"] == payload["resume_id"]
+    assert job["company"] == payload["company"]
+    assert job["role"] == payload["role"]
     assert card["status"] == "saved" and card["applied_at"] is None
-    assert card["notes"] == MANUAL_CARD["notes"]
+    assert card["notes"] == payload["notes"]
 
 
 async def test_failed_manual_card_insert_rolls_back_job_even_when_cleanup_would_be_busy(
@@ -82,6 +91,8 @@ async def test_failed_manual_card_insert_rolls_back_job_even_when_cleanup_would_
 ) -> None:
     """A second writer after rollback must not strand an independently saved job."""
     database = fast_busy_database
+    workspace_id = await database.default_workspace_id()
+    payload = await _manual_card(database, workspace_id)
     writer = sqlite3.connect(database.db_path, timeout=0.01)
     contended = False
 
@@ -103,7 +114,7 @@ async def test_failed_manual_card_insert_rolls_back_job_even_when_cleanup_would_
     try:
         async with client:
             response = await asyncio.wait_for(
-                client.post("/api/v1/applications", json=MANUAL_CARD), timeout=0.5
+                client.post("/api/v1/applications", json=payload), timeout=0.5
             )
         assert contended
         assert response.status_code == 500
@@ -114,8 +125,8 @@ async def test_failed_manual_card_insert_rolls_back_job_even_when_cleanup_would_
         writer.rollback()
         writer.close()
 
-    assert (await database.get_stats())["total_jobs"] == 0
-    assert await database.list_applications() == []
+    assert (await database.get_stats(workspace_id))["total_jobs"] == 0
+    assert await database.list_applications(workspace_id=workspace_id) == []
 
 
 async def test_cancelled_manual_card_creation_rolls_back_its_job(
@@ -125,6 +136,8 @@ async def test_cancelled_manual_card_creation_rolls_back_its_job(
 ) -> None:
     """Cancellation while allocating the card must undo its preceding job insert."""
     database = fast_busy_database
+    workspace_id = await database.default_workspace_id()
+    payload = await _manual_card(database, workspace_id)
     allocating = asyncio.Event()
     original = database._next_position
 
@@ -137,7 +150,7 @@ async def test_cancelled_manual_card_creation_rolls_back_its_job(
     monkeypatch.setattr(database, "_next_position", pause_position)
     async with client:
         request = asyncio.create_task(
-            client.post("/api/v1/applications", json=MANUAL_CARD)
+            client.post("/api/v1/applications", json=payload)
         )
         try:
             await asyncio.wait_for(allocating.wait(), timeout=1)
@@ -149,5 +162,5 @@ async def test_cancelled_manual_card_creation_rolls_back_its_job(
                 request.cancel()
             await asyncio.gather(request, return_exceptions=True)
 
-    assert (await database.get_stats())["total_jobs"] == 0
-    assert await database.list_applications() == []
+    assert (await database.get_stats(workspace_id))["total_jobs"] == 0
+    assert await database.list_applications(workspace_id=workspace_id) == []

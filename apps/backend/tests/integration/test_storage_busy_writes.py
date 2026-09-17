@@ -58,10 +58,14 @@ async def test_contended_public_write_returns_503_and_can_be_retried(
     operation: str,
 ) -> None:
     database = fast_busy_database
+    workspace_id = await database.default_workspace_id()
     row = await database.create_resume(
-        content="Synthetic resume", processing_status="failed", title="Original"
+        content="Synthetic resume",
+        processing_status="failed",
+        title="Original",
+        workspace_id=workspace_id,
     )
-    save_api_keys_to_config({"openai": "synthetic-original-key"})
+    save_api_keys_to_config({"openai": "synthetic-original-key"}, workspace_id)
     monkeypatch.setattr(
         "app.routers.resumes.parse_resume_to_json",
         AsyncMock(return_value=sample_resume),
@@ -93,12 +97,16 @@ async def test_contended_public_write_returns_503_and_can_be_retried(
         assert response.status_code == 503, response.text
         assert response.headers["retry-after"] == "1"
         assert "database is locked" not in response.text.lower()
-        unchanged = await database.get_resume(row["resume_id"])
+        unchanged = await database.get_resume(
+            row["resume_id"], workspace_id=workspace_id
+        )
         assert unchanged is not None
         assert unchanged["title"] == "Original"
         assert unchanged["processing_status"] == "failed"
-        assert (await database.get_stats())["total_jobs"] == 0
-        assert get_api_keys_from_config() == {"openai": "synthetic-original-key"}
+        assert (await database.get_stats(workspace_id))["total_jobs"] == 0
+        assert get_api_keys_from_config(workspace_id) == {
+            "openai": "synthetic-original-key"
+        }
 
         retried = await client.request(method, url, json=payload)
         assert retried.status_code == 200, retried.text
@@ -121,52 +129,75 @@ async def test_non_endpoint_writers_translate_busy_without_partial_changes(
     operation: str,
 ) -> None:
     database = fast_busy_database
+    workspace_id = await database.default_workspace_id()
     row = await database.create_resume(
-        content="Synthetic original", processing_status="failed"
+        content="Synthetic original",
+        processing_status="failed",
+        workspace_id=workspace_id,
     )
-    token = await database.claim_resume_processing(row["resume_id"])
+    token = await database.claim_resume_processing(
+        row["resume_id"], workspace_id=workspace_id
+    )
     assert token is not None
-    job = await database.create_job("Synthetic job")
-    database.set_api_key_ciphertext("openai", "original-ciphertext")
+    job = await database.create_job("Synthetic job", workspace_id=workspace_id)
+    database.set_api_key_ciphertext(workspace_id, "openai", "original-ciphertext")
 
     async def mutate() -> None:
         if operation == "create_resume":
-            await database.create_resume(content="Should not persist")
+            await database.create_resume(
+                content="Should not persist", workspace_id=workspace_id
+            )
         elif operation == "update_job":
-            await database.update_job(job["job_id"], {"company": "Should not persist"})
+            await database.update_job(
+                job["job_id"],
+                {"company": "Should not persist"},
+                workspace_id=workspace_id,
+            )
         elif operation == "delete_job":
-            await database.delete_job(job["job_id"])
+            await database.delete_job(job["job_id"], workspace_id=workspace_id)
         elif operation == "finish_processing":
             await database.finish_resume_processing(
                 row["resume_id"],
                 token,
+                workspace_id=workspace_id,
                 processing_status="ready",
                 processed_data={"summary": "changed"},
             )
         elif operation == "create_improvement":
             await database.create_improvement(
-                row["resume_id"], row["resume_id"], job["job_id"], []
+                row["resume_id"],
+                row["resume_id"],
+                job["job_id"],
+                [],
+                workspace_id=workspace_id,
             )
         elif operation == "upsert_key":
-            database.set_api_key_ciphertext("openai", "changed-ciphertext")
+            database.set_api_key_ciphertext(
+                workspace_id, "openai", "changed-ciphertext"
+            )
         else:
-            await database.reset_database()
+            await database.reset_workspace(workspace_id)
 
     async with database._session() as writer:
         await writer.execute(text("BEGIN IMMEDIATE"))
         with pytest.raises(DatabaseBusyError):
             await mutate()
 
-    assert (await database.get_stats())["total_resumes"] == 1
-    assert (await database.get_stats())["total_jobs"] == 1
-    assert (await database.get_stats())["total_improvements"] == 0
-    stored = await database.get_resume(row["resume_id"])
+    assert (await database.get_stats(workspace_id))["total_resumes"] == 1
+    assert (await database.get_stats(workspace_id))["total_jobs"] == 1
+    assert (await database.get_stats(workspace_id))["total_improvements"] == 0
+    stored = await database.get_resume(row["resume_id"], workspace_id=workspace_id)
     assert stored is not None and stored["processing_status"] == "processing"
-    assert (await database.get_job(job["job_id"])) == job
-    assert database.get_api_key_ciphertexts() == {"openai": "original-ciphertext"}
+    assert (await database.get_job(job["job_id"], workspace_id=workspace_id)) == job
+    assert database.get_api_key_ciphertexts(workspace_id) == {
+        "openai": "original-ciphertext"
+    }
     # A failed finish does not consume ownership; the unchanged token can retry.
     assert await database.finish_resume_processing(
-        row["resume_id"], token, processing_status="failed"
+        row["resume_id"],
+        token,
+        workspace_id=workspace_id,
+        processing_status="failed",
     ) == "committed"
 
 

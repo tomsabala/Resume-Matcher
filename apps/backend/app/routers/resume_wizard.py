@@ -143,7 +143,7 @@ async def finalize_resume_wizard(
         )
         if not resume.get("is_master", False):
             try:
-                await db.delete_resume(resume["resume_id"])
+                await db.delete_resume(resume["resume_id"], workspace_id=workspace_id)
             except Exception as e:
                 logger.error(
                     "Failed to clean up non-master wizard resume %s: %s",
@@ -162,7 +162,9 @@ async def finalize_resume_wizard(
                 status_code=409,
                 detail="A master resume already exists. Delete it before creating a new one.",
             )
-        await db.seed_resume_version(resume["resume_id"], origin="wizard")
+        await db.seed_resume_version(
+            resume["resume_id"], workspace_id=workspace_id, origin="wizard"
+        )
         return _finalize_response(resume)
     except HTTPException:
         raise

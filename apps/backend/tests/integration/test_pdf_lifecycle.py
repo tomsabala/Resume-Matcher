@@ -597,7 +597,14 @@ async def test_thread_fallback_inherits_remaining_deadline(monkeypatch: pytest.M
         await asyncio.sleep(0.1)
         raise NotImplementedError
 
-    def worker(url: str, selector: str, pdf_format: str, margins: dict[str, Any], deadline: float) -> bytes:
+    def worker(
+        url: str,
+        selector: str,
+        pdf_format: str,
+        margins: dict[str, Any],
+        deadline: float,
+        headers: dict[str, str] | None = None,
+    ) -> bytes:
         deadlines.append(deadline)
         return b"%PDF"
 

@@ -58,10 +58,12 @@ async def test_enrichment_write_contention_returns_503_and_retry_commits(
     operation: str,
 ) -> None:
     database = fast_busy_database
+    workspace_id = await database.default_workspace_id()
     source = await database.create_resume(
         content="Synthetic original",
         processed_data=sample_resume,
         processing_status="ready",
+        workspace_id=workspace_id,
     )
     url, payload = _apply_request(source["resume_id"], sample_resume, operation)
     async with AsyncClient(
@@ -71,7 +73,9 @@ async def test_enrichment_write_contention_returns_503_and_retry_commits(
         async with database._session() as writer:
             await writer.execute(text("BEGIN IMMEDIATE"))
             response = await client.post(url, json=payload)
-            unchanged = await database.get_resume(source["resume_id"])
+            unchanged = await database.get_resume(
+                source["resume_id"], workspace_id=workspace_id
+            )
             assert unchanged is not None
             assert unchanged["content"] == "Synthetic original"
             assert unchanged["processed_data"] == sample_resume
@@ -89,7 +93,7 @@ async def test_enrichment_write_contention_returns_503_and_retry_commits(
     entry["bullets"] = (
         entry["bullets"] + [added] if operation == "apply" else [added]
     )
-    stored = await database.get_resume(source["resume_id"])
+    stored = await database.get_resume(source["resume_id"], workspace_id=workspace_id)
     assert stored is not None and stored["processed_data"] == expected
 
 
@@ -100,10 +104,12 @@ async def test_other_enrichment_write_failure_remains_generic_500(
     monkeypatch: pytest.MonkeyPatch,
     operation: str,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     source = await isolated_db.create_resume(
         content="Synthetic original",
         processed_data=sample_resume,
         processing_status="ready",
+        workspace_id=workspace_id,
     )
     monkeypatch.setattr(
         isolated_db,
@@ -122,7 +128,7 @@ async def test_other_enrichment_write_failure_remains_generic_500(
         "Failed to save enhancements. Please try again."
         if operation == "apply" else "Failed to save changes. Please try again."
     )}
-    stored = await isolated_db.get_resume(source["resume_id"])
+    stored = await isolated_db.get_resume(source["resume_id"], workspace_id=workspace_id)
     assert stored is not None and stored["processed_data"] == sample_resume
 
 
@@ -132,10 +138,12 @@ async def test_enhance_preview_does_not_write_under_sqlite_contention(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database = fast_busy_database
+    workspace_id = await database.default_workspace_id()
     source = await database.create_resume(
         content="Synthetic original",
         processed_data=sample_resume,
         processing_status="ready",
+        workspace_id=workspace_id,
     )
     monkeypatch.setattr(
         enrichment,
@@ -161,5 +169,5 @@ async def test_enhance_preview_does_not_write_under_sqlite_contention(
     assert response.json()["enhancements"][0]["enhanced_description"] == [
         "Built a reliable service",
     ]
-    stored = await database.get_resume(source["resume_id"])
+    stored = await database.get_resume(source["resume_id"], workspace_id=workspace_id)
     assert stored is not None and stored["processed_data"] == sample_resume

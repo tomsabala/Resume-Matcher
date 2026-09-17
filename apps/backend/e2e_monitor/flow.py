@@ -54,6 +54,7 @@ async def seed_master_db(data_dir: Path, master: dict[str, Any]) -> str:
             is_master=True,
             processed_data=master,
             processing_status="ready",
+            workspace_id=await db.default_workspace_id(),
         )
         return doc["resume_id"]
     finally:

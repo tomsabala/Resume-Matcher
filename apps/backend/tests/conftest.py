@@ -78,9 +78,10 @@ async def isolated_backend_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[Any]:
-    """Isolate config, crypto and every imported database alias per test."""
+    """Isolate config, crypto, tenancy and every imported database alias per test."""
     import app.config as config_module
     import app.database as database_module
+    import app.tenancy as tenancy_module
     from app import crypto
     from app.config_cache import invalidate_config_cache
     from app.database import Database
@@ -108,11 +109,19 @@ async def isolated_backend_state(
     await test_db.ensure_ready()
     invalidate_config_cache()
     crypto.reset_cache()
+    # The tenant → workspaces map and the last_seen_at throttle are
+    # process-global by design (one uvicorn worker per container). Each test
+    # gets a fresh database with fresh workspace ids, so a surviving entry
+    # would hand this test the previous one's workspace.
+    tenancy_module.invalidate()
+    tenancy_module._touched.clear()
     try:
         yield test_db
     finally:
         invalidate_config_cache()
         crypto.reset_cache()
+        tenancy_module.invalidate()
+        tenancy_module._touched.clear()
         await test_db.close()
 
 

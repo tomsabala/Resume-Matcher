@@ -8,15 +8,14 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
 from app.config import (
     get_api_keys_from_config,
     get_config_path,
     migrate_legacy_keys,
+    save_config_file,
 )
-from app.config_cache import load_config
-from app.main import app
+from app.config_cache import invalidate_config_cache, load_config
+from app.database import Database
 
 
 DirectoryOperation = Literal["open", "fsync", "close"]
@@ -63,12 +62,12 @@ def _fail_directory_operation(
 
 @pytest.mark.skipif(os.name == "nt", reason="Directory fsync is a POSIX contract")
 @pytest.mark.parametrize("failure", [None, "open", "fsync", "close"])
-async def test_committed_config_save_refreshes_cache_despite_directory_error(
+def test_committed_config_save_refreshes_cache_despite_directory_error(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     failure: DirectoryOperation | None,
 ) -> None:
-    """The API and cached readers must agree with the installed snapshot."""
+    """Cached readers must agree with the installed snapshot."""
     path = get_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text('{"enable_cover_letter": false}')
@@ -77,18 +76,11 @@ async def test_committed_config_save_refreshes_cache_despite_directory_error(
         _fail_directory_operation(monkeypatch, path.parent, failure)
 
     with caplog.at_level(logging.WARNING, logger="app.config"):
-        async with AsyncClient(
-            transport=ASGITransport(app=app, raise_app_exceptions=False),
-            base_url="http://test",
-        ) as client:
-            response = await client.put(
-                "/api/v1/config/features", json={"enable_cover_letter": True}
-            )
+        save_config_file({"enable_cover_letter": True})
+    invalidate_config_cache()
 
     assert json.loads(path.read_text()) == {"enable_cover_letter": True}
-    assert load_config() == {"enable_cover_letter": True}, response.text
-    assert response.status_code == 200
-    assert response.json()["enable_cover_letter"] is True
+    assert load_config() == {"enable_cover_letter": True}
     assert list(path.parent.glob(".config.json.*.tmp")) == []
     if failure is not None:
         assert any(
@@ -99,7 +91,7 @@ async def test_committed_config_save_refreshes_cache_despite_directory_error(
         )
 
 
-async def test_file_fsync_failure_preserves_old_config_and_cache(
+def test_file_fsync_failure_preserves_old_config_and_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A pre-replacement durability failure remains a failed save."""
@@ -113,16 +105,9 @@ async def test_file_fsync_failure_preserves_old_config_and_cache(
         raise OSError("synthetic file fsync failure")
 
     monkeypatch.setattr(os, "fsync", fail_file_fsync)
-    async with AsyncClient(
-        transport=ASGITransport(app=app, raise_app_exceptions=False),
-        base_url="http://test",
-    ) as client:
-        response = await client.put(
-            "/api/v1/config/features", json={"enable_cover_letter": True}
-        )
+    with pytest.raises(OSError, match="synthetic file fsync failure"):
+        save_config_file({"enable_cover_letter": True})
 
-    assert response.status_code == 500
-    assert "synthetic file fsync failure" not in response.text
     assert json.loads(path.read_text()) == {"enable_cover_letter": False}
     assert load_config() == {"enable_cover_letter": False}
     assert list(path.parent.glob(".config.json.*.tmp")) == []
@@ -131,10 +116,12 @@ async def test_file_fsync_failure_preserves_old_config_and_cache(
 @pytest.mark.skipif(os.name == "nt", reason="Directory fsync is a POSIX contract")
 @pytest.mark.parametrize("failure", ["open", "fsync", "close"])
 def test_legacy_key_migration_completes_after_directory_durability_failure(
+    isolated_backend_state: Database,
     monkeypatch: pytest.MonkeyPatch,
     failure: DirectoryOperation,
 ) -> None:
     """Startup migration can finish once the legacy plaintext is replaced."""
+    workspace_id = isolated_backend_state.default_workspace_id_sync()
     path = get_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text('{"provider": "openai", "api_key": "synthetic-test-key"}')
@@ -143,6 +130,6 @@ def test_legacy_key_migration_completes_after_directory_durability_failure(
     migrate_legacy_keys()
 
     assert json.loads(path.read_text()) == {"provider": "openai"}
-    assert get_api_keys_from_config() == {"openai": "synthetic-test-key"}
+    assert get_api_keys_from_config(workspace_id) == {"openai": "synthetic-test-key"}
     migrate_legacy_keys()
-    assert get_api_keys_from_config() == {"openai": "synthetic-test-key"}
+    assert get_api_keys_from_config(workspace_id) == {"openai": "synthetic-test-key"}

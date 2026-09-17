@@ -191,7 +191,7 @@ async def test_regeneration_limits_active_workers_and_keeps_item_failures(
     request = RegenerateRequest(
         resume_id="r", items=[item(i) for i in range(10)], instruction="Clarify"
     )
-    task = asyncio.create_task(enrichment.regenerate_items(request))
+    task = asyncio.create_task(enrichment.regenerate_items(request, "w"))
     await asyncio.wait_for(ready.wait(), 1)
     await asyncio.sleep(0)
     release.set()
@@ -432,16 +432,19 @@ async def test_parse_deadline_marks_only_owned_processing_attempt_failed(
 ) -> None:
     entered = asyncio.Event()
     newer_token: str | None = None
+    workspace_id = await isolated_db.default_workspace_id()
 
     async def parse(_text: str) -> dict[str, Any]:
         nonlocal newer_token
         entered.set()
-        records = await isolated_db.list_resumes()
+        records = await isolated_db.list_resumes(workspace_id)
         resume_id = records[0]["resume_id"]
         if concurrent == "retry":
-            newer_token = await isolated_db.claim_resume_processing(resume_id)
+            newer_token = await isolated_db.claim_resume_processing(
+                resume_id, workspace_id=workspace_id
+            )
         elif concurrent == "delete":
-            await isolated_db.delete_resume(resume_id)
+            await isolated_db.delete_resume(resume_id, workspace_id=workspace_id)
         await asyncio.sleep(10)
         return {}
 
@@ -458,6 +461,7 @@ async def test_parse_deadline_marks_only_owned_processing_attempt_failed(
                 content="Synthetic resume",
                 content_type="md",
                 processing_status="failed",
+                workspace_id=workspace_id,
             )
             response = await client.post(
                 f"/api/v1/resumes/{record['resume_id']}/retry-processing"
@@ -469,7 +473,7 @@ async def test_parse_deadline_marks_only_owned_processing_attempt_failed(
             )
     assert entered.is_set()
     assert response.status_code == 504
-    records = await isolated_db.list_resumes()
+    records = await isolated_db.list_resumes(workspace_id)
     if concurrent == "delete":
         assert records == []
         return
@@ -493,6 +497,7 @@ async def test_deadline_during_claim_retires_committed_owner_before_returning(
     isolated_db: Any,
 ) -> None:
     claim = isolated_db.claim_resume_processing
+    workspace_id = await isolated_db.default_workspace_id()
 
     async def slow_claim(*args: Any, **kwargs: Any) -> str | None:
         token = await claim(*args, **kwargs)
@@ -515,7 +520,7 @@ async def test_deadline_during_claim_retires_committed_owner_before_returning(
         )
     assert response.status_code == 504
     parse.assert_not_awaited()
-    records = await isolated_db.list_resumes()
+    records = await isolated_db.list_resumes(workspace_id)
     assert len(records) == 1
     assert records[0]["processing_status"] == "failed"
 
@@ -564,16 +569,17 @@ async def test_explicit_parse_boundary_failure_retires_owned_attempt(
     from app.ai_limits import PromptSizeError
 
     error = AIOperationDeadlineExceeded("expired") if failure == "deadline" else PromptSizeError("AI prompt exceeds the 512000-character limit")
+    workspace_id = await isolated_db.default_workspace_id()
     monkeypatch.setattr(resumes, "parse_document", AsyncMock(return_value="Synthetic resume"))
     monkeypatch.setattr(resumes, "parse_resume_to_json", AsyncMock(side_effect=error))
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         if retry:
-            record = await isolated_db.create_resume_atomic_master(content="Synthetic resume", content_type="md", processing_status="failed")
+            record = await isolated_db.create_resume_atomic_master(content="Synthetic resume", content_type="md", processing_status="failed", workspace_id=workspace_id)
             response = await client.post(f"/api/v1/resumes/{record['resume_id']}/retry-processing")
         else:
             response = await client.post("/api/v1/resumes/upload", files={"file": ("synthetic.pdf", b"%PDF-1.4 synthetic", "application/pdf")})
     assert response.status_code == expected, response.text
-    records = await isolated_db.list_resumes()
+    records = await isolated_db.list_resumes(workspace_id)
     assert len(records) == 1 and records[0]["processing_status"] == "failed"
     assert records[0]["processed_data"] is None
 

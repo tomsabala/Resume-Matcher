@@ -152,7 +152,8 @@ async def test_finalize_creates_ready_master_resume(isolated_db) -> None:
     assert payload["processing_status"] == "ready"
     assert payload["is_master"] is True
 
-    stored = await isolated_db.get_resume(payload["resume_id"])
+    workspace_id = await isolated_db.default_workspace_id()
+    stored = await isolated_db.get_resume(payload["resume_id"], workspace_id=workspace_id)
     assert stored is not None
     assert stored["is_master"] is True
     assert stored["content_type"] == "json"
@@ -191,7 +192,10 @@ async def test_finalize_persists_a_user_created_section(isolated_db) -> None:
         )
 
     assert response.status_code == 200
-    stored = await isolated_db.get_resume(response.json()["resume_id"])
+    workspace_id = await isolated_db.default_workspace_id()
+    stored = await isolated_db.get_resume(
+        response.json()["resume_id"], workspace_id=workspace_id
+    )
     content = json.loads(stored["content"])
     military = next(s for s in content["sections"] if s["key"] == "military_service")
     assert military["heading"] == "Military Service"
@@ -232,7 +236,8 @@ async def test_finalize_replays_identical_wizard_master_without_duplication(
     assert first.status_code == 200
     assert replay.status_code == 200
     assert replay.json()["resume_id"] == first.json()["resume_id"]
-    assert len(await isolated_db.list_resumes()) == 1
+    workspace_id = await isolated_db.default_workspace_id()
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
 
 
 async def test_finalize_rejects_different_draft_after_wizard_master_exists(
@@ -256,10 +261,12 @@ async def test_finalize_rejects_different_draft_after_wizard_master_exists(
 
     assert first.status_code == 200
     assert collision.status_code == 409
-    assert len(await isolated_db.list_resumes()) == 1
+    workspace_id = await isolated_db.default_workspace_id()
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
 
 
 async def test_finalize_rejects_when_master_exists(isolated_db, sample_resume) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     await isolated_db.create_resume(
         content=json.dumps(sample_resume),
         content_type="json",
@@ -267,6 +274,7 @@ async def test_finalize_rejects_when_master_exists(isolated_db, sample_resume) -
         is_master=True,
         processed_data=sample_resume,
         processing_status="ready",
+        workspace_id=workspace_id,
     )
     state = build_initial_wizard_state()
     state.resume_data.header.name = "James"

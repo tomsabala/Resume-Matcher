@@ -35,6 +35,7 @@ async def _seed(isolated_db: Any, sample_resume: dict[str, Any]) -> str:
         content_type="document",
         processed_data=document,
         processing_status="ready",
+        workspace_id=await isolated_db.default_workspace_id(),
     )
     return created["resume_id"]
 
@@ -233,6 +234,7 @@ async def test_a_user_created_section_reaches_the_latex(isolated_db: Any) -> Non
         content_type="document",
         processed_data=document,
         processing_status="ready",
+        workspace_id=await isolated_db.default_workspace_id(),
     )
 
     async with _client() as client:

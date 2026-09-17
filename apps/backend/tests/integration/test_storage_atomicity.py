@@ -37,36 +37,51 @@ def failing_insert() -> Iterator[None]:
     event.remove(Job, "before_insert", reject_job)
 
 
+async def _card_ids(
+    database: Database, workspace_id: str, jobs: int
+) -> tuple[list[str], str]:
+    """Job ids and a resume id the tracker's scope checks accept."""
+    rows = await database.create_jobs(
+        [f"tracker job {i}" for i in range(jobs)], workspace_id=workspace_id
+    )
+    resume = await database.create_resume(
+        content="tracker resume", workspace_id=workspace_id
+    )
+    return [row["job_id"] for row in rows], resume["resume_id"]
+
+
 async def test_failed_replacement_keeps_previous_master(
     isolated_db: Database,
     failing_insert: None,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     old = await isolated_db.create_resume_atomic_master(
-        content="original", processing_status="failed"
+        content="original", processing_status="failed", workspace_id=workspace_id
     )
     with pytest.raises(RuntimeError, match="Synthetic insert failure"):
         await isolated_db.create_resume_atomic_master(
-            content="replacement", filename="fail.pdf"
+            content="replacement", filename="fail.pdf", workspace_id=workspace_id
         )
-    master = await isolated_db.get_master_resume()
+    master = await isolated_db.get_master_resume(workspace_id)
     assert master is not None and master["resume_id"] == old["resume_id"]
-    assert len(await isolated_db.list_resumes()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
 
 
 async def test_concurrent_replacements_and_late_completion_preserve_master_identity(
     isolated_db: Database,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     old = await isolated_db.create_resume_atomic_master(
-        content="old", processing_status="processing"
+        content="old", processing_status="processing", workspace_id=workspace_id
     )
     other = Database(db_path=isolated_db.db_path)
-    await other.list_resumes()
+    await other.list_resumes(workspace_id)
     start = asyncio.Event()
 
     async def replace(database: Database, name: str) -> dict[str, Any]:
         await start.wait()
         return await database.create_resume_atomic_master(
-            content=name, processing_status="ready"
+            content=name, processing_status="ready", workspace_id=workspace_id
         )
 
     tasks = [
@@ -85,13 +100,16 @@ async def test_concurrent_replacements_and_late_completion_preserve_master_ident
                 "processed_data": {"summary": "late original"},
                 "processing_status": "ready",
             },
+            workspace_id=workspace_id,
         )
         assert completed["is_master"] is False
-        master = await isolated_db.get_master_resume()
+        master = await isolated_db.get_master_resume(workspace_id)
         assert master is not None and master["resume_id"] == master_id
         with pytest.raises(IntegrityError):
-            await other.create_resume(content="duplicate", is_master=True)
-        assert len(await isolated_db.list_resumes()) == 3
+            await other.create_resume(
+                content="duplicate", is_master=True, workspace_id=workspace_id
+            )
+        assert len(await isolated_db.list_resumes(workspace_id)) == 3
     finally:
         await other.close()
 
@@ -121,6 +139,8 @@ async def test_concurrent_creates_allocate_distinct_contiguous_positions(
     isolated_db: Database,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
+    job_ids, resume_id = await _card_ids(isolated_db, workspace_id, 8)
     first_counted = asyncio.Event()
     all_counted = asyncio.Event()
     release = asyncio.Event()
@@ -140,7 +160,9 @@ async def test_concurrent_creates_allocate_distinct_contiguous_positions(
     monkeypatch.setattr(isolated_db, "_next_position", hold_allocation)
     tasks = [
         asyncio.create_task(
-            isolated_db.create_application(job_id=f"j{i}", resume_id=f"r{i}")
+            isolated_db.create_application(
+                job_id=job_ids[i], resume_id=resume_id, workspace_id=workspace_id
+            )
         )
         for i in range(8)
     ]
@@ -156,7 +178,7 @@ async def test_concurrent_creates_allocate_distinct_contiguous_positions(
         release.set()
     created = await asyncio.gather(*tasks)
     assert sorted(card["position"] for card in created) == list(range(8))
-    saved = await isolated_db.list_applications("applied")
+    saved = await isolated_db.list_applications("applied", workspace_id=workspace_id)
     assert [card["position"] for card in saved] == list(range(8))
     assert len({(card["job_id"], card["resume_id"]) for card in saved}) == 8
 
@@ -164,8 +186,13 @@ async def test_concurrent_creates_allocate_distinct_contiguous_positions(
 async def test_null_status_is_rejected_but_omitted_status_and_nullable_notes_work(
     isolated_db: Database,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
+    job_ids, resume_id = await _card_ids(isolated_db, workspace_id, 1)
     card = await isolated_db.create_application(
-        job_id="job", resume_id="resume", notes="old"
+        job_id=job_ids[0],
+        resume_id=resume_id,
+        notes="old",
+        workspace_id=workspace_id,
     )
     url = f"/api/v1/applications/{card['application_id']}"
     async with AsyncClient(
@@ -184,16 +211,24 @@ async def test_create_move_and_bulk_delete_share_column_ordering(
     isolated_db: Database,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
+    job_ids, resume_id = await _card_ids(isolated_db, workspace_id, 9)
     cards = [
-        await isolated_db.create_application(job_id=f"j{i}", resume_id=f"r{i}")
+        await isolated_db.create_application(
+            job_id=job_ids[i], resume_id=resume_id, workspace_id=workspace_id
+        )
         for i in range(6)
     ]
     for i in range(2):
         await isolated_db.create_application(
-            job_id=f"s{i}", resume_id=f"s{i}", status="saved"
+            job_id=job_ids[6 + i],
+            resume_id=resume_id,
+            status="saved",
+            workspace_id=workspace_id,
         )
     other = Database(db_path=isolated_db.db_path)
-    await other.list_applications()  # Initialize both instances before contention.
+    # Initialize both instances before contention.
+    await other.list_applications(workspace_id=workspace_id)
     counted = asyncio.Event()
     release = asyncio.Event()
     original = isolated_db._next_position
@@ -206,18 +241,28 @@ async def test_create_move_and_bulk_delete_share_column_ordering(
 
     monkeypatch.setattr(isolated_db, "_next_position", hold_create)
     creation = asyncio.create_task(
-        isolated_db.create_application(job_id="new", resume_id="new")
+        isolated_db.create_application(
+            job_id=job_ids[8], resume_id=resume_id, workspace_id=workspace_id
+        )
     )
     await counted.wait()
     mutations = asyncio.gather(
         other.update_application(
-            cards[0]["application_id"], {"status": "saved", "position": 0}
+            cards[0]["application_id"],
+            {"status": "saved", "position": 0},
+            workspace_id=workspace_id,
         ),
         other.bulk_update_applications(
-            [cards[1]["application_id"], cards[2]["application_id"]], "saved"
+            [cards[1]["application_id"], cards[2]["application_id"]],
+            "saved",
+            workspace_id=workspace_id,
         ),
-        other.delete_application(cards[3]["application_id"]),
-        other.bulk_delete_applications([cards[4]["application_id"]]),
+        other.delete_application(
+            cards[3]["application_id"], workspace_id=workspace_id
+        ),
+        other.bulk_delete_applications(
+            [cards[4]["application_id"]], workspace_id=workspace_id
+        ),
     )
     try:
         try:
@@ -229,7 +274,9 @@ async def test_create_move_and_bulk_delete_share_column_ordering(
         await creation
         await mutations
         for status, count in [("applied", 2), ("saved", 5)]:
-            rows = await isolated_db.list_applications(status)
+            rows = await isolated_db.list_applications(
+                status, workspace_id=workspace_id
+            )
             assert [row["position"] for row in rows] == list(range(count))
     finally:
         await other.close()
@@ -238,30 +285,48 @@ async def test_create_move_and_bulk_delete_share_column_ordering(
 async def test_application_dates_stamp_on_application_transition_and_preserve_manual_values(
     isolated_db: Database,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
+    job_ids, resume_id = await _card_ids(isolated_db, workspace_id, 3)
     first = await isolated_db.create_application(
-        job_id="j1", resume_id="r1", status="saved"
+        job_id=job_ids[0],
+        resume_id=resume_id,
+        status="saved",
+        workspace_id=workspace_id,
     )
     manual = await isolated_db.create_application(
-        job_id="j2", resume_id="r2", status="saved", applied_at="2025-01-02"
+        job_id=job_ids[1],
+        resume_id=resume_id,
+        status="saved",
+        applied_at="2025-01-02",
+        workspace_id=workspace_id,
     )
     bulk = await isolated_db.create_application(
-        job_id="j3", resume_id="r3", status="saved"
+        job_id=job_ids[2],
+        resume_id=resume_id,
+        status="saved",
+        workspace_id=workspace_id,
     )
     moved = await isolated_db.update_application(
-        first["application_id"], {"status": "applied"}
+        first["application_id"], {"status": "applied"}, workspace_id=workspace_id
     )
     assert moved is not None and moved["applied_at"] is not None
     await isolated_db.bulk_update_applications(
-        [manual["application_id"], bulk["application_id"]], "interview"
+        [manual["application_id"], bulk["application_id"]],
+        "interview",
+        workspace_id=workspace_id,
     )
-    assert (await isolated_db.get_application(manual["application_id"]))[
-        "applied_at"
-    ] == "2025-01-02"
-    assert (await isolated_db.get_application(bulk["application_id"]))[
-        "applied_at"
-    ] is not None
+    assert (
+        await isolated_db.get_application(
+            manual["application_id"], workspace_id=workspace_id
+        )
+    )["applied_at"] == "2025-01-02"
+    assert (
+        await isolated_db.get_application(
+            bulk["application_id"], workspace_id=workspace_id
+        )
+    )["applied_at"] is not None
     cleared = await isolated_db.update_application(
-        first["application_id"], {"applied_at": None}
+        first["application_id"], {"applied_at": None}, workspace_id=workspace_id
     )
     assert cleared is not None and cleared["applied_at"] is None
 
@@ -271,16 +336,26 @@ async def test_cleared_dates_remain_empty_until_a_new_saved_to_applied_transitio
     isolated_db: Database,
     bulk: bool,
 ) -> None:
-    row = await isolated_db.create_application(job_id="job", resume_id="resume")
+    workspace_id = await isolated_db.default_workspace_id()
+    job_ids, resume_id = await _card_ids(isolated_db, workspace_id, 1)
+    row = await isolated_db.create_application(
+        job_id=job_ids[0], resume_id=resume_id, workspace_id=workspace_id
+    )
     row_id = row["application_id"]
-    await isolated_db.update_application(row_id, {"applied_at": None})
+    await isolated_db.update_application(
+        row_id, {"applied_at": None}, workspace_id=workspace_id
+    )
 
     async def move(status: str) -> dict[str, Any]:
         if bulk:
-            await isolated_db.bulk_update_applications([row_id], status)
+            await isolated_db.bulk_update_applications(
+                [row_id], status, workspace_id=workspace_id
+            )
         else:
-            await isolated_db.update_application(row_id, {"status": status})
-        result = await isolated_db.get_application(row_id)
+            await isolated_db.update_application(
+                row_id, {"status": status}, workspace_id=workspace_id
+            )
+        result = await isolated_db.get_application(row_id, workspace_id=workspace_id)
         assert result is not None
         return result
 
@@ -290,7 +365,7 @@ async def test_cleared_dates_remain_empty_until_a_new_saved_to_applied_transitio
     # An explicit clear in the same individual patch always wins over stamping.
     await move("saved")
     explicit_clear = await isolated_db.update_application(
-        row_id, {"status": "applied", "applied_at": None}
+        row_id, {"status": "applied", "applied_at": None}, workspace_id=workspace_id
     )
     assert explicit_clear is not None and explicit_clear["applied_at"] is None
 
@@ -304,25 +379,41 @@ def test_status_openapi_excludes_null_but_allows_omission() -> None:
 
 
 async def test_sqlite_contention_is_retryable_503(isolated_db: Database) -> None:
-    card = await isolated_db.create_application(job_id="job", resume_id="resume")
+    workspace_id = await isolated_db.default_workspace_id()
+    job_ids, resume_id = await _card_ids(isolated_db, workspace_id, 1)
+    card = await isolated_db.create_application(
+        job_id=job_ids[0], resume_id=resume_id, workspace_id=workspace_id
+    )
     async with isolated_db._write_session():
         async with AsyncClient(transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test") as client:
             response = await client.patch(f"/api/v1/applications/{card['application_id']}", json={"notes": "changed"})
     assert response.status_code == 503
     assert response.headers["retry-after"] == "1"
-    stored = await isolated_db.get_application(card["application_id"])
+    stored = await isolated_db.get_application(
+        card["application_id"], workspace_id=workspace_id
+    )
     assert stored is not None and stored["notes"] is None
 
 
 async def test_existing_tracker_card_does_not_wait_for_writer(isolated_db: Database) -> None:
-    card = await isolated_db.create_application(job_id="job", resume_id="resume")
+    workspace_id = await isolated_db.default_workspace_id()
+    job_ids, resume_id = await _card_ids(isolated_db, workspace_id, 1)
+    card = await isolated_db.create_application(
+        job_id=job_ids[0], resume_id=resume_id, workspace_id=workspace_id
+    )
     async with isolated_db._write_session():
-        duplicate = await asyncio.wait_for(isolated_db.create_application(job_id="job", resume_id="resume"), 0.2)
+        duplicate = await asyncio.wait_for(
+            isolated_db.create_application(
+                job_id=job_ids[0], resume_id=resume_id, workspace_id=workspace_id
+            ),
+            0.2,
+        )
     assert duplicate == card
 
 
 async def test_job_upload_contention_is_retryable_without_partial_batch(isolated_db: Database) -> None:
-    seed = await isolated_db.create_job("existing job")
+    workspace_id = await isolated_db.default_workspace_id()
+    seed = await isolated_db.create_job("existing job", workspace_id=workspace_id)
     async with isolated_db._write_session():
         async with AsyncClient(transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test") as client:
             response = await client.post("/api/v1/jobs/upload", json={"job_descriptions": ["Python engineer", "Data engineer"]})
@@ -336,9 +427,13 @@ async def test_job_upload_contention_is_retryable_without_partial_batch(isolated
 async def test_busy_manual_card_creation_cleans_up_its_job(isolated_db: Database, monkeypatch: pytest.MonkeyPatch) -> None:
     from app.database import DatabaseBusyError
     from unittest.mock import AsyncMock
+    workspace_id = await isolated_db.default_workspace_id()
+    resume = await isolated_db.create_resume(
+        content="manual card resume", workspace_id=workspace_id
+    )
     monkeypatch.setattr(isolated_db, "_insert_application", AsyncMock(side_effect=DatabaseBusyError("synthetic contention")))
     async with AsyncClient(transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test") as client:
-        response = await client.post("/api/v1/applications", json={"resume_id": "synthetic", "job_description": "Engineer", "company": "Acme", "role": "Engineer"})
+        response = await client.post("/api/v1/applications", json={"resume_id": resume["resume_id"], "job_description": "Engineer", "company": "Acme", "role": "Engineer"})
     assert response.status_code == 503
     async with isolated_db._session() as session:
         assert list((await session.execute(select(Job))).scalars()) == []

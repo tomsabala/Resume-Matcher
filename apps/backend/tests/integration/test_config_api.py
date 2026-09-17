@@ -1,8 +1,6 @@
 """Integration tests for configuration endpoints."""
 
 from collections.abc import Iterator
-
-import json
 from pathlib import Path
 from unittest.mock import patch, AsyncMock
 
@@ -38,7 +36,7 @@ class TestLlmConfig:
         # API key should be masked
         assert "****" in data["api_key"] or "*" in data["api_key"]
 
-    @patch("app.routers.config._save_config")
+    @patch("app.routers.config._save_overrides", new_callable=AsyncMock)
     @patch("app.routers.config._load_config")
     async def test_put_llm_config(self, mock_load, mock_save, client):
         mock_load.return_value = {}
@@ -52,7 +50,7 @@ class TestLlmConfig:
         assert data["provider"] == "anthropic"
 
     @patch("app.routers.config._log_llm_health_check", new_callable=AsyncMock)
-    @patch("app.routers.config._save_config")
+    @patch("app.routers.config._save_overrides", new_callable=AsyncMock)
     @patch("app.routers.config._load_config")
     async def test_put_llm_config_does_not_persist_api_key(
         self, mock_load, mock_save, mock_log_health, client
@@ -71,7 +69,7 @@ class TestLlmConfig:
             })
 
         assert resp.status_code == 200
-        saved_config = mock_save.call_args.args[0]
+        saved_config = mock_save.await_args.args[1]
         assert saved_config["provider"] == "openai_compatible"
         assert saved_config["model"] == "llama-3.1-8b"
         assert saved_config["api_base"] == "http://localhost:8080/v1"
@@ -87,7 +85,7 @@ class TestLlmConfig:
     # stored override; an *omitted* field must leave it unchanged.
 
     @patch("app.routers.config._log_llm_health_check", new_callable=AsyncMock)
-    @patch("app.routers.config._save_config")
+    @patch("app.routers.config._save_overrides", new_callable=AsyncMock)
     @patch("app.routers.config._load_config")
     async def test_put_null_api_base_clears_stale_value(
         self, mock_load, mock_save, mock_log_health, client
@@ -103,12 +101,12 @@ class TestLlmConfig:
                 json={"provider": "openrouter", "api_base": None},
             )
         assert resp.status_code == 200
-        saved_config = mock_save.call_args.args[0]
+        saved_config = mock_save.await_args.args[1]
         assert saved_config["api_base"] is None
         assert resp.json()["api_base"] is None
 
     @patch("app.routers.config._log_llm_health_check", new_callable=AsyncMock)
-    @patch("app.routers.config._save_config")
+    @patch("app.routers.config._save_overrides", new_callable=AsyncMock)
     @patch("app.routers.config._load_config")
     async def test_put_blank_api_base_is_normalized_to_none(
         self, mock_load, mock_save, mock_log_health, client
@@ -120,10 +118,10 @@ class TestLlmConfig:
                 json={"provider": "openrouter", "api_base": "   "},
             )
         assert resp.status_code == 200
-        assert mock_save.call_args.args[0]["api_base"] is None
+        assert mock_save.await_args.args[1]["api_base"] is None
 
     @patch("app.routers.config._log_llm_health_check", new_callable=AsyncMock)
-    @patch("app.routers.config._save_config")
+    @patch("app.routers.config._save_overrides", new_callable=AsyncMock)
     @patch("app.routers.config._load_config")
     async def test_put_omitting_api_base_leaves_it_unchanged(
         self, mock_load, mock_save, mock_log_health, client
@@ -135,7 +133,7 @@ class TestLlmConfig:
                 json={"model": "new-model"},  # api_base intentionally omitted
             )
         assert resp.status_code == 200
-        assert mock_save.call_args.args[0]["api_base"] == "http://keep/v1"
+        assert mock_save.await_args.args[1]["api_base"] == "http://keep/v1"
         mock_log_health.assert_awaited_once()
 
 
@@ -255,7 +253,7 @@ class TestFeatureConfig:
         assert data["enable_outreach_message"] is False
         assert data["enable_interview_prep"] is True
 
-    @patch("app.routers.config._save_config")
+    @patch("app.routers.config._save_overrides", new_callable=AsyncMock)
     @patch("app.routers.config._load_config")
     async def test_put_features(self, mock_load, mock_save, client):
         mock_load.return_value = {}
@@ -268,7 +266,7 @@ class TestFeatureConfig:
         data = resp.json()
         assert data["enable_cover_letter"] is True
         assert data["enable_interview_prep"] is True
-        saved = mock_save.call_args.args[0]
+        saved = mock_save.await_args.args[1]
         assert saved["enable_cover_letter"] is True
         assert saved["enable_interview_prep"] is True
 
@@ -311,7 +309,7 @@ class TestFeaturePrompts:
             "missing": ["{resume_data}", "{output_language}"],
         }
 
-    @patch("app.routers.config._save_config")
+    @patch("app.routers.config._save_overrides", new_callable=AsyncMock)
     @patch("app.routers.config._load_config")
     async def test_put_feature_prompts_strips_and_clears_values(
         self, mock_load, mock_save, client
@@ -327,7 +325,7 @@ class TestFeaturePrompts:
             })
 
         assert resp.status_code == 200
-        saved_config = mock_save.call_args.args[0]
+        saved_config = mock_save.await_args.args[1]
         assert saved_config["cover_letter_prompt"] == (
             "{job_description}\n{resume_data}\n{output_language}"
         )
@@ -353,7 +351,7 @@ class TestLanguageConfig:
         assert data["content_language"] == "es"
         assert "en" in data["supported_languages"]
 
-    @patch("app.routers.config._save_config")
+    @patch("app.routers.config._save_overrides", new_callable=AsyncMock)
     @patch("app.routers.config._load_config")
     async def test_put_invalid_language_returns_400(self, mock_load, mock_save, client):
         mock_load.return_value = {}
@@ -374,7 +372,7 @@ class TestResetDatabase:
                 "confirm": "RESET_ALL_DATA",
             })
         assert resp.status_code == 200
-        mock_db.reset_database.assert_called_once()
+        mock_db.reset_workspace.assert_awaited_once()
 
     async def test_reset_without_token_returns_400(self, client):
         async with client:
@@ -425,7 +423,8 @@ class TestEncryptedApiKeys:
     async def test_keys_encrypted_at_rest(self, keys_env, client):
         async with client:
             await client.post("/api/v1/config/api-keys", json={"openai": "sk-plaintext-123"})
-        ciphertexts = keys_env.get_api_key_ciphertexts()
+        workspace_id = await keys_env.default_workspace_id()
+        ciphertexts = keys_env.get_api_key_ciphertexts(workspace_id)
         assert "openai" in ciphertexts
         # Stored value is ciphertext, not the plaintext key.
         assert "sk-plaintext-123" not in ciphertexts["openai"]
@@ -493,7 +492,7 @@ class TestLegacyKeyMigration:
 
         migrate_legacy_keys()
 
-        keys = get_api_keys_from_config()
+        keys = get_api_keys_from_config(await keys_env.default_workspace_id())
         assert keys["openai"] == "legacy-openai"
         # The single legacy key is mapped via the active provider (anthropic).
         assert keys["anthropic"] == "legacy-anthropic-single"
@@ -510,7 +509,10 @@ class TestLegacyKeyMigration:
 
         # Pre-existing encrypted key for openai must NOT be clobbered.
         from app import crypto
-        keys_env.set_api_key_ciphertext("openai", crypto.encrypt("already-stored"))
+        workspace_id = await keys_env.default_workspace_id()
+        keys_env.set_api_key_ciphertext(
+            workspace_id, "openai", crypto.encrypt("already-stored")
+        )
 
         config_module.CONFIG_FILE_PATH.write_text(
             json.dumps({"provider": "openai", "api_keys": {"openai": "legacy-should-not-win"}})
@@ -518,7 +520,7 @@ class TestLegacyKeyMigration:
         migrate_legacy_keys()
         migrate_legacy_keys()  # idempotent second run
 
-        keys = get_api_keys_from_config()
+        keys = get_api_keys_from_config(workspace_id)
         assert keys["openai"] == "already-stored"  # not clobbered
 
     async def test_migration_noop_without_legacy(self, keys_env):
@@ -556,6 +558,7 @@ class TestRequiresBaseUrlValidation:
         self,
         mock_health: AsyncMock,
         client: AsyncClient,
+        isolated_db: Database,
         tmp_path: Path,
         backend_test_data_dir: Path,
     ) -> None:
@@ -572,11 +575,15 @@ class TestRequiresBaseUrlValidation:
             )
 
         assert resp.status_code == 200
-        assert json.loads((tmp_path / "data" / "config.json").read_text()) == {
+        assert await isolated_db.get_workspace_settings(
+            await isolated_db.default_workspace_id()
+        ) == {
             "provider": "azure_foundry",
             "model": "gpt-5-mini",
             "api_base": "https://example.services.ai.azure.com/openai/v1/responses",
         }
+        # A tenant's save lands in its own rows, never in the instance default.
+        assert not (tmp_path / "data" / "config.json").exists()
         mock_health.assert_awaited_once()
         assert sentinel_path.read_text() == '{"sentinel": "developer-state"}'
 
@@ -585,6 +592,7 @@ class TestRequiresBaseUrlValidation:
         self,
         mock_health: AsyncMock,
         client: AsyncClient,
+        isolated_db: Database,
         tmp_path: Path,
         backend_test_data_dir: Path,
     ) -> None:
@@ -597,9 +605,12 @@ class TestRequiresBaseUrlValidation:
             )
 
         assert resp.status_code == 200
-        assert json.loads((tmp_path / "data" / "config.json").read_text()) == {
+        assert await isolated_db.get_workspace_settings(
+            await isolated_db.default_workspace_id()
+        ) == {
             "provider": "openai",
             "model": "gpt-5-nano-2025-08-07",
         }
+        assert not (tmp_path / "data" / "config.json").exists()
         mock_health.assert_awaited_once()
         assert sentinel_path.read_text() == '{"sentinel": "developer-state"}'

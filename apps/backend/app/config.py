@@ -99,17 +99,35 @@ def _write_config_json(config: dict[str, Any]) -> None:
             temporary_path.unlink(missing_ok=True)
 
 
-def load_config_file() -> dict[str, Any]:
-    """Load non-secret configuration, with decrypted API keys injected.
+def load_config_file(workspace_id: str | None = None) -> dict[str, Any]:
+    """Load one workspace's merged configuration, with its API keys injected.
 
-    API keys live in the encrypted SQLite store, not config.json. They are
-    injected here under ``api_keys`` so ``resolve_api_key(stored, provider)``
-    keeps resolving per-provider keys everywhere ``stored`` is built from this
-    function. ``save_config_file`` strips them again, so they never round-trip
-    back to disk.
+    Three layers, outermost last: ``config.json`` (instance default), the
+    workspace's ``workspace_settings`` overrides, then its decrypted API keys
+    under ``api_keys``. Keys live in the encrypted SQLite store, not
+    ``config.json``, and are injected here so ``resolve_api_key(stored,
+    provider)`` keeps resolving per-provider keys everywhere ``stored`` is
+    built from this function. ``save_config_file`` strips them again, so they
+    never round-trip back to disk.
+
+    ``workspace_id`` defaults to the request's workspace, or to the instance
+    default one outside a request — see ``config_cache`` for why that fallback
+    cannot reach a visitor's data.
     """
+    from app.config_cache import (
+        active_config_workspace_id,
+        merge_workspace_overrides,
+    )
+    from app.database import db
+
+    if workspace_id is None:
+        workspace_id = active_config_workspace_id()
     config = _read_config_json()
-    config["api_keys"] = get_api_keys_from_config()
+    if workspace_id:
+        config = merge_workspace_overrides(
+            config, db.get_workspace_settings_sync(workspace_id)
+        )
+    config["api_keys"] = get_api_keys_from_config(workspace_id)
     return config
 
 
@@ -125,8 +143,8 @@ def save_config_file(config: dict[str, Any]) -> None:
     _write_config_json(config)
 
 
-def get_api_keys_from_config() -> dict[str, str]:
-    """Get decrypted API keys from the encrypted SQLite store.
+def get_api_keys_from_config(workspace_id: str) -> dict[str, str]:
+    """Get one workspace's decrypted API keys from the encrypted SQLite store.
 
     Returns:
         Dictionary with key-store provider names as keys and plaintext keys as
@@ -136,15 +154,17 @@ def get_api_keys_from_config() -> dict[str, str]:
     from app.database import db
 
     decrypted: dict[str, str] = {}
-    for provider, ciphertext in db.get_api_key_ciphertexts().items():
+    if not workspace_id:
+        return decrypted
+    for provider, ciphertext in db.get_api_key_ciphertexts(workspace_id).items():
         plaintext = decrypt(ciphertext)
         if plaintext:
             decrypted[provider] = plaintext
     return decrypted
 
 
-def save_api_keys_to_config(api_keys: dict[str, str]) -> None:
-    """Replace the encrypted key store with ``api_keys`` (encrypting each).
+def save_api_keys_to_config(api_keys: dict[str, str], workspace_id: str) -> None:
+    """Replace one workspace's encrypted key store with ``api_keys``.
 
     Replace-all semantics mirror the legacy ``config["api_keys"] = api_keys``;
     the config router reads-merges-saves the full map.
@@ -156,27 +176,40 @@ def save_api_keys_to_config(api_keys: dict[str, str]) -> None:
     # failure (encryption error or DB write) can never wipe previously stored
     # keys mid-replace.
     ciphertexts = {provider: encrypt(key) for provider, key in api_keys.items() if key}
-    db.replace_api_keys(ciphertexts)
+    db.replace_api_keys(workspace_id, ciphertexts)
 
 
-def delete_api_key_from_config(provider: str) -> None:
-    """Delete a specific API key from the encrypted store."""
+def delete_api_key_from_config(provider: str, workspace_id: str) -> None:
+    """Delete a specific API key from one workspace's encrypted store."""
     from app.database import db
 
-    db.delete_api_key(provider)
+    db.delete_api_key(workspace_id, provider)
 
 
-def clear_all_api_keys() -> None:
-    """Clear all API keys from the encrypted store and any legacy config slots."""
+def clear_all_api_keys(workspace_id: str) -> None:
+    """Clear one workspace's API keys and any legacy config slots.
+
+    The legacy plaintext remnants in ``config.json`` are instance-wide, so
+    clearing them is only correct for the standalone tenant — a visitor
+    clearing their own keys must not rewrite the operator's file.
+    """
     from app.database import db
 
-    db.clear_api_keys()
-    # Defensively clear any legacy plaintext remnants from config.json.
+    db.clear_api_keys(workspace_id)
+    if workspace_id != _instance_default_workspace_id():
+        return
     config = _read_config_json()
     if "api_keys" in config or "api_key" in config:
         config.pop("api_keys", None)
         config.pop("api_key", None)
         _write_config_json(config)
+
+
+def _instance_default_workspace_id() -> str:
+    """The standalone tenant's default workspace, or ``""`` if unseeded."""
+    from app.database import db
+
+    return db.default_workspace_id_sync()
 
 
 def migrate_legacy_keys() -> None:
@@ -188,6 +221,11 @@ def migrate_legacy_keys() -> None:
     slot is empty**, then removed from config.json. This eliminates the
     legacy-shadow bug where ``resolve_api_key`` returned one shared key for
     every provider.
+
+    An instance-level one-shot, run once from the lifespan: the keys came out
+    of the operator's own file, so they land in the standalone tenant's default
+    workspace — which the first ``admin`` request then claims. They are never
+    handed to a visitor.
     """
     config = _read_config_json()
     legacy_map = config.get("api_keys")
@@ -198,12 +236,19 @@ def migrate_legacy_keys() -> None:
     from app.crypto import encrypt
     from app.database import db
 
-    existing = set(db.get_api_key_ciphertexts().keys())
+    workspace_id = _instance_default_workspace_id()
+    if not workspace_id:
+        logger.warning(
+            "Legacy API keys are present but no default workspace exists yet; "
+            "leaving config.json untouched so the next startup can migrate them"
+        )
+        return
+    existing = set(db.get_api_key_ciphertexts(workspace_id).keys())
 
     if isinstance(legacy_map, dict):
         for provider, key in legacy_map.items():
             if key and provider not in existing:
-                db.set_api_key_ciphertext(provider, encrypt(key))
+                db.set_api_key_ciphertext(workspace_id, provider, encrypt(key))
                 existing.add(provider)
 
     if legacy_single:
@@ -211,7 +256,9 @@ def migrate_legacy_keys() -> None:
         provider = config.get("provider") or settings.llm_provider
         key_provider = _LEGACY_PROVIDER_KEY_MAP.get(provider, provider)
         if key_provider not in existing:
-            db.set_api_key_ciphertext(key_provider, encrypt(legacy_single))
+            db.set_api_key_ciphertext(
+                workspace_id, key_provider, encrypt(legacy_single)
+            )
 
     # Strip the legacy slots from config.json now that they're in the store.
     config.pop("api_keys", None)
@@ -235,19 +282,21 @@ _LEGACY_PROVIDER_KEY_MAP: dict[str, str] = {
 
 
 def _get_llm_api_key_with_fallback() -> str:
-    """Get LLM API key with fallback to config file.
+    """Get LLM API key with fallback to the active workspace's key store.
 
-    Priority: Environment variable > config.json > empty string
+    Priority: Environment variable > the caller's stored key > empty string.
     """
     import os
+
+    from app.config_cache import active_config_workspace_id
 
     # First check environment variable
     env_key = os.environ.get("LLM_API_KEY", "")
     if env_key:
         return env_key
 
-    # Fallback to config file based on provider
-    config_keys = get_api_keys_from_config()
+    # Fall back to the caller's own stored key, never another tenant's.
+    config_keys = get_api_keys_from_config(active_config_workspace_id())
     provider = os.environ.get("LLM_PROVIDER", "openai")
 
     # Map provider to config key
@@ -308,6 +357,26 @@ class Settings(BaseSettings):
         if value not in ALLOWED_LOG_LEVELS:
             raise ValueError(f"Invalid LOG_LLM: {value}. Allowed: {ALLOWED_LOG_LEVELS}")
         return value
+
+    # Multi-tenancy. ``single`` is today's behaviour: one implicit tenant
+    # (``tenant_ref = ""``), admin role, the ``LLM_API_KEY`` env fallback
+    # allowed. ``header`` trusts an upstream gateway to inject
+    # ``X-Apps-Tenant``/``X-Apps-Role`` on every proxied request, and 404s any
+    # ``/api/**`` call that arrives without a tenant. Never expose an instance
+    # in ``header`` mode directly — the headers are the whole identity.
+    tenant_mode: Literal["single", "header"] = "single"
+
+    @field_validator("tenant_mode", mode="before")
+    @classmethod
+    def normalize_tenant_mode(cls, v: Any) -> str:
+        """Treat a blank env var as ``single`` rather than failing startup."""
+        value = "single" if not v else str(v).strip().lower()
+        return value or "single"
+
+    # How long an anonymous tenant's data survives without a request. The
+    # hourly purge in the lifespan deletes idle anonymous workspaces outright;
+    # admin tenants are never purged. Only consulted in ``header`` mode.
+    anonymous_retention_hours: int = Field(default=24, ge=1, le=8760)
 
     # Server Configuration
     host: str = "0.0.0.0"

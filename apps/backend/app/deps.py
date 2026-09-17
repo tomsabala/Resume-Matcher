@@ -2,26 +2,25 @@
 
 from typing import Annotated
 
-from fastapi import Depends, Header
+from fastapi import Depends
 
-from app.database import db
+from app.tenancy import ActiveTenant, active_tenant
 
 
-async def resolve_workspace_id(
-    x_workspace_id: Annotated[str | None, Header(alias="X-Workspace-Id")] = None,
-) -> str:
-    """Resolve the active workspace for a request.
+async def resolve_workspace_id() -> str:
+    """The workspace this request acts on, as resolved by ``TenantMiddleware``.
 
-    Header first, default workspace otherwise. An *unknown* id also falls back
-    rather than 404-ing: the header is client state (localStorage) that can
-    outlive a deleted workspace, and the Playwright print route is fetched by
-    Chromium without app headers at all.
+    A pure read of the request's tenant. The header parsing, the
+    ``X-Workspace-Id`` ownership check and the tolerant fallback to the
+    tenant's own default all happen once, in middleware, so that the
+    synchronous config and API-key paths — which have no ``Request`` — see the
+    same answer as the endpoints.
     """
-    if x_workspace_id:
-        workspace = await db.get_workspace(x_workspace_id)
-        if workspace is not None:
-            return str(workspace["workspace_id"])
-    return await db.default_workspace_id()
+    return active_tenant().workspace_id
 
 
 WorkspaceId = Annotated[str, Depends(resolve_workspace_id)]
+
+#: For the tenant-level endpoints (``/workspaces``), which act on the identity
+#: rather than on one of its profiles.
+ActiveTenantDep = Annotated[ActiveTenant, Depends(active_tenant)]

@@ -90,26 +90,37 @@ async def test_only_latest_processing_token_can_finish(tmp_path: Path) -> None:
     """The real database rejects completion from a superseded operation."""
     database = Database(db_path=tmp_path / "ownership.db")
     try:
+        workspace_id = await database.default_workspace_id()
         resume = await database.create_resume(
-            content="# Ada", processing_status="failed"
+            content="# Ada", processing_status="failed", workspace_id=workspace_id
         )
-        older = await database.claim_resume_processing(resume["resume_id"])
-        newer = await database.claim_resume_processing(resume["resume_id"])
+        older = await database.claim_resume_processing(
+            resume["resume_id"], workspace_id=workspace_id
+        )
+        newer = await database.claim_resume_processing(
+            resume["resume_id"], workspace_id=workspace_id
+        )
         assert older is not None and newer is not None and older != newer
 
         stale = await database.finish_resume_processing(
             resume["resume_id"],
             older,
+            workspace_id=workspace_id,
             processing_status="ready",
             processed_data={"summary": "stale"},
         )
         committed = await database.finish_resume_processing(
-            resume["resume_id"], newer, processing_status="failed"
+            resume["resume_id"],
+            newer,
+            workspace_id=workspace_id,
+            processing_status="failed",
         )
 
         assert stale == "stale"
         assert committed == "committed"
-        stored = await database.get_resume(resume["resume_id"])
+        stored = await database.get_resume(
+            resume["resume_id"], workspace_id=workspace_id
+        )
         assert stored is not None
         assert stored["processing_status"] == "failed"
         assert stored["processed_data"] is None
@@ -122,18 +133,27 @@ async def test_failed_processing_clears_previous_structured_data(
 ) -> None:
     database = Database(db_path=tmp_path / "failed.db")
     try:
+        workspace_id = await database.default_workspace_id()
         row = await database.create_resume(
-            content="old", processing_status="failed", processed_data={"summary": "old"}
+            content="old",
+            processing_status="failed",
+            processed_data={"summary": "old"},
+            workspace_id=workspace_id,
         )
-        token = await database.claim_resume_processing(row["resume_id"])
+        token = await database.claim_resume_processing(
+            row["resume_id"], workspace_id=workspace_id
+        )
         assert token is not None
         assert (
             await database.finish_resume_processing(
-                row["resume_id"], token, processing_status="failed"
+                row["resume_id"],
+                token,
+                workspace_id=workspace_id,
+                processing_status="failed",
             )
             == "committed"
         )
-        stored = await database.get_resume(row["resume_id"])
+        stored = await database.get_resume(row["resume_id"], workspace_id=workspace_id)
         assert stored is not None and stored["processed_data"] is None
     finally:
         await database.close()
@@ -142,23 +162,30 @@ async def test_failed_processing_clears_previous_structured_data(
 async def test_user_save_supersedes_active_processing(tmp_path: Path) -> None:
     database = Database(db_path=tmp_path / "edit.db")
     try:
-        row = await database.create_resume(content="old", processing_status="failed")
-        token = await database.claim_resume_processing(row["resume_id"])
+        workspace_id = await database.default_workspace_id()
+        row = await database.create_resume(
+            content="old", processing_status="failed", workspace_id=workspace_id
+        )
+        token = await database.claim_resume_processing(
+            row["resume_id"], workspace_id=workspace_id
+        )
         assert token is not None
         await database.update_resume(
             row["resume_id"],
             {"processing_status": "ready", "processed_data": {"summary": "user edit"}},
+            workspace_id=workspace_id,
         )
         assert (
             await database.finish_resume_processing(
                 row["resume_id"],
                 token,
+                workspace_id=workspace_id,
                 processing_status="ready",
                 processed_data={"summary": "late parser"},
             )
             == "stale"
         )
-        stored = await database.get_resume(row["resume_id"])
+        stored = await database.get_resume(row["resume_id"], workspace_id=workspace_id)
         assert stored is not None and stored["processed_data"] == {
             "summary": "user edit"
         }

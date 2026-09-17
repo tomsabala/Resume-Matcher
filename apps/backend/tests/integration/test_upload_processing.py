@@ -89,6 +89,7 @@ async def test_upload_rejects_filename_and_mime_mismatch(
     client: AsyncClient, isolated_db: Database, sample_resume: dict[str, object]
 ) -> None:
     """A text filename declared as PDF must not reach AI or persistence."""
+    workspace_id = await isolated_db.default_workspace_id()
     with patch(
         "app.routers.resumes.parse_resume_to_json",
         new_callable=AsyncMock,
@@ -103,7 +104,7 @@ async def test_upload_rejects_filename_and_mime_mismatch(
     assert response.status_code == 400
     assert response.json()["detail"] == "Upload a valid PDF, DOC, DOCX, or TEX file."
     parse_json.assert_not_awaited()
-    assert await isolated_db.list_resumes() == []
+    assert await isolated_db.list_resumes(workspace_id) == []
 
 
 async def test_upload_stops_reading_after_the_raw_size_boundary(
@@ -112,6 +113,7 @@ async def test_upload_stops_reading_after_the_raw_size_boundary(
     """The route must never request the entire oversized body in one read."""
     from starlette.datastructures import UploadFile as StarletteUploadFile
 
+    workspace_id = await isolated_db.default_workspace_id()
     requested_sizes: list[int] = []
     original_read = StarletteUploadFile.read
 
@@ -136,7 +138,7 @@ async def test_upload_stops_reading_after_the_raw_size_boundary(
     assert requested_sizes
     assert all(0 < size <= 65_536 for size in requested_sizes)
     assert sum(requested_sizes) <= MAX_FILE_SIZE + 1
-    assert await isolated_db.list_resumes() == []
+    assert await isolated_db.list_resumes(workspace_id) == []
 
 
 @pytest.mark.parametrize(
@@ -160,6 +162,7 @@ async def test_upload_rejects_malformed_document_containers(
     content_type: str,
 ) -> None:
     """Malformed supported containers return one safe error without persistence."""
+    workspace_id = await isolated_db.default_workspace_id()
     with patch(
         "app.routers.resumes.parse_resume_to_json",
         new_callable=AsyncMock,
@@ -176,13 +179,14 @@ async def test_upload_rejects_malformed_document_containers(
         "Failed to parse document. Please upload a valid PDF, DOC, DOCX, or TEX file."
     )
     parse_json.assert_not_awaited()
-    assert await isolated_db.list_resumes() == []
+    assert await isolated_db.list_resumes(workspace_id) == []
 
 
 async def test_upload_accepts_valid_docx_container(
     client: AsyncClient, isolated_db: Database, sample_resume: dict[str, object]
 ) -> None:
     """A valid DOCX reaches structured parsing and persists a ready resume."""
+    workspace_id = await isolated_db.default_workspace_id()
     with patch(
         "app.routers.resumes.parse_resume_to_json",
         new_callable=AsyncMock,
@@ -203,13 +207,14 @@ async def test_upload_accepts_valid_docx_container(
     assert response.status_code == 200
     assert response.json()["processing_status"] == "ready"
     parse_json.assert_awaited_once()
-    assert len(await isolated_db.list_resumes()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
 
 
 async def test_upload_accepts_valid_pdf_container(
     client: AsyncClient, isolated_db: Database, sample_resume: dict[str, object]
 ) -> None:
     """A structurally valid text PDF remains supported by the real converter."""
+    workspace_id = await isolated_db.default_workspace_id()
     with patch(
         "app.routers.resumes.parse_resume_to_json",
         new_callable=AsyncMock,
@@ -230,7 +235,7 @@ async def test_upload_accepts_valid_pdf_container(
     assert response.status_code == 200
     assert response.json()["processing_status"] == "ready"
     parse_json.assert_awaited_once()
-    assert len(await isolated_db.list_resumes()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
 
 
 async def test_upload_accepts_tex_source_under_any_of_its_mime_types(
@@ -240,6 +245,7 @@ async def test_upload_accepts_tex_source_under_any_of_its_mime_types(
 
     LaTeX source is the one upload that keeps links and bold, so it must not
     be rejected because the OS called it text/plain."""
+    workspace_id = await isolated_db.default_workspace_id()
     source = (
         b"\\documentclass{article}\\begin{document}\n"
         b"\\section{Experience}\n\\item Cut latency by \\textbf{50\\%}\n"
@@ -258,7 +264,7 @@ async def test_upload_accepts_tex_source_under_any_of_its_mime_types(
 
     assert response.status_code == 200
     assert response.json()["processing_status"] == "ready"
-    stored = (await isolated_db.list_resumes())[0]
+    stored = (await isolated_db.list_resumes(workspace_id))[0]
     assert "\\documentclass" not in stored["content"]
     assert "\\textbf{50\\%}" in stored["content"]
     parse_json.assert_awaited_once()
@@ -268,6 +274,7 @@ async def test_upload_still_requires_extension_and_mime_to_agree(
     client: AsyncClient, isolated_db: Database, sample_resume: dict[str, object]
 ) -> None:
     """Accepting text/plain for .tex must not make it acceptable for .pdf."""
+    workspace_id = await isolated_db.default_workspace_id()
     with patch(
         "app.routers.resumes.parse_resume_to_json",
         new_callable=AsyncMock,
@@ -282,13 +289,14 @@ async def test_upload_still_requires_extension_and_mime_to_agree(
     assert response.status_code == 400
     assert response.json()["detail"] == "Upload a valid PDF, DOC, DOCX, or TEX file."
     parse_json.assert_not_awaited()
-    assert await isolated_db.list_resumes() == []
+    assert await isolated_db.list_resumes(workspace_id) == []
 
 
 async def test_upload_rejects_valid_pdf_without_extractable_text(
     client: AsyncClient, isolated_db: Database, sample_resume: dict[str, object]
 ) -> None:
     """A valid but blank/scanned-style PDF remains an intentional 422 control."""
+    workspace_id = await isolated_db.default_workspace_id()
     with patch(
         "app.routers.resumes.parse_resume_to_json",
         new_callable=AsyncMock,
@@ -307,13 +315,14 @@ async def test_upload_rejects_valid_pdf_without_extractable_text(
         "with selectable text, or run OCR first."
     )
     parse_json.assert_not_awaited()
-    assert await isolated_db.list_resumes() == []
+    assert await isolated_db.list_resumes(workspace_id) == []
 
 
 async def test_upload_rejects_extracted_text_over_prompt_limit(
     client: AsyncClient, isolated_db: Database, sample_resume: dict[str, object]
 ) -> None:
     """Expanded text over the prompt budget returns 413 before persistence or AI."""
+    workspace_id = await isolated_db.default_workspace_id()
     with patch(
         "app.routers.resumes.parse_resume_to_json",
         new_callable=AsyncMock,
@@ -337,15 +346,16 @@ async def test_upload_rejects_extracted_text_over_prompt_limit(
         "Maximum expanded size is 16MB and extracted text is 2MB."
     )
     parse_json.assert_not_awaited()
-    assert await isolated_db.list_resumes() == []
+    assert await isolated_db.list_resumes(workspace_id) == []
 
 
 async def test_stale_retry_failure_cannot_regress_newer_success(
     isolated_db: Database, sample_resume: dict[str, object]
 ) -> None:
     """A failed older retry returns conflict after the newer retry commits ready."""
+    workspace_id = await isolated_db.default_workspace_id()
     resume = await isolated_db.create_resume(
-        content="# Ada", processing_status="failed"
+        content="# Ada", processing_status="failed", workspace_id=workspace_id
     )
     first_entered = asyncio.Event()
     release_first = asyncio.Event()
@@ -373,7 +383,9 @@ async def test_stale_retry_failure_cannot_regress_newer_success(
     assert older_response.json()["detail"] == (
         "Resume processing was superseded by a newer attempt."
     )
-    stored = await isolated_db.get_resume(resume["resume_id"])
+    stored = await isolated_db.get_resume(
+        resume["resume_id"], workspace_id=workspace_id
+    )
     assert stored is not None
     assert stored["processing_status"] == "ready"
     assert stored["processed_data"] == sample_resume
@@ -383,8 +395,9 @@ async def test_active_retry_failure_wins_over_stale_success(
     isolated_db: Database, sample_resume: dict[str, object]
 ) -> None:
     """A stale success cannot displace the failure of the latest claimed retry."""
+    workspace_id = await isolated_db.default_workspace_id()
     resume = await isolated_db.create_resume(
-        content="# Ada", processing_status="failed"
+        content="# Ada", processing_status="failed", workspace_id=workspace_id
     )
     first_entered = asyncio.Event()
     release_first = asyncio.Event()
@@ -409,7 +422,9 @@ async def test_active_retry_failure_wins_over_stale_success(
     assert newer_response.status_code == 200
     assert newer_response.json()["processing_status"] == "failed"
     assert older_response.status_code == 409
-    stored = await isolated_db.get_resume(resume["resume_id"])
+    stored = await isolated_db.get_resume(
+        resume["resume_id"], workspace_id=workspace_id
+    )
     assert stored is not None
     assert stored["processing_status"] == "failed"
     assert stored["processed_data"] is None
@@ -423,6 +438,7 @@ async def test_delete_during_initial_upload_returns_missing_outcome(
     parser_fails: bool,
 ) -> None:
     """Success and failure completion both stop cleanly after exact-row deletion."""
+    workspace_id = await isolated_db.default_workspace_id()
     created_ids: list[str] = []
     original_create = isolated_db.create_resume_atomic_master
 
@@ -456,7 +472,9 @@ async def test_delete_during_initial_upload_returns_missing_outcome(
     assert response.status_code == 404
     assert response.json()["detail"] == "Resume was deleted during upload processing."
     assert created_ids
-    assert await isolated_db.get_resume(created_ids[0]) is None
+    assert (
+        await isolated_db.get_resume(created_ids[0], workspace_id=workspace_id) is None
+    )
 
 
 @pytest.mark.parametrize("parser_fails", [False, True])
@@ -466,8 +484,9 @@ async def test_delete_during_retry_returns_missing_outcome(
     parser_fails: bool,
 ) -> None:
     """Retry success and failure share the same intentional deletion outcome."""
+    workspace_id = await isolated_db.default_workspace_id()
     resume = await isolated_db.create_resume(
-        content="# Ada", processing_status="failed"
+        content="# Ada", processing_status="failed", workspace_id=workspace_id
     )
 
     async def delete_in_parser(_markdown: str) -> dict[str, object]:
@@ -482,15 +501,19 @@ async def test_delete_during_retry_returns_missing_outcome(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Resume was deleted during retry."
-    assert await isolated_db.get_resume(resume["resume_id"]) is None
+    assert (
+        await isolated_db.get_resume(resume["resume_id"], workspace_id=workspace_id)
+        is None
+    )
 
 
 async def test_failed_retry_can_recover_with_a_new_successful_generation(
     isolated_db: Database, sample_resume: dict[str, object]
 ) -> None:
     """A committed failure releases ownership so a later retry can recover."""
+    workspace_id = await isolated_db.default_workspace_id()
     resume = await isolated_db.create_resume(
-        content="# Ada", processing_status="failed"
+        content="# Ada", processing_status="failed", workspace_id=workspace_id
     )
     parser = AsyncMock(
         side_effect=[RuntimeError("first attempt failed"), copy.deepcopy(sample_resume)]
@@ -504,7 +527,9 @@ async def test_failed_retry_can_recover_with_a_new_successful_generation(
     assert failed.json()["processing_status"] == "failed"
     assert recovered.status_code == 200
     assert recovered.json()["processing_status"] == "ready"
-    stored = await isolated_db.get_resume(resume["resume_id"])
+    stored = await isolated_db.get_resume(
+        resume["resume_id"], workspace_id=workspace_id
+    )
     assert stored is not None
     assert stored["processing_status"] == "ready"
     assert stored["processed_data"] == sample_resume

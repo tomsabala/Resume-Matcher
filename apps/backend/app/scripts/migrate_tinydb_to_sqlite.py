@@ -39,7 +39,13 @@ async def migrate(database: Database | None = None) -> dict[str, Any]:
     if not legacy.exists():
         return {"status": "no_legacy_file"}
 
-    stats = await database.get_stats()
+    # An instance-level one-shot with no request behind it, so the imported
+    # rows go to the standalone tenant's default workspace — the same one the
+    # first admin request claims. Without a scope they would land in
+    # workspace "", which no request can ever resolve to, and the import would
+    # look like silent data loss.
+    workspace_id = await database.default_workspace_id()
+    stats = await database.get_stats(workspace_id)
     if (stats["total_resumes"] or stats["total_jobs"] or stats["total_improvements"]):
         logger.info("SQLite already populated; skipping TinyDB import.")
         return {"status": "already_populated"}
@@ -73,6 +79,7 @@ async def migrate(database: Database | None = None) -> dict[str, Any]:
             session.add(
                 Resume(
                     resume_id=r["resume_id"],
+                    workspace_id=workspace_id,
                     content=r.get("content", ""),
                     content_type=r.get("content_type", "md"),
                     filename=r.get("filename"),
@@ -94,6 +101,7 @@ async def migrate(database: Database | None = None) -> dict[str, Any]:
             session.add(
                 Job(
                     job_id=j["job_id"],
+                    workspace_id=workspace_id,
                     content=j.get("content", ""),
                     resume_id=j.get("resume_id"),
                     created_at=j.get("created_at") or _utcnow_iso(),
@@ -104,6 +112,7 @@ async def migrate(database: Database | None = None) -> dict[str, Any]:
             session.add(
                 Improvement(
                     request_id=imp["request_id"],
+                    workspace_id=workspace_id,
                     original_resume_id=imp.get("original_resume_id", ""),
                     tailored_resume_id=imp.get("tailored_resume_id", ""),
                     job_id=imp.get("job_id", ""),

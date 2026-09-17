@@ -32,13 +32,12 @@ from app.llm import LLMConfig, check_llm_health, complete, complete_json
 def _reset_router(monkeypatch):
     """Reset the module-global Router cache between tests.
 
-    ``get_router`` caches ``_router`` / ``_router_config_key`` globally, so
-    without this an explicit config from one test would bleed into the next.
+    ``get_router`` memoizes one Router per config fingerprint in ``_routers``,
+    so without this an explicit config from one test would bleed into the next.
     """
     import app.llm as llm
 
-    monkeypatch.setattr(llm, "_router", None)
-    monkeypatch.setattr(llm, "_router_config_key", "")
+    monkeypatch.setattr(llm, "_routers", type(llm._routers)())
 
 
 @pytest.fixture(autouse=True)

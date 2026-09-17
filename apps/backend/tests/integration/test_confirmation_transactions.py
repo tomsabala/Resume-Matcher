@@ -76,12 +76,16 @@ async def preview_payload(
     sample: dict[str, Any],
 ) -> dict[str, Any]:
     data = ResumeDocument.model_validate(copy.deepcopy(sample)).model_dump(mode="json")
+    workspace_id = await database.default_workspace_id()
     source = await database.create_resume_atomic_master(
         content=json.dumps(data),
         processed_data=data,
         processing_status="ready",
+        workspace_id=workspace_id,
     )
-    job = await database.create_job("Python engineer at Acme")
+    job = await database.create_job(
+        "Python engineer at Acme", workspace_id=workspace_id
+    )
     response = await client.post(
         "/api/v1/resumes/improve/preview",
         json={"resume_id": source["resume_id"], "job_id": job["job_id"]},
@@ -104,6 +108,7 @@ async def test_replayed_confirmation_returns_identical_committed_result(
     confirmation_client: AsyncClient,
     sample_resume: dict[str, Any],
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     first = await confirmation_client.post(
         "/api/v1/resumes/improve/confirm", json=payload
@@ -114,8 +119,8 @@ async def test_replayed_confirmation_returns_identical_committed_result(
     )
     assert first.status_code == second.status_code == 200
     assert second.json() == first.json()
-    assert len(await isolated_db.list_resumes()) == 2
-    assert len(await isolated_db.list_applications()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 2
+    assert len(await isolated_db.list_applications(workspace_id=workspace_id)) == 1
     async with isolated_db._session() as session:
         assert len(list((await session.execute(select(Improvement))).scalars())) == 1
     resumes.generate_resume_title.assert_awaited_once()
@@ -127,6 +132,7 @@ async def test_concurrent_confirmation_does_not_repeat_optional_generation(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     entered, release = asyncio.Event(), asyncio.Event()
     calls = 0
@@ -155,6 +161,7 @@ async def test_concurrent_confirmation_does_not_repeat_optional_generation(
         try:
             with pytest.raises(PreviewBusyError):
                 await other.claim_preview(
+                    workspace_id=workspace_id,
                     preview_id=payload["preview_id"],
                     source_id=payload["resume_id"],
                     job_id=payload["job_id"],
@@ -171,7 +178,7 @@ async def test_concurrent_confirmation_does_not_repeat_optional_generation(
     )
     assert first.status_code == replay.status_code == 200
     assert first.json() == replay.json()
-    assert len(await isolated_db.list_resumes()) == 2
+    assert len(await isolated_db.list_resumes(workspace_id)) == 2
     assert calls == 1
 
 
@@ -182,20 +189,23 @@ async def test_changed_inputs_invalidate_unconfirmed_preview(
     sample_resume: dict[str, Any],
     target: str,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     if target == "source":
         changed = copy.deepcopy(sample_resume)
         _section(changed, "summary")["text"] = "New source edit"
         await isolated_db.update_resume(
-            payload["resume_id"], {"processed_data": changed}
+            payload["resume_id"], {"processed_data": changed}, workspace_id=workspace_id
         )
     else:
-        await isolated_db.update_job(payload["job_id"], {"content": "Different job"})
+        await isolated_db.update_job(
+            payload["job_id"], {"content": "Different job"}, workspace_id=workspace_id
+        )
     response = await confirmation_client.post(
         "/api/v1/resumes/improve/confirm", json=payload
     )
     assert response.status_code == 409
-    assert len(await isolated_db.list_resumes()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
     resumes.generate_resume_title.assert_not_awaited()
 
 
@@ -208,6 +218,7 @@ async def test_required_insert_failure_rolls_back_the_confirmation(
     model: type[Resume] | type[Improvement],
     phase: str,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
 
     def reject(_mapper: Mapper[Any], _connection: Connection, _target: Any) -> None:
@@ -221,40 +232,54 @@ async def test_required_insert_failure_rolls_back_the_confirmation(
     finally:
         event.remove(model, phase, reject)
     assert response.status_code == 500
-    assert len(await isolated_db.list_resumes()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
     async with isolated_db._session() as session:
         assert list((await session.execute(select(Improvement))).scalars()) == []
     retry = await confirmation_client.post(
         "/api/v1/resumes/improve/confirm", json=payload
     )
     assert retry.status_code == 200, retry.text
-    assert len(await isolated_db.list_resumes()) == 2
+    assert len(await isolated_db.list_resumes(workspace_id)) == 2
 
 
 async def test_acknowledged_metadata_updates_survive_concurrent_read_modify_write(
     isolated_db: Database,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    job = await isolated_db.create_job("Python engineer")
-    original_get = AsyncSession.get
+    workspace_id = await isolated_db.default_workspace_id()
+    job = await isolated_db.create_job("Python engineer", workspace_id=workspace_id)
+    # The barrier hooks ``execute``, not ``get``: scoping turned every
+    # tenant-owned load into a ``select`` with a workspace predicate, and a
+    # barrier on the old primary-key ``get`` would silently never fire — the
+    # writers would run sequentially and this test would assert nothing about
+    # interleaving.
+    original_execute = AsyncSession.execute
     all_read, release = asyncio.Event(), asyncio.Event()
     reads = 0
 
-    async def held_get(
-        session: AsyncSession, entity: Any, ident: Any, **kwargs: Any
+    def _loads_the_job(statement: Any) -> bool:
+        descriptions = getattr(statement, "column_descriptions", None) or ()
+        return any(entry.get("entity") is Job for entry in descriptions)
+
+    async def held_execute(
+        session: AsyncSession, statement: Any, *args: Any, **kwargs: Any
     ) -> Any:
         nonlocal reads
-        result = await original_get(session, entity, ident, **kwargs)
-        if entity is Job and ident == job["job_id"]:
+        result = await original_execute(session, statement, *args, **kwargs)
+        if _loads_the_job(statement):
             reads += 1
             if reads == 8:
                 all_read.set()
             await release.wait()
         return result
 
-    monkeypatch.setattr(AsyncSession, "get", held_get)
+    monkeypatch.setattr(AsyncSession, "execute", held_execute)
     tasks = [
-        asyncio.create_task(isolated_db.update_job(job["job_id"], {f"field_{i}": i}))
+        asyncio.create_task(
+            isolated_db.update_job(
+                job["job_id"], {f"field_{i}": i}, workspace_id=workspace_id
+            )
+        )
         for i in range(8)
     ]
     try:
@@ -263,8 +288,12 @@ async def test_acknowledged_metadata_updates_survive_concurrent_read_modify_writ
         pass  # A serialized writer lets only the first reader reach the barrier.
     finally:
         release.set()
+    # The barrier has to have caught at least the first writer mid-transaction,
+    # or the eight updates simply ran one after another and the merge below
+    # proves nothing.
+    assert reads >= 1
     assert all(await asyncio.gather(*tasks))
-    stored = await isolated_db.get_job(job["job_id"])
+    stored = await isolated_db.get_job(job["job_id"], workspace_id=workspace_id)
     assert stored is not None
     assert {key: stored.get(key) for key in [f"field_{i}" for i in range(8)]} == {
         f"field_{i}": i for i in range(8)
@@ -277,6 +306,7 @@ async def test_independent_concurrent_previews_remain_confirmable(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     seed = await preview_payload(isolated_db, confirmation_client, sample_resume)
     entered = {key: asyncio.Event() for key in ["nudge", "keywords"]}
     release = {key: asyncio.Event() for key in entered}
@@ -337,9 +367,9 @@ async def test_independent_concurrent_previews_remain_confirmable(
             },
         )
         assert result.status_code == 200, result.text
-    job = await isolated_db.get_job(seed["job_id"])
+    job = await isolated_db.get_job(seed["job_id"], workspace_id=workspace_id)
     assert job is not None and set(job["preview_hashes"]) >= {"nudge", "keywords"}
-    assert len(await isolated_db.list_resumes()) == 3
+    assert len(await isolated_db.list_resumes(workspace_id)) == 3
 
 
 @pytest.mark.parametrize("change", ["payload", "source_id", "expired"])
@@ -349,6 +379,7 @@ async def test_preview_binding_and_expiry_are_enforced(
     sample_resume: dict[str, Any],
     change: str,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     assert payload["preview_id"]
     if change == "payload":
@@ -358,6 +389,7 @@ async def test_preview_binding_and_expiry_are_enforced(
             content=json.dumps(sample_resume),
             processed_data=sample_resume,
             processing_status="ready",
+            workspace_id=workspace_id,
         )
         payload["resume_id"] = other["resume_id"]
     else:
@@ -380,6 +412,7 @@ async def test_committed_replay_survives_later_input_changes_and_expiry(
     confirmation_client: AsyncClient,
     sample_resume: dict[str, Any],
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     first = await confirmation_client.post(
         "/api/v1/resumes/improve/confirm", json=payload
@@ -388,8 +421,11 @@ async def test_committed_replay_survives_later_input_changes_and_expiry(
     await isolated_db.update_resume(
         payload["resume_id"],
         {"processed_data": {"schemaVersion": 2, "header": {"name": "Renamed source"}}},
+        workspace_id=workspace_id,
     )
-    await isolated_db.update_job(payload["job_id"], {"content": "Edited job"})
+    await isolated_db.update_job(
+        payload["job_id"], {"content": "Edited job"}, workspace_id=workspace_id
+    )
     async with isolated_db._session() as session:
         row = await session.get(TailoringPreview, payload["preview_id"])
         assert row is not None
@@ -410,11 +446,14 @@ async def test_source_edit_during_confirmation_prevents_stale_commit(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
 
     async def title(*_args: Any, **_kwargs: Any) -> str:
         await isolated_db.update_resume(
-            payload["resume_id"], {"content": "edited during AI"}
+            payload["resume_id"],
+            {"content": "edited during AI"},
+            workspace_id=workspace_id,
         )
         return "Engineer @ Acme"
 
@@ -423,7 +462,7 @@ async def test_source_edit_during_confirmation_prevents_stale_commit(
         "/api/v1/resumes/improve/confirm", json=payload
     )
     assert result.status_code == 409, result.text
-    assert len(await isolated_db.list_resumes()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
 
 
 async def test_cancellation_releases_uncommitted_claim(
@@ -432,6 +471,7 @@ async def test_cancellation_releases_uncommitted_claim(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     entered = asyncio.Event()
 
@@ -451,7 +491,7 @@ async def test_cancellation_releases_uncommitted_claim(
     async with isolated_db._session() as session:
         row = await session.get(TailoringPreview, payload["preview_id"])
         assert row is not None and row.claim_token is None
-    assert len(await isolated_db.list_resumes()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
     monkeypatch.setattr(
         resumes, "generate_resume_title", AsyncMock(return_value="Retry title")
     )
@@ -466,12 +506,15 @@ async def test_deleted_result_is_not_recreated_or_retained_in_replay_storage(
     confirmation_client: AsyncClient,
     sample_resume: dict[str, Any],
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     first = await confirmation_client.post(
         "/api/v1/resumes/improve/confirm", json=payload
     )
     assert first.status_code == 200
-    await isolated_db.delete_resume(first.json()["data"]["resume_id"])
+    await isolated_db.delete_resume(
+        first.json()["data"]["resume_id"], workspace_id=workspace_id
+    )
     async with isolated_db._session() as session:
         row = await session.get(TailoringPreview, payload["preview_id"])
         assert row is not None and row.response_data is None
@@ -479,7 +522,7 @@ async def test_deleted_result_is_not_recreated_or_retained_in_replay_storage(
         "/api/v1/resumes/improve/confirm", json=payload
     )
     assert replay.status_code == 409
-    assert len(await isolated_db.list_resumes()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
     resumes.generate_resume_title.assert_awaited_once()
 
 
@@ -488,6 +531,7 @@ async def test_new_explicit_preview_recovers_after_deleted_tokenless_result(
     confirmation_client: AsyncClient,
     sample_resume: dict[str, Any],
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     first = await confirmation_client.post(
         "/api/v1/resumes/improve/confirm", json=payload
@@ -513,7 +557,7 @@ async def test_new_explicit_preview_recovers_after_deleted_tokenless_result(
         "/api/v1/resumes/improve/confirm", json=tokenless
     )
     assert replay.status_code == 409, replay.text
-    assert len(await isolated_db.list_resumes()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
     resumes.generate_resume_title.assert_awaited_once()
 
     fresh_payload = {**payload, "preview_id": fresh["preview_id"]}
@@ -523,8 +567,10 @@ async def test_new_explicit_preview_recovers_after_deleted_tokenless_result(
     assert confirmed.status_code == 200, confirmed.text
     new_id = confirmed.json()["data"]["resume_id"]
     assert new_id != deleted_id
-    assert await isolated_db.get_resume(deleted_id) is None
-    assert {row["resume_id"] for row in await isolated_db.list_resumes()} == {
+    assert await isolated_db.get_resume(deleted_id, workspace_id=workspace_id) is None
+    assert {
+        row["resume_id"] for row in await isolated_db.list_resumes(workspace_id)
+    } == {
         payload["resume_id"], new_id,
     }
     repeated = await confirmation_client.post(
@@ -543,8 +589,10 @@ async def test_expired_claim_can_be_recovered_without_old_owner_committing_or_re
     confirmation_client: AsyncClient,
     sample_resume: dict[str, Any],
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     kwargs = dict(
+        workspace_id=workspace_id,
         preview_id=payload["preview_id"],
         source_id=payload["resume_id"],
         job_id=payload["job_id"],
@@ -561,14 +609,18 @@ async def test_expired_claim_can_be_recovered_without_old_owner_committing_or_re
     assert current.token != old.token
     with pytest.raises(PreviewConflictError):
         await isolated_db.complete_preview(
-            claim=old, resume_fields={}, response_data={}, improvements=[]
+            workspace_id=workspace_id,
+            claim=old,
+            resume_fields={},
+            response_data={},
+            improvements=[],
         )
-    await isolated_db.release_preview_claim(old)
+    await isolated_db.release_preview_claim(old, workspace_id=workspace_id)
     async with isolated_db._session() as session:
         row = await session.get(TailoringPreview, payload["preview_id"])
         assert row is not None and row.claim_token == current.token
-    await isolated_db.release_preview_claim(current)
-    assert len(await isolated_db.list_resumes()) == 1
+    await isolated_db.release_preview_claim(current, workspace_id=workspace_id)
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
 
 
 async def test_timed_out_generation_releases_claim_and_creates_no_required_rows(
@@ -577,6 +629,7 @@ async def test_timed_out_generation_releases_claim_and_creates_no_required_rows(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     monkeypatch.setattr(resumes.settings, "request_timeout_seconds", 1)
 
@@ -599,7 +652,7 @@ async def test_timed_out_generation_releases_claim_and_creates_no_required_rows(
     async with isolated_db._session() as session:
         row = await session.get(TailoringPreview, payload["preview_id"])
         assert row is not None and row.claim_token is None
-    assert len(await isolated_db.list_resumes()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
 
 
 async def test_preview_registration_failure_is_not_acknowledged_as_a_valid_preview(
@@ -635,11 +688,14 @@ async def test_source_edit_during_preview_requires_recomputation(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     seed = await preview_payload(isolated_db, confirmation_client, sample_resume)
 
     async def diffs(*_args: Any, **_kwargs: Any) -> ImproveDiffResult:
         await isolated_db.update_resume(
-            seed["resume_id"], {"original_markdown": "New original date source"}
+            seed["resume_id"],
+            {"original_markdown": "New original date source"},
+            workspace_id=workspace_id,
         )
         return ImproveDiffResult(changes=[])
 
@@ -660,15 +716,16 @@ async def test_full_data_reset_removes_confirmation_replay_content(
     confirmation_client: AsyncClient,
     sample_resume: dict[str, Any],
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     response = await confirmation_client.post(
         "/api/v1/resumes/improve/confirm", json=payload
     )
     assert response.status_code == 200
-    await isolated_db.reset_database()
+    await isolated_db.reset_workspace(workspace_id)
     async with isolated_db._session() as session:
         assert list((await session.execute(select(TailoringPreview))).scalars()) == []
-    assert await isolated_db.list_resumes() == []
+    assert await isolated_db.list_resumes(workspace_id) == []
 
 
 async def test_confirmation_uses_registered_suggestions(isolated_db: Database, confirmation_client: AsyncClient, sample_resume: dict[str, Any]) -> None:
@@ -681,21 +738,23 @@ async def test_confirmation_uses_registered_suggestions(isolated_db: Database, c
 
 
 async def test_replay_repairs_tracker_card_after_lost_followup(isolated_db: Database, confirmation_client: AsyncClient, sample_resume: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     with monkeypatch.context() as stage:
         stage.setattr(resumes, "_auto_create_tracker_application", AsyncMock(return_value=None))
         first = await confirmation_client.post("/api/v1/resumes/improve/confirm", json=payload)
-    assert first.status_code == 200 and await isolated_db.list_applications() == []
+    assert first.status_code == 200 and await isolated_db.list_applications(workspace_id=workspace_id) == []
     second = await confirmation_client.post("/api/v1/resumes/improve/confirm", json=payload)
     assert second.json() == first.json()
-    cards = await isolated_db.list_applications()
+    cards = await isolated_db.list_applications(workspace_id=workspace_id)
     assert len(cards) == 1
-    saved = await isolated_db.get_resume(first.json()["data"]["resume_id"])
+    saved = await isolated_db.get_resume(first.json()["data"]["resume_id"], workspace_id=workspace_id)
     assert saved is not None and saved["title"] == "Engineer @ Acme"
     assert cards[0]["role"] == saved["title"]
 
 
 async def test_tokenless_replay_prefers_confirmed_over_new_identical_preview(isolated_db: Database, confirmation_client: AsyncClient, sample_resume: dict[str, Any]) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     first = await confirmation_client.post("/api/v1/resumes/improve/confirm", json=payload)
     assert first.status_code == 200
@@ -704,7 +763,7 @@ async def test_tokenless_replay_prefers_confirmed_over_new_identical_preview(iso
     payload.pop("preview_id")
     replay = await confirmation_client.post("/api/v1/resumes/improve/confirm", json=payload)
     assert replay.json() == first.json()
-    assert len(await isolated_db.list_resumes()) == 2
+    assert len(await isolated_db.list_resumes(workspace_id)) == 2
 
 
 @pytest.mark.parametrize("action", ["append", "add_skill"])
@@ -735,6 +794,7 @@ async def test_unverified_short_values_never_reach_a_preview_or_a_saved_resume(
             reason="Synthetic unsupported qualification",
         )])),
     )
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     groups = _section(payload["improved_data"], "skills")["groups"]
     assert groups == _section(sample_resume, "skills")["groups"]
@@ -742,20 +802,21 @@ async def test_unverified_short_values_never_reach_a_preview_or_a_saved_resume(
         "/api/v1/resumes/improve/confirm", json=payload
     )
     assert response.status_code == 200, response.text
-    saved = await isolated_db.get_resume(response.json()["data"]["resume_id"])
+    saved = await isolated_db.get_resume(response.json()["data"]["resume_id"], workspace_id=workspace_id)
     assert saved is not None
     assert invented not in json.dumps(saved["processed_data"])
 
 
 async def test_legacy_preview_without_structured_source_requires_reprocessing(isolated_db: Database, confirmation_client: AsyncClient, sample_resume: dict[str, Any]) -> None:
     from app.preview import job_fingerprint, resume_fingerprint
-    source = await isolated_db.create_resume(content="# Original unprocessed resume", processing_status="failed")
-    job = await isolated_db.create_job("Synthetic engineer")
+    workspace_id = await isolated_db.default_workspace_id()
+    source = await isolated_db.create_resume(content="# Original unprocessed resume", processing_status="failed", workspace_id=workspace_id)
+    job = await isolated_db.create_job("Synthetic engineer", workspace_id=workspace_id)
     candidate = ResumeDocument.model_validate(sample_resume).model_dump(mode="json")
-    preview = await isolated_db.register_preview(source_id=source["resume_id"], job_id=job["job_id"], payload_hash=resumes._hash_improved_data(candidate), source_hash=resume_fingerprint(source["content"], None, None), job_hash=job_fingerprint(job["content"]), prompt_id="nudge", ttl_seconds=60)
+    preview = await isolated_db.register_preview(workspace_id=workspace_id, source_id=source["resume_id"], job_id=job["job_id"], payload_hash=resumes._hash_improved_data(candidate), source_hash=resume_fingerprint(source["content"], None, None), job_hash=job_fingerprint(job["content"]), prompt_id="nudge", ttl_seconds=60)
     response = await confirmation_client.post("/api/v1/resumes/improve/confirm", json={"resume_id": source["resume_id"], "job_id": job["job_id"], "preview_id": preview["preview_id"], "improved_data": candidate, "improvements": []})
     assert response.status_code == 400, response.text
-    assert len(await isolated_db.list_resumes()) == 1
+    assert len(await isolated_db.list_resumes(workspace_id)) == 1
 
 
 @pytest.mark.parametrize(
@@ -783,6 +844,7 @@ async def test_verified_description_append_survives_preview_and_confirmation(
             reason="Summarize relevant source experience",
         )])),
     )
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     bullets = _section(payload["improved_data"], "experience")["entries"][0]["bullets"]
     assert (appended_text in [bullet["text"] for bullet in bullets]) is retained
@@ -790,7 +852,7 @@ async def test_verified_description_append_survives_preview_and_confirmation(
         "/api/v1/resumes/improve/confirm", json=payload
     )
     assert response.status_code == 200, response.text
-    saved = await isolated_db.get_resume(response.json()["data"]["resume_id"])
+    saved = await isolated_db.get_resume(response.json()["data"]["resume_id"], workspace_id=workspace_id)
     assert saved is not None
     stored = _section(saved["processed_data"], "experience")["entries"][0]["bullets"]
     assert stored == bullets
@@ -802,6 +864,7 @@ async def test_optional_title_timeout_can_still_commit_required_resume(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
     monkeypatch.setattr(resumes.settings, "request_timeout_seconds", 1)
 
@@ -815,7 +878,7 @@ async def test_optional_title_timeout_can_still_commit_required_resume(
     )
     assert response.status_code == 200, response.text
     assert "Title generation failed" in response.json()["data"]["warnings"]
-    assert len(await isolated_db.list_resumes()) == 2
+    assert len(await isolated_db.list_resumes(workspace_id)) == 2
     replay = await confirmation_client.post(
         "/api/v1/resumes/improve/confirm", json=payload
     )

@@ -114,7 +114,9 @@ def _create_at_head(conn: Connection) -> None:
     the two definitions from drifting — but ~10x cheaper, which matters because
     every test builds its own database. The default workspace row is seeded
     here for the same reason revision ``0002_workspaces`` seeds it: every
-    document row is scoped to a workspace, so one must always exist.
+    document row is scoped to a workspace, so one must always exist. It
+    carries ``tenant_ref = ''`` — the standalone tenant, and the rows the
+    first ``X-Apps-Role: admin`` request claims in header mode.
     """
     Base.metadata.create_all(conn)
     conn.exec_driver_sql(
@@ -128,9 +130,10 @@ def _create_at_head(conn: Connection) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.exec_driver_sql(
         "INSERT INTO workspaces"
-        " (workspace_id, name, slug, content_language, is_default, created_at, updated_at)"
-        " VALUES (?, 'Default', 'default', 'en', 1, ?, ?)",
-        (uuid4().hex, now, now),
+        " (workspace_id, name, slug, content_language, is_default,"
+        "  tenant_ref, is_anonymous, last_seen_at, created_at, updated_at)"
+        " VALUES (?, 'Default', 'default', 'en', 1, '', 0, ?, ?, ?)",
+        (uuid4().hex, now, now, now),
     )
 
 

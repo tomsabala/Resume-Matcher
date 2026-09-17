@@ -53,9 +53,9 @@ async def upload_job_descriptions(
 
 
 @router.get("/{job_id}")
-async def get_job(job_id: str) -> dict:
+async def get_job(job_id: str, workspace_id: WorkspaceId) -> dict:
     """Get job description by ID."""
-    job = await db.get_job(job_id)
+    job = await db.get_job(job_id, workspace_id=workspace_id)
 
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

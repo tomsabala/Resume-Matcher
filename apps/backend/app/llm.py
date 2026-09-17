@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import threading
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -628,7 +629,9 @@ _PROVIDERS_WITHOUT_ENV_KEY_FALLBACK: frozenset[str] = frozenset(
 )
 
 
-def resolve_api_key(stored: dict, provider: str) -> str:
+def resolve_api_key(
+    stored: dict, provider: str, *, allow_env_fallback: bool | None = None
+) -> str:
     """Resolve the effective API key from stored config.
 
     Priority: top-level ``api_key`` > ``api_keys[provider]`` > env/settings
@@ -637,11 +640,22 @@ def resolve_api_key(stored: dict, provider: str) -> str:
     skipped so a paid OpenAI key in ``LLM_API_KEY`` cannot leak to a local
     self-hosted server when the user leaves the provider key blank.
 
+    ``allow_env_fallback`` defaults to :func:`env_key_fallback_allowed`, so the
+    *safe* answer is what a caller gets by forgetting about it. That matters:
+    the fallback is what keeps an anonymous visitor on a shared instance from
+    spending the operator's ``LLM_API_KEY`` — and, because ``/config`` masks
+    and returns whatever this resolves, from being shown the first and last
+    four characters of it. With no key of their own they get the existing "no
+    API key configured" error instead. Pass ``True`` explicitly only where the
+    instance's own key is genuinely the right answer regardless of caller.
+
     This is the single source of truth for key resolution. Every code path
     that needs an API key (runtime, config display, health check, test
     endpoint) must call this function instead of reading ``stored["api_key"]``
     directly.
     """
+    if allow_env_fallback is None:
+        allow_env_fallback = env_key_fallback_allowed()
     api_key = stored.get("api_key", "")
     if not api_key:
         api_keys = stored.get("api_keys", {})
@@ -650,11 +664,24 @@ def resolve_api_key(stored: dict, provider: str) -> str:
         config_provider = _PROVIDER_KEY_MAP.get(provider, provider)
         env_default = (
             ""
-            if provider in _PROVIDERS_WITHOUT_ENV_KEY_FALLBACK
+            if not allow_env_fallback
+            or provider in _PROVIDERS_WITHOUT_ENV_KEY_FALLBACK
             else settings.llm_api_key
         )
         api_key = api_keys.get(config_provider, env_default)
     return api_key
+
+
+def env_key_fallback_allowed() -> bool:
+    """Whether this caller may fall back to the instance's ``LLM_API_KEY``.
+
+    True in single-tenant mode (the operator is the only user) and for an
+    ``admin`` role, which is also what a request-less caller such as a script
+    reports. Anonymous visitors on a shared instance must bring their own key.
+    """
+    from app.tenancy import active_role
+
+    return settings.tenant_mode == "single" or active_role() == "admin"
 
 
 def get_llm_config() -> LLMConfig:
@@ -683,15 +710,21 @@ def get_llm_config() -> LLMConfig:
         and "reasoning_effort" not in stored
     ):
         stored["reasoning_effort"] = "minimal"
-        try:
-            save_config_file(stored)
-            logging.info(
-                "Migrated gpt-5 config to preserve reasoning_effort=minimal "
-                "(set REASONING_EFFORT= or clear in Settings to disable)"
-            )
-        except Exception as e:
-            # Non-fatal — retry on next call.
-            logging.warning("Failed to persist gpt-5 migration: %s", e)
+        # Only single-tenant mode persists it. `stored` is a *merged* view, so
+        # writing it back on a shared instance would flatten one tenant's
+        # provider and model choices into the instance-wide config.json that
+        # every other tenant reads. The in-memory value still applies, so the
+        # behaviour this migration preserves is identical either way.
+        if settings.tenant_mode == "single":
+            try:
+                save_config_file(stored)
+                logging.info(
+                    "Migrated gpt-5 config to preserve reasoning_effort=minimal "
+                    "(set REASONING_EFFORT= or clear in Settings to disable)"
+                )
+            except Exception as e:
+                # Non-fatal — retry on next call.
+                logging.warning("Failed to persist gpt-5 migration: %s", e)
 
     api_key = resolve_api_key(stored, provider)
 
@@ -779,8 +812,13 @@ def get_model_name(config: LLMConfig) -> str:
 # Router — centralises transport retries, cooldowns, and error-type policies
 # ---------------------------------------------------------------------------
 
-_router: Router | None = None
-_router_config_key: str = ""
+# One Router per distinct config, not one Router overall: on a shared instance
+# two tenants with different providers alternating requests would rebuild a
+# single slot on every call, and a Router carries connection pools and
+# cooldown state. Bounded and LRU-evicted so a stream of one-off tenants
+# cannot grow it without limit.
+_ROUTER_CACHE_MAX_ENTRIES = 8
+_routers: OrderedDict[str, Router] = OrderedDict()
 _router_lock = threading.Lock()
 
 
@@ -864,21 +902,23 @@ def _build_router(config: LLMConfig) -> Router:
 def get_router(config: LLMConfig | None = None) -> tuple[Router, LLMConfig]:
     """Get or rebuild the LiteLLM Router.
 
-    The Router is cached and only rebuilt when the underlying config changes.
-    Returns the Router and the config it was built from.
+    Routers are cached per config fingerprint and only built when that config
+    is new to the cache. Returns the Router and the config it was built from.
     """
-    global _router, _router_config_key
-
     if config is None:
         config = get_llm_config()
 
     key = _config_fingerprint(config)
     with _router_lock:
-        if _router is None or _router_config_key != key:
-            _router = _build_router(config)
-            _router_config_key = key
-            logging.info("LiteLLM Router rebuilt for %s/%s", config.provider, config.model)
-        router = _router
+        router = _routers.get(key)
+        if router is None:
+            router = _build_router(config)
+            _routers[key] = router
+            logging.info("LiteLLM Router built for %s/%s", config.provider, config.model)
+            while len(_routers) > _ROUTER_CACHE_MAX_ENTRIES:
+                _routers.popitem(last=False)
+        else:
+            _routers.move_to_end(key)
 
     return router, config
 

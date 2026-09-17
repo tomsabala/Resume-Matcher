@@ -37,7 +37,8 @@ async def test_enhancement_prompt_limit_keeps_other_items(
     _section(source_data, "projects")["entries"][0]["bullets"] = [
         {"text": "x" * 20_000, "style": "bullet"}
     ]
-    source = await _source_resume(isolated_db, source_data)
+    workspace_id = await isolated_db.default_workspace_id()
+    source = await _source_resume(isolated_db, source_data, workspace_id=workspace_id)
     monkeypatch.setattr(ai_limits, "MAX_PROMPT_CHARACTERS", 10_000)
 
     async def complete(prompt: str, **_kwargs: Any) -> dict[str, Any]:
@@ -57,7 +58,7 @@ async def test_enhancement_prompt_limit_keeps_other_items(
     assert body["enhancements"][0]["enhanced_description"] == ["Built a reliable service"]
     assert [item["item_id"] for item in body["errors"]] == [PROJECT_ITEM]
     assert "too large" in body["errors"][0]["message"]
-    stored = await isolated_db.get_resume(source["resume_id"])
+    stored = await isolated_db.get_resume(source["resume_id"], workspace_id=workspace_id)
     assert stored is not None and stored["processed_data"] == source_data
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -66,7 +67,7 @@ async def test_enhancement_prompt_limit_keeps_other_items(
             json={"enhancements": body["enhancements"]},
         )
     assert applied.status_code == 200
-    stored = await isolated_db.get_resume(source["resume_id"])
+    stored = await isolated_db.get_resume(source["resume_id"], workspace_id=workspace_id)
     assert stored is not None
     stored_doc = stored["processed_data"]
     assert _section(stored_doc, "projects") == _section(source_data, "projects")
@@ -81,7 +82,8 @@ async def test_enhancement_total_deadline_still_discards_partial_preview(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source = await _source_resume(isolated_db, sample_resume)
+    workspace_id = await isolated_db.default_workspace_id()
+    source = await _source_resume(isolated_db, sample_resume, workspace_id=workspace_id)
     monkeypatch.setattr(settings, "request_timeout_seconds", 0.15)
     calls = 0
     cancelled = asyncio.Event()
@@ -105,7 +107,7 @@ async def test_enhancement_total_deadline_still_discards_partial_preview(
     assert response.status_code == 504
     assert calls == 2 and cancelled.is_set()
     assert set(response.json()) == {"detail"}
-    stored = await isolated_db.get_resume(source["resume_id"])
+    stored = await isolated_db.get_resume(source["resume_id"], workspace_id=workspace_id)
     assert stored is not None and stored["processed_data"] == sample_resume
 
 
@@ -116,6 +118,8 @@ async def test_upload_error_identifies_committed_row_for_retry(
     monkeypatch: pytest.MonkeyPatch,
     failure: str,
 ) -> None:
+    workspace_id = await isolated_db.default_workspace_id()
+
     async def parse(_markdown: str) -> dict[str, Any]:
         if failure == "prompt":
             ai_limits.validate_prompt_size("x" * (ai_limits.MAX_PROMPT_CHARACTERS + 1))
@@ -132,7 +136,7 @@ async def test_upload_error_identifies_committed_row_for_retry(
             files={"file": ("synthetic.docx", _docx_bytes("Synthetic resume"),
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
         ), timeout=4)
-        rows = await isolated_db.list_resumes()
+        rows = await isolated_db.list_resumes(workspace_id)
         assert len(rows) == 1 and rows[0]["processing_status"] == "failed"
         assert response.status_code == (422 if failure == "prompt" else 504)
         body = response.json()
@@ -146,7 +150,7 @@ async def test_upload_error_identifies_committed_row_for_retry(
         monkeypatch.setattr(resumes, "parse_resume_to_json", recover)
         recovered = await client.post(f"/api/v1/resumes/{body['resume_id']}/retry-processing")
         assert recovered.status_code == 200 and recovered.json()["processing_status"] == "ready"
-        assert len(await isolated_db.list_resumes()) == 1
+        assert len(await isolated_db.list_resumes(workspace_id)) == 1
 
         # A subsequent request on the same client must not inherit the upload receipt.
         invalid = await client.post("/api/v1/resumes/upload", files={
@@ -164,4 +168,4 @@ async def test_upload_rejection_before_create_has_no_identity(
         })
     assert response.status_code == 422
     assert set(response.json()) == {"detail"}
-    assert await isolated_db.list_resumes() == []
+    assert await isolated_db.list_resumes(await isolated_db.default_workspace_id()) == []

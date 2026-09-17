@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.database import DatabaseBusyError, db
+from app.deps import WorkspaceId
 from app.latex.compile import (
     LatexCompileError,
     LatexUnavailableError,
@@ -42,8 +43,8 @@ def _filename(resume: dict[str, object], extension: str) -> str:
     return f"{(safe or 'resume').replace(' ', '_')}.{extension}"
 
 
-async def _load(resume_id: str) -> dict[str, object]:
-    resume = await db.get_resume(resume_id)
+async def _load(resume_id: str, workspace_id: str) -> dict[str, object]:
+    resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
     return resume
@@ -127,6 +128,7 @@ async def get_tex_capabilities() -> TexCapabilities:
 @router.get("/{resume_id}/tex", response_model=TexSourceResponse)
 async def get_resume_tex(
     resume_id: str,
+    workspace_id: WorkspaceId,
     template: str = Query("tex-classic"),
     tex_settings: dict[str, object] = Depends(tex_format_settings),
     regenerate: bool = Query(
@@ -135,7 +137,7 @@ async def get_resume_tex(
     ),
 ) -> TexSourceResponse:
     """The resume's LaTeX source: the user's override, or freshly generated."""
-    resume = await _load(resume_id)
+    resume = await _load(resume_id, workspace_id)
     if regenerate:
         source, is_override = _generate(resume, template, tex_settings), False
     else:
@@ -151,7 +153,7 @@ async def get_resume_tex(
 
 @router.put("/{resume_id}/tex", response_model=TexSourceResponse)
 async def put_resume_tex(
-    resume_id: str, request: TexSourceUpdate
+    resume_id: str, request: TexSourceUpdate, workspace_id: WorkspaceId
 ) -> TexSourceResponse:
     """Save hand-edited LaTeX.
 
@@ -162,12 +164,13 @@ async def put_resume_tex(
     document is unchanged, so without recording the source the history would
     show nothing happened and the edit could not be restored.
     """
-    resume = await _load(resume_id)
+    resume = await _load(resume_id, workspace_id)
     document = migrate_document(resume.get("processed_data"))
     try:
         await db.commit_resume_version(
             resume_id,
             document.model_dump(mode="json"),
+            workspace_id=workspace_id,
             origin="tex_edit",
             tex_source=request.source,
             tex_source_mode="edited",
@@ -192,15 +195,17 @@ async def put_resume_tex(
 @router.delete("/{resume_id}/tex", response_model=TexSourceResponse)
 async def delete_resume_tex(
     resume_id: str,
+    workspace_id: WorkspaceId,
     template: str = Query("tex-classic"),
     tex_settings: dict[str, object] = Depends(tex_format_settings),
 ) -> TexSourceResponse:
     """Drop the override and go back to generating from the document."""
-    resume = await _load(resume_id)
+    resume = await _load(resume_id, workspace_id)
     try:
         await db.commit_resume_version(
             resume_id,
             migrate_document(resume.get("processed_data")).model_dump(mode="json"),
+            workspace_id=workspace_id,
             origin="tex_edit",
             tex_source=None,
             tex_source_mode="generated",
@@ -225,11 +230,12 @@ async def delete_resume_tex(
 @router.get("/{resume_id}/tex/source")
 async def download_resume_tex(
     resume_id: str,
+    workspace_id: WorkspaceId,
     template: str = Query("tex-classic"),
     tex_settings: dict[str, object] = Depends(tex_format_settings),
 ) -> Response:
     """The ``.tex`` as a file download — the fallback when no engine exists."""
-    resume = await _load(resume_id)
+    resume = await _load(resume_id, workspace_id)
     source, _ = _source_for(resume, template, tex_settings)
     return Response(
         content=source.encode("utf-8"),
@@ -243,11 +249,12 @@ async def download_resume_tex(
 @router.get("/{resume_id}/tex/pdf")
 async def download_resume_tex_pdf(
     resume_id: str,
+    workspace_id: WorkspaceId,
     template: str = Query("tex-classic"),
     tex_settings: dict[str, object] = Depends(tex_format_settings),
 ) -> Response:
     """Compile the resume's LaTeX and return the PDF."""
-    resume = await _load(resume_id)
+    resume = await _load(resume_id, workspace_id)
     source, _ = _source_for(resume, template, tex_settings)
     try:
         pdf_bytes = await compile_tex_to_pdf(source)

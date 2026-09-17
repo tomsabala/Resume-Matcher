@@ -25,7 +25,13 @@ from app.models import Base
 config = context.config
 
 if config.config_file_name is not None and config.attributes.get("connection") is None:
-    fileConfig(config.config_file_name)
+    # ``disable_existing_loggers`` defaults to True, which would silence every
+    # logger already configured in this process — including ``app`` — for good.
+    # That matters because the migrations can run inside a live process (a
+    # test replaying a revision, an operator running the CLI from a shell that
+    # also imported the app), and losing application logging as a side effect
+    # of a schema upgrade is never what the caller wanted.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

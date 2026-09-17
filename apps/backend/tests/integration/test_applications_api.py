@@ -1,5 +1,6 @@
 """Integration tests for the Kanban application-tracker API (real isolated DB)."""
 
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -14,11 +15,25 @@ def _client():
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
-async def _seed_card(isolated_db, **kwargs):
-    """Create a card directly on the DB (bypassing the LLM manual-add path)."""
-    defaults = dict(job_id="job-1", resume_id="res-1", status="applied")
+async def _seed_card(isolated_db, workspace_id, **kwargs):
+    """Create a card directly on the DB (bypassing the LLM manual-add path).
+
+    Both ids are validated against the workspace, so a job and a resume are
+    created here unless the caller names its own.
+    """
+    defaults: dict[str, Any] = dict(status="applied")
+    if "job_id" not in kwargs:
+        job = await isolated_db.create_job(
+            content="JD body text", workspace_id=workspace_id
+        )
+        defaults["job_id"] = job["job_id"]
+    if "resume_id" not in kwargs:
+        resume = await isolated_db.create_resume(
+            content="# Resume", workspace_id=workspace_id
+        )
+        defaults["resume_id"] = resume["resume_id"]
     defaults.update(kwargs)
-    return await isolated_db.create_application(**defaults)
+    return await isolated_db.create_application(**defaults, workspace_id=workspace_id)
 
 
 class TestListAndGroup:
@@ -31,18 +46,23 @@ class TestListAndGroup:
         assert all(columns[s] == [] for s in APPLICATION_STATUS_ORDER)
 
     async def test_cards_grouped_by_status(self, isolated_db):
-        await _seed_card(isolated_db, job_id="j1", resume_id="r1", status="applied")
-        await _seed_card(isolated_db, job_id="j2", resume_id="r2", status="interview")
+        workspace_id = await isolated_db.default_workspace_id()
+        applied = await _seed_card(isolated_db, workspace_id, status="applied")
+        await _seed_card(isolated_db, workspace_id, status="interview")
         async with _client() as client:
             resp = await client.get("/api/v1/applications")
         columns = resp.json()["columns"]
         assert len(columns["applied"]) == 1
         assert len(columns["interview"]) == 1
-        assert columns["applied"][0]["resume_id"] == "r1"
+        assert columns["applied"][0]["resume_id"] == applied["resume_id"]
 
 
 class TestManualAdd:
     async def test_manual_add_extracts_company_role(self, isolated_db):
+        workspace_id = await isolated_db.default_workspace_id()
+        resume = await isolated_db.create_resume(
+            content="# Resume", workspace_id=workspace_id
+        )
         with patch(
             "app.routers.applications.extract_job_keywords",
             new_callable=AsyncMock,
@@ -52,7 +72,7 @@ class TestManualAdd:
                 resp = await client.post(
                     "/api/v1/applications",
                     json={
-                        "resume_id": "res-1",
+                        "resume_id": resume["resume_id"],
                         "job_description": "We are Acme Corp hiring a Staff Engineer...",
                     },
                 )
@@ -63,6 +83,10 @@ class TestManualAdd:
         assert body["status"] == "applied"
 
     async def test_manual_add_respects_explicit_fields_without_llm(self, isolated_db):
+        workspace_id = await isolated_db.default_workspace_id()
+        resume = await isolated_db.create_resume(
+            content="# Resume", workspace_id=workspace_id
+        )
         with patch(
             "app.routers.applications.extract_job_keywords",
             new_callable=AsyncMock,
@@ -71,7 +95,7 @@ class TestManualAdd:
                 resp = await client.post(
                     "/api/v1/applications",
                     json={
-                        "resume_id": "res-1",
+                        "resume_id": resume["resume_id"],
                         "job_description": "JD text",
                         "company": "Given Co",
                         "role": "Given Role",
@@ -89,9 +113,19 @@ class TestManualAdd:
 
 class TestDetail:
     async def test_detail_embeds_job_and_resume(self, isolated_db):
-        resume = await isolated_db.create_resume(content="# Resume")
-        job = await isolated_db.create_job(content="JD body text")
-        card = await _seed_card(isolated_db, job_id=job["job_id"], resume_id=resume["resume_id"])
+        workspace_id = await isolated_db.default_workspace_id()
+        resume = await isolated_db.create_resume(
+            content="# Resume", workspace_id=workspace_id
+        )
+        job = await isolated_db.create_job(
+            content="JD body text", workspace_id=workspace_id
+        )
+        card = await _seed_card(
+            isolated_db,
+            workspace_id,
+            job_id=job["job_id"],
+            resume_id=resume["resume_id"],
+        )
         async with _client() as client:
             resp = await client.get(f"/api/v1/applications/{card['application_id']}")
         assert resp.status_code == 200
@@ -100,8 +134,12 @@ class TestDetail:
         assert body["resume"]["resume_id"] == resume["resume_id"]
 
     async def test_detail_tolerates_deleted_resume(self, isolated_db):
-        job = await isolated_db.create_job(content="JD")
-        card = await _seed_card(isolated_db, job_id=job["job_id"], resume_id="ghost-resume")
+        workspace_id = await isolated_db.default_workspace_id()
+        job = await isolated_db.create_job(content="JD", workspace_id=workspace_id)
+        card = await _seed_card(isolated_db, workspace_id, job_id=job["job_id"])
+        await isolated_db.delete_resume(
+            card["resume_id"], workspace_id=workspace_id
+        )
         async with _client() as client:
             resp = await client.get(f"/api/v1/applications/{card['application_id']}")
         assert resp.status_code == 200
@@ -115,8 +153,9 @@ class TestDetail:
 
 class TestUpdateAndMove:
     async def test_patch_moves_card_across_columns(self, isolated_db):
-        a = await _seed_card(isolated_db, job_id="j1", resume_id="r1", status="applied")
-        b = await _seed_card(isolated_db, job_id="j2", resume_id="r2", status="applied")
+        workspace_id = await isolated_db.default_workspace_id()
+        a = await _seed_card(isolated_db, workspace_id, status="applied")
+        b = await _seed_card(isolated_db, workspace_id, status="applied")
         async with _client() as client:
             resp = await client.patch(
                 f"/api/v1/applications/{a['application_id']}",
@@ -131,7 +170,8 @@ class TestUpdateAndMove:
         assert board["applied"][0]["position"] == 0
 
     async def test_patch_notes_and_company(self, isolated_db):
-        card = await _seed_card(isolated_db)
+        workspace_id = await isolated_db.default_workspace_id()
+        card = await _seed_card(isolated_db, workspace_id)
         async with _client() as client:
             resp = await client.patch(
                 f"/api/v1/applications/{card['application_id']}",
@@ -150,8 +190,9 @@ class TestUpdateAndMove:
 
 class TestBulkAndDelete:
     async def test_bulk_move(self, isolated_db):
-        a = await _seed_card(isolated_db, job_id="j1", resume_id="r1")
-        b = await _seed_card(isolated_db, job_id="j2", resume_id="r2")
+        workspace_id = await isolated_db.default_workspace_id()
+        a = await _seed_card(isolated_db, workspace_id)
+        b = await _seed_card(isolated_db, workspace_id)
         async with _client() as client:
             resp = await client.patch(
                 "/api/v1/applications/bulk",
@@ -165,7 +206,8 @@ class TestBulkAndDelete:
         assert board["applied"] == []
 
     async def test_delete_single(self, isolated_db):
-        card = await _seed_card(isolated_db)
+        workspace_id = await isolated_db.default_workspace_id()
+        card = await _seed_card(isolated_db, workspace_id)
         async with _client() as client:
             resp = await client.delete(f"/api/v1/applications/{card['application_id']}")
         assert resp.status_code == 200
@@ -174,8 +216,9 @@ class TestBulkAndDelete:
         assert board["applied"] == []
 
     async def test_bulk_delete(self, isolated_db):
-        a = await _seed_card(isolated_db, job_id="j1", resume_id="r1")
-        b = await _seed_card(isolated_db, job_id="j2", resume_id="r2")
+        workspace_id = await isolated_db.default_workspace_id()
+        a = await _seed_card(isolated_db, workspace_id)
+        b = await _seed_card(isolated_db, workspace_id)
         async with _client() as client:
             resp = await client.post(
                 "/api/v1/applications/bulk-delete",
@@ -191,9 +234,13 @@ class TestBulkAndDelete:
 class TestRobustnessFixes:
     async def test_create_dedupes_same_job_resume(self, isolated_db):
         """A second card for the same (job, resume) returns the existing one."""
-        first = await _seed_card(isolated_db, job_id="dup-j", resume_id="dup-r", status="applied")
+        workspace_id = await isolated_db.default_workspace_id()
+        first = await _seed_card(isolated_db, workspace_id, status="applied")
         second = await isolated_db.create_application(
-            job_id="dup-j", resume_id="dup-r", status="applied"
+            job_id=first["job_id"],
+            resume_id=first["resume_id"],
+            status="applied",
+            workspace_id=workspace_id,
         )
         assert second["application_id"] == first["application_id"]
         async with _client() as client:
@@ -202,8 +249,9 @@ class TestRobustnessFixes:
 
     async def test_unknown_status_is_skipped_not_500(self, isolated_db):
         """A row whose status is outside the enum must not 500 the board."""
-        await isolated_db.create_application(job_id="j1", resume_id="r1", status="bogus_status")
-        await _seed_card(isolated_db, job_id="j2", resume_id="r2", status="applied")
+        workspace_id = await isolated_db.default_workspace_id()
+        await _seed_card(isolated_db, workspace_id, status="bogus_status")
+        await _seed_card(isolated_db, workspace_id, status="applied")
         async with _client() as client:
             resp = await client.get("/api/v1/applications")
         assert resp.status_code == 200
@@ -215,6 +263,10 @@ class TestRobustnessFixes:
         self, isolated_db: Database
     ) -> None:
         """If application creation fails, the just-created job is removed."""
+        workspace_id = await isolated_db.default_workspace_id()
+        resume = await isolated_db.create_resume(
+            content="# Resume", workspace_id=workspace_id
+        )
         with patch.object(
             isolated_db,
             "_insert_application",
@@ -225,12 +277,12 @@ class TestRobustnessFixes:
                 resp = await client.post(
                     "/api/v1/applications",
                     json={
-                        "resume_id": "res-1",
+                        "resume_id": resume["resume_id"],
                         "job_description": "JD text",
                         "company": "Given Co",
                         "role": "Given Role",
                     },
                 )
         assert resp.status_code == 500
-        stats = await isolated_db.get_stats()
+        stats = await isolated_db.get_stats(workspace_id)
         assert stats["total_jobs"] == 0  # no orphan job left behind

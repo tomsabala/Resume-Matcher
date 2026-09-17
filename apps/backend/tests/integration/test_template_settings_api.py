@@ -54,6 +54,7 @@ async def _seed(isolated_db: Any, sample_resume: dict[str, Any]) -> str:
         content_type="document",
         processed_data=document,
         processing_status="ready",
+        workspace_id=await isolated_db.default_workspace_id(),
     )
     return created["resume_id"]
 
@@ -94,7 +95,11 @@ async def test_a_row_stored_before_the_levels_widened_keeps_its_look(
     means what it used to mean two numbers higher up. Without the upgrade a
     resume designed yesterday opens two steps tighter than the user left it."""
     resume_id = await _seed(isolated_db, sample_resume)
-    await isolated_db.update_resume(resume_id, {"template_settings": V1_SETTINGS})
+    await isolated_db.update_resume(
+        resume_id,
+        {"template_settings": V1_SETTINGS},
+        workspace_id=await isolated_db.default_workspace_id(),
+    )
 
     async with _client() as client:
         fetched = await client.get(f"/api/v1/resumes?resume_id={resume_id}")
@@ -243,7 +248,10 @@ async def test_a_tailored_resume_inherits_how_its_parent_looks(
     response = await client.post("/api/v1/resumes/improve", json=payload)
 
     assert response.status_code == 200, response.text
-    tailored = await isolated_db.get_resume(response.json()["data"]["resume_id"])
+    tailored = await isolated_db.get_resume(
+        response.json()["data"]["resume_id"],
+        workspace_id=await isolated_db.default_workspace_id(),
+    )
     assert tailored is not None
     assert tailored["template_settings"] == TEX_SETTINGS
 

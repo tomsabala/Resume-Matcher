@@ -128,7 +128,9 @@ async def test_confirming_a_subset_takes_exactly_those_changes(
     accepted = [row["path"] for row in modified[:2]]
 
     data = await _confirm(resume_id, job_id, preview, accepted)
-    saved = await isolated_db.get_resume(data["resume_id"])
+    saved = await isolated_db.get_resume(
+        data["resume_id"], workspace_id=await isolated_db.default_workspace_id()
+    )
     texts = _bullet_texts(saved["processed_data"])
 
     rewritten = [text for text in texts if any(s in text for s in _REWRITES)]
@@ -150,7 +152,9 @@ async def test_accepting_nothing_saves_the_original_content(
     resume_id, job_id, preview = await _preview(isolated_db, source, proposal)
 
     data = await _confirm(resume_id, job_id, preview, [])
-    saved = await isolated_db.get_resume(data["resume_id"])
+    saved = await isolated_db.get_resume(
+        data["resume_id"], workspace_id=await isolated_db.default_workspace_id()
+    )
 
     assert _bullet_texts(saved["processed_data"]) == _bullet_texts(source)
 
@@ -164,6 +168,8 @@ async def test_omitting_accepted_paths_still_takes_the_whole_preview(
     resume_id, job_id, preview = await _preview(isolated_db, source, proposal)
 
     data = await _confirm(resume_id, job_id, preview, None)
-    saved = await isolated_db.get_resume(data["resume_id"])
+    saved = await isolated_db.get_resume(
+        data["resume_id"], workspace_id=await isolated_db.default_workspace_id()
+    )
 
     assert _bullet_texts(saved["processed_data"]) == _bullet_texts(proposal)

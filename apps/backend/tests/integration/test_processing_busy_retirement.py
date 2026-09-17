@@ -20,14 +20,22 @@ from tests.integration.test_upload_processing import _docx_bytes
 async def test_unclaimed_upload_cannot_be_published_ready(
     fast_busy_database: Database,
 ) -> None:
+    workspace_id = await fast_busy_database.default_workspace_id()
     row = await fast_busy_database.create_resume(
-        content="Synthetic upload", processing_status="processing"
+        content="Synthetic upload",
+        processing_status="processing",
+        workspace_id=workspace_id,
     )
     with pytest.raises(ValueError, match="ownership token"):
         await fast_busy_database.finish_resume_processing(
-            row["resume_id"], None, processing_status="ready"
+            row["resume_id"],
+            None,
+            workspace_id=workspace_id,
+            processing_status="ready",
         )
-    stored = await fast_busy_database.get_resume(row["resume_id"])
+    stored = await fast_busy_database.get_resume(
+        row["resume_id"], workspace_id=workspace_id
+    )
     assert stored is not None and stored["processing_status"] == "processing"
 
 
@@ -39,10 +47,15 @@ async def test_sustained_contention_exhausts_retirement_and_allows_later_retry(
 ) -> None:
     """A permanent writer lock cannot retain a background task indefinitely."""
     database = fast_busy_database
+    workspace_id = await database.default_workspace_id()
     row = await database.create_resume(
-        content="Synthetic resume", processing_status="failed"
+        content="Synthetic resume",
+        processing_status="failed",
+        workspace_id=workspace_id,
     )
-    token = await database.claim_resume_processing(row["resume_id"])
+    token = await database.claim_resume_processing(
+        row["resume_id"], workspace_id=workspace_id
+    )
     assert token is not None
     writer = database._session()
     await writer.__aenter__()
@@ -63,7 +76,9 @@ async def test_sustained_contention_exhausts_retirement_and_allows_later_retry(
 
     background: list[asyncio.Task[Any]] = []
     try:
-        await resumes._finish_cancelled_processing(row["resume_id"], token)
+        await resumes._finish_cancelled_processing(
+            row["resume_id"], token, workspace_id=workspace_id
+        )
         background = list(resumes._PROCESSING_CLEANUP_TASKS)
         assert background
         done, pending = await asyncio.wait(background, timeout=0.25)
@@ -79,7 +94,7 @@ async def test_sustained_contention_exhausts_retirement_and_allows_later_retry(
         await writer.rollback()
         await writer.__aexit__(None, None, None)
 
-    stored = await database.get_resume(row["resume_id"])
+    stored = await database.get_resume(row["resume_id"], workspace_id=workspace_id)
     assert stored is not None and stored["processing_status"] == "processing"
 
     async def parse_after_lock_release(content: str) -> dict[str, Any]:
@@ -94,7 +109,7 @@ async def test_sustained_contention_exhausts_retirement_and_allows_later_retry(
             f"/api/v1/resumes/{row['resume_id']}/retry-processing"
         )
     assert retried.status_code == 200, retried.text
-    stored = await database.get_resume(row["resume_id"])
+    stored = await database.get_resume(row["resume_id"], workspace_id=workspace_id)
     assert stored is not None and stored["processing_status"] == "ready"
     assert stored["processed_data"] == sample_resume
 
@@ -145,14 +160,21 @@ async def test_lifespan_reaps_contended_retirement_before_database_close(
     writer = database._session()
     try:
         async with app.router.lifespan_context(app):
+            workspace_id = await database.default_workspace_id()
             row = await database.create_resume(
-                content="Synthetic resume", processing_status="failed"
+                content="Synthetic resume",
+                processing_status="failed",
+                workspace_id=workspace_id,
             )
-            token = await database.claim_resume_processing(row["resume_id"])
+            token = await database.claim_resume_processing(
+                row["resume_id"], workspace_id=workspace_id
+            )
             assert token is not None
             await writer.__aenter__()
             await writer.execute(text("BEGIN IMMEDIATE"))
-            await resumes._finish_cancelled_processing(row["resume_id"], token)
+            await resumes._finish_cancelled_processing(
+                row["resume_id"], token, workspace_id=workspace_id
+            )
             await attempt_started.wait()
             assert not attempt_settled.is_set()
             background = list(resumes._PROCESSING_CLEANUP_TASKS)
@@ -178,8 +200,11 @@ async def test_busy_processing_finish_is_retired_after_caller_returns(
     superseded: bool,
 ) -> None:
     database = fast_busy_database
+    workspace_id = await database.default_workspace_id()
     row = await database.create_resume(
-        content="Synthetic resume", processing_status="failed"
+        content="Synthetic resume",
+        processing_status="failed",
+        workspace_id=workspace_id,
     )
     writer = database._session()
     await writer.__aenter__()
@@ -220,7 +245,7 @@ async def test_busy_processing_finish_is_retired_after_caller_returns(
             asyncio.gather(*resumes._PROCESSING_CLEANUP_TASKS), timeout=1
         )
 
-    stored = await database.get_resume(row["resume_id"])
+    stored = await database.get_resume(row["resume_id"], workspace_id=workspace_id)
     assert stored is not None
     assert stored["processing_status"] == ("ready" if superseded else "failed")
     assert stored["processed_data"] == (
@@ -235,10 +260,15 @@ async def test_busy_claim_preserves_the_existing_processing_owner(
     fast_busy_database: Database,
 ) -> None:
     database = fast_busy_database
+    workspace_id = await database.default_workspace_id()
     row = await database.create_resume(
-        content="Synthetic resume", processing_status="failed"
+        content="Synthetic resume",
+        processing_status="failed",
+        workspace_id=workspace_id,
     )
-    token = await database.claim_resume_processing(row["resume_id"])
+    token = await database.claim_resume_processing(
+        row["resume_id"], workspace_id=workspace_id
+    )
     assert token is not None
     async with database._session() as writer:
         await writer.execute(text("BEGIN IMMEDIATE"))
@@ -254,6 +284,7 @@ async def test_busy_claim_preserves_the_existing_processing_owner(
     assert await database.finish_resume_processing(
         row["resume_id"],
         token,
+        workspace_id=workspace_id,
         processing_status="ready",
         processed_data={"summary": "original owner"},
     ) == "committed"

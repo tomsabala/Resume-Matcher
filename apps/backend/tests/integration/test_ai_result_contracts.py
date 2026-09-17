@@ -24,11 +24,14 @@ def client() -> AsyncClient:
 async def _source_resume(
     database: Database,
     sample_resume: dict[str, Any],
+    *,
+    workspace_id: str,
 ) -> dict[str, Any]:
     return await database.create_resume(
         content="# Synthetic resume",
         processed_data=copy.deepcopy(sample_resume),
         processing_status="ready",
+        workspace_id=workspace_id,
     )
 
 
@@ -66,7 +69,10 @@ async def test_enhancement_all_failed_has_distinct_outcome(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source = await _source_resume(isolated_db, sample_resume)
+    workspace_id = await isolated_db.default_workspace_id()
+    source = await _source_resume(
+        isolated_db, sample_resume, workspace_id=workspace_id
+    )
     monkeypatch.setattr(
         enrichment,
         "complete_json",
@@ -91,7 +97,10 @@ async def test_enhancement_partial_failure_reports_item_error(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source = await _source_resume(isolated_db, sample_resume)
+    workspace_id = await isolated_db.default_workspace_id()
+    source = await _source_resume(
+        isolated_db, sample_resume, workspace_id=workspace_id
+    )
     provider = AsyncMock(
         side_effect=[
             {"additional_bullets": ["Improved factual bullet"]},
@@ -110,7 +119,9 @@ async def test_enhancement_partial_failure_reports_item_error(
     body = response.json()
     assert [item["item_id"] for item in body["enhancements"]] == [EXPERIENCE_ITEM]
     assert [item["item_id"] for item in body["errors"]] == [PROJECT_ITEM]
-    stored = await isolated_db.get_resume(source["resume_id"])
+    stored = await isolated_db.get_resume(
+        source["resume_id"], workspace_id=workspace_id
+    )
     assert stored is not None and stored["processed_data"] == sample_resume
 
 
@@ -131,7 +142,10 @@ async def test_enhancement_rejects_non_meaningful_replacements(
     monkeypatch: pytest.MonkeyPatch,
     provider_result: dict[str, Any],
 ) -> None:
-    source = await _source_resume(isolated_db, sample_resume)
+    workspace_id = await isolated_db.default_workspace_id()
+    source = await _source_resume(
+        isolated_db, sample_resume, workspace_id=workspace_id
+    )
     monkeypatch.setattr(
         enrichment, "complete_json", AsyncMock(return_value=provider_result)
     )
@@ -143,7 +157,9 @@ async def test_enhancement_rejects_non_meaningful_replacements(
         )
 
     assert response.status_code == 500
-    stored = await isolated_db.get_resume(source["resume_id"])
+    stored = await isolated_db.get_resume(
+        source["resume_id"], workspace_id=workspace_id
+    )
     assert stored is not None and stored["processed_data"] == sample_resume
 
 
@@ -152,7 +168,10 @@ async def test_empty_enhancement_request_is_valid_empty_control(
     isolated_db: Database,
     sample_resume: dict[str, Any],
 ) -> None:
-    source = await _source_resume(isolated_db, sample_resume)
+    workspace_id = await isolated_db.default_workspace_id()
+    source = await _source_resume(
+        isolated_db, sample_resume, workspace_id=workspace_id
+    )
     async with client:
         response = await client.post(
             "/api/v1/enrichment/enhance",
@@ -180,7 +199,10 @@ async def test_regeneration_rejects_non_meaningful_replacements(
     monkeypatch: pytest.MonkeyPatch,
     provider_result: dict[str, Any],
 ) -> None:
-    source = await _source_resume(isolated_db, sample_resume)
+    workspace_id = await isolated_db.default_workspace_id()
+    source = await _source_resume(
+        isolated_db, sample_resume, workspace_id=workspace_id
+    )
     monkeypatch.setattr(
         enrichment, "complete_json", AsyncMock(return_value=provider_result)
     )
@@ -201,7 +223,9 @@ async def test_regeneration_rejects_non_meaningful_replacements(
         response = await client.post("/api/v1/enrichment/regenerate", json=request)
 
     assert response.status_code == 500
-    stored = await isolated_db.get_resume(source["resume_id"])
+    stored = await isolated_db.get_resume(
+        source["resume_id"], workspace_id=workspace_id
+    )
     assert stored is not None and stored["processed_data"] == sample_resume
 
 
@@ -211,7 +235,10 @@ async def test_regeneration_partial_failure_preserves_original_resume(
     sample_resume: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source = await _source_resume(isolated_db, sample_resume)
+    workspace_id = await isolated_db.default_workspace_id()
+    source = await _source_resume(
+        isolated_db, sample_resume, workspace_id=workspace_id
+    )
     monkeypatch.setattr(
         enrichment,
         "complete_json",
@@ -249,7 +276,9 @@ async def test_regeneration_partial_failure_preserves_original_resume(
         EXPERIENCE_ITEM
     ]
     assert [item["item_id"] for item in response.json()["errors"]] == [SKILLS_ITEM]
-    stored = await isolated_db.get_resume(source["resume_id"])
+    stored = await isolated_db.get_resume(
+        source["resume_id"], workspace_id=workspace_id
+    )
     assert stored is not None and stored["processed_data"] == sample_resume
 
 
@@ -552,14 +581,19 @@ async def test_auxiliary_blank_and_failed_outputs_become_durable_warnings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     data = ResumeDocument.model_validate(sample_resume).model_dump(mode="json")
+    workspace_id = await isolated_db.default_workspace_id()
     source = await isolated_db.create_resume(
         content="# Synthetic resume",
         processed_data=data,
         processing_status="ready",
+        workspace_id=workspace_id,
     )
-    job = await isolated_db.create_job("Python engineer at Acme")
+    job = await isolated_db.create_job(
+        "Python engineer at Acme", workspace_id=workspace_id
+    )
     payload_hash = resumes._hash_improved_data(data)
     registered = await isolated_db.register_preview(
+        workspace_id=workspace_id,
         source_id=source["resume_id"],
         job_id=job["job_id"],
         payload_hash=payload_hash,
@@ -607,7 +641,9 @@ async def test_auxiliary_blank_and_failed_outputs_become_durable_warnings(
         "Cover Letter generation failed",
         "Outreach generation failed",
     ]
-    stored = await isolated_db.get_resume(response.json()["data"]["resume_id"])
+    stored = await isolated_db.get_resume(
+        response.json()["data"]["resume_id"], workspace_id=workspace_id
+    )
     assert stored is not None
     assert stored["processing_status"] == "ready"
     assert stored.get("title") is None
