@@ -76,6 +76,7 @@ Authoritative definition: `apps/frontend/lib/types/template-settings.ts` (`Templ
 
 ```typescript
 interface TemplateSettings {
+  settingsVersion: 2; // level-vocabulary marker; absent = v1, upgraded on read
   template:
     | "swiss-single"
     | "swiss-two-column"
@@ -89,13 +90,17 @@ interface TemplateSettings {
   pageSize: "A4" | "LETTER";
   margins: { top: number; bottom: number; left: number; right: number }; // 5-25mm each
   spacing: {
-    section: 1 | 2 | 3 | 4 | 5;
-    item: 1 | 2 | 3 | 4 | 5;
-    lineHeight: 1 | 2 | 3 | 4 | 5;
+    // SpacingLevel = 1…9
+    section: SpacingLevel; // neutral 5
+    item: SpacingLevel; // neutral 4
+    lineHeight: SpacingLevel; // neutral 5
+    bulletLeadIn: SpacingLevel; // neutral 4 — LaTeX templates only
   };
   fontSize: {
-    base: 1 | 2 | 3 | 4 | 5;
-    headerScale: 1 | 2 | 3 | 4 | 5;
+    // FontLevel = 1…5 — `extarticle`/`extsizes` has 8/9/10/11/12pt and
+    // nothing below 8pt, so these axes have no step to add downward
+    base: FontLevel; // neutral 3
+    headerScale: FontLevel; // neutral 3
     headerFont: "serif" | "sans-serif" | "mono";
     bodyFont: "serif" | "sans-serif" | "mono";
   };
@@ -104,6 +109,17 @@ interface TemplateSettings {
   accentColor: "blue" | "green" | "orange" | "red"; // modern, modern-two-column, vivid
 }
 ```
+
+`settingsVersion: 2` is on every payload the frontend writes. A stored payload
+without it is v1, whose spacing levels ran 1-5, and v1 and v2 level numbers
+overlap — so the payload alone is ambiguous and the marker is what tells them
+apart. `readTemplateSettings`
+(`apps/frontend/lib/utils/template-settings-storage.ts`) and the backend's
+`_parse_template_settings` (`apps/backend/app/routers/resumes.py`) upgrade such
+a payload identically by adding 2 to each spacing level (so the old 1-5 land on
+3-7, the same physical values as before, and nothing reflows); the font levels
+and every other field are untouched. Per-level values for both renderers:
+[latex-export.md](../features/latex-export.md#what-a-level-actually-means).
 
 With a `tex` template selected, the engine reads `pageSize`, `margins`,
 `spacing`, `fontSize.base`, `fontSize.headerScale` and `compactMode`: the
@@ -179,10 +195,17 @@ and a kind; the result is indistinguishable from any other section.
 ## Spacing Variables
 
 ```css
---section-spacing: calc(4px * var(--spacing-level));
---item-spacing: calc(2px * var(--spacing-level));
---line-height: calc(1.4 + 0.1 * var(--line-height-level));
+--section-gap:   /* SECTION_SPACING_MAP[spacing.section]   — 2…40px  */
+--item-gap:      /* ITEM_SPACING_MAP[spacing.item]         — 0…32px  */
+--line-height:   /* LINE_HEIGHT_MAP[spacing.lineHeight]    — 1.05…1.85 */
 ```
+
+A level is a table lookup, not a `calc()` on the level number: the three maps
+live in `lib/types/template-settings.ts` and their steps are uneven on purpose
+(tight at the bottom, generous at the top). `compactMode` multiplies the two
+gaps by `COMPACT_MULTIPLIER` and the leading by
+`COMPACT_LINE_HEIGHT_MULTIPLIER`. Full per-level table:
+[latex-export.md](../features/latex-export.md#what-a-level-actually-means).
 
 ## Adding a Template
 

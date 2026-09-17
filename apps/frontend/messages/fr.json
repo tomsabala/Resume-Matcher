@@ -359,6 +359,7 @@
       "spacing": "Espacement",
       "spacingSection": "Section",
       "spacingItems": "Éléments",
+      "spacingBulletLeadIn": "Amorce",
       "spacingLines": "Lignes",
       "fontSize": "Taille de police",
       "baseFontSize": "Base",

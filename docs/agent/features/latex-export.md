@@ -148,11 +148,14 @@ empty PDF, and registers the helper filters below.
 
 `render_document_tex(document, template_id="tex-classic", settings=None)` is
 the whole API. `settings` is an optional dict of formatting controls, spelled
-exactly like the `/tex*` (and Chromium `/pdf`) query parameters:
-`pageSize`, `marginTop`/`marginBottom`/`marginLeft`/`marginRight` (mm, 5–25),
-`sectionSpacing`, `itemSpacing`, `lineHeight`, `fontSize`, `headerScale`
-(levels 1–5) and `compactMode`. Unknown keys are ignored; absent keys fall
-back to the neutral level, which is each template's reference look, so the
+exactly like the `/tex*` query parameters — and, `bulletLeadIn` excepted, the
+Chromium `/pdf` ones too: `pageSize`,
+`marginTop`/`marginBottom`/`marginLeft`/`marginRight` (mm, 5–25), the four
+spacing axes `sectionSpacing`, `itemSpacing`, `bulletLeadIn`, `lineHeight`
+(levels 1–9), the two font axes `fontSize`, `headerScale` (levels 1–5) and
+`compactMode`. Unknown keys are ignored; absent keys fall back to the neutral
+level — `sectionSpacing` 5, `itemSpacing` 4, `bulletLeadIn` 4, `lineHeight` 5,
+`fontSize` 3, `headerScale` 3 — which is each template's reference look, so the
 diff's `mode: "tex"` and a parameterless `GET /tex` still render the values
 documented below.
 
@@ -168,13 +171,14 @@ tables scale them:
 | ------- | ----------- | ------ |
 | `pageSize`, `fontSize` | `documentclass` | `a4paper`/`letterpaper` and 8/9/10/11/12pt. Below 10pt the class becomes `extarticle` (`extsizes`), because `article` has no 8pt or 9pt option |
 | margins | `geometry` | One explicit side switches the option list to per-side mm, the other sides taking the template's A4 equivalent; with no margin at all the paper-proportional default (`scale=0.9` / `margin=1.2cm`) is kept verbatim |
-| `sectionSpacing` | `section_before`, `section_after`, `section_end`, `block_end` | The heading rhythm. `section_end`/`block_end` scale only the measured gap *residual*, so the `\titlespacing` before-gap is not counted twice |
+| `sectionSpacing` | `section_before`, `section_after`, `section_end` | The heading rhythm. `section_end` scales only the measured gap *residual*, so the `\titlespacing` before-gap is not counted twice; it is also the single base every section-trailer macro offsets from |
 | `itemSpacing` | `item_sep`, `entry_gap` | Bullet-to-bullet and entry-to-entry gaps |
+| `bulletLeadIn` | `item_lead` | The gap above a bullet list. LaTeX-only: an HTML bullet list has no `\parskip` accident to correct, so the Chromium route does not take this parameter and the panel disables the control for HTML templates |
 | `lineHeight` | `linespread` | Leading inside a paragraph or bullet |
 | `headerScale` | `name_size`, `headline_size`, `section_size` | Steps along LaTeX's size ladder (`\tiny`…`\Huge`), clamped at the ends |
 | `compactMode` | all spacing + `linespread` | ×0.6 spacing, ×0.92 leading — the frontend's `COMPACT_MULTIPLIER` / `COMPACT_LINE_HEIGHT_MULTIPLIER` |
 
-**The three spacing axes are disjoint on purpose**, because the panel adjusts
+**The four spacing axes are disjoint on purpose**, because the panel adjusts
 them independently: `parskip` fixes `\parskip` from the class size at load
 time and does not follow `\linespread`, so leading cannot leak into paragraph,
 entry or section gaps. `tests/unit/test_latex_layout.py` asserts that each
@@ -190,6 +194,64 @@ resume's body face to Computer Modern Sans.
 drops invisible sections and sections that are empty *for their kind* — blank
 `text`, no `entries`, all-blank `tags`, all-blank `groups` values — so an
 empty section never leaves a dangling `\section{…}` rule in the PDF.
+
+### What a level actually means
+
+One vocabulary, two renderers: the frontend maps in
+`apps/frontend/lib/types/template-settings.ts` are the source of truth, and
+`layout.py`'s tables are mechanically derived from them — section gap ÷ 16px,
+item gap ÷ 4px, line height ÷ 1.35 rounded to three decimals. So a level means
+the same thing in the Chromium PDF and in the compiled `.tex`.
+
+| Level | Section gap, HTML | ×`section_before`/`section_after` | Item gap, HTML | ×`item_sep`/`entry_gap`/`item_lead` | Line height, HTML | `\linespread` |
+| ----- | ----------------- | --------------------------------- | -------------- | ----------------------------------- | ----------------- | ------------- |
+| 1 | 2px | 0.125 | 0px | 0.0 | 1.05 | 0.778 |
+| 2 | 4px | 0.25 | 1px | 0.25 | 1.1 | 0.815 |
+| 3 | 6px | 0.375 | 2px | 0.5 | 1.15 | 0.852 |
+| 4 | 10px | 0.625 | **4px (neutral)** | **1.0 (neutral)** | 1.25 | 0.926 |
+| 5 | **16px (neutral)** | **1.0 (neutral)** | 8px | 2.0 | **1.35 (neutral)** | **1.0 (neutral)** |
+| 6 | 20px | 1.25 | 12px | 3.0 | 1.45 | 1.074 |
+| 7 | 24px | 1.5 | 16px | 4.0 | 1.55 | 1.148 |
+| 8 | 32px | 2.0 | 24px | 6.0 | 1.7 | 1.259 |
+| 9 | 40px | 2.5 | 32px | 8.0 | 1.85 | 1.370 |
+
+The neutral column entries (`sectionSpacing` 5, `itemSpacing`/`bulletLeadIn` 4,
+`lineHeight` 5) are the reference look: a parameterless render is
+byte-identical to a render at those levels, which is what
+`tests/unit/test_latex_layout.py` pins.
+
+**Levels 3–7 are exactly what 1–5 used to be.** The four spacing axes were
+widened by two steps at each end, so every physical value the old vocabulary
+could produce is still reachable under the same look, just two numbers higher —
+no existing resume reflows. Stored levels are renumbered on read, see
+[the version marker](#the-version-marker-settingsversion-2).
+
+**The font axes stay 1–5** because the ladder underneath them has no more
+rungs: `extarticle` (`extsizes`) offers 8/9/10/11/12pt in one-point steps and
+nothing below 8pt, so there is no honest step to add downward.
+
+### The version marker (`settingsVersion: 2`)
+
+Stored settings carry a top-level `settingsVersion: 2`, written by every
+payload the frontend saves — `localStorage` and the
+`PUT /resumes/{id}/template-settings` body — and declared `Literal[2] = 2` on
+`TemplateSettings` (`app/schemas/template_settings.py`) under the existing
+`extra="forbid"`. A marker is needed because v1 and v2 level numbers overlap:
+`{"section": 3}` is a legal payload in both vocabularies and means two
+different gaps, so the payload alone is ambiguous.
+
+A payload **without** `settingsVersion` is v1 (spacing levels 1–5) and is
+upgraded on read, identically on both sides —
+`apps/frontend/lib/utils/template-settings-storage.ts` and
+`_parse_template_settings` in `apps/backend/app/routers/resumes.py`:
+
+* `spacing.section`, `spacing.item`, `spacing.lineHeight`,
+  `spacing.bulletLeadIn` — add 2 if present and within 1–5; otherwise take the
+  new neutral (5/4/5/4). `bulletLeadIn` may be absent in a v1 payload, since
+  it shipped after the others.
+* `fontSize.base`, `fontSize.headerScale` — untouched, the axes did not widen.
+* `template`, `pageSize`, `margins`, `compactMode`, `showContactIcons`,
+  `accentColor` — untouched.
 
 ## The two templates
 
@@ -214,8 +276,8 @@ Entry rendering in `_document.tex.j2`:
 
 | Entry content | Renders as |
 | ------------- | ---------- |
-| bullets, no `summary` | `joblong` — title/period row, then the bullet `itemize` the environment opens |
-| `summary` + bullets | `jobshort` with the summary paragraph, followed by a standalone `itemize` of the bullets |
+| bullets, no `summary` | `joblong` — title/period row, then the `resumebullets` list the environment opens |
+| `summary` + bullets | `jobshort` with the summary paragraph, followed by a standalone `resumebullets` list |
 | neither, or `summary` only | `jobshort` — title/period row plus the optional summary |
 
 A bullet with `style: "plain"` renders `\item[]` (marker suppressed, matching
@@ -228,20 +290,119 @@ the reference CV places a repo link beside a project name. `tags` sections
 render as a `$|$`-separated line; `groups` sections render as a two-column
 `tabularx` of `label: values`.
 
-### Vertical rhythm is four named macros
+### Vertical rhythm is five named lengths and one list environment
 
-Each preamble defines `\resumeEntryGap` (between entries), `\resumeSectionEnd`
-(after an entries section), `\resumeBlockEnd` (after text/tags/groups) and
-`\resumeItemSep` (every bullet list's `itemsep`), and `_document.tex.j2` uses
-only those names. The section trailer is the length that decides whether a
-resume fits one page: a uniform `\vspace{-6pt}` left a ~19pt hole and pushed
-the last section onto page 2, against 13.8–15.4pt in the reference CV. At the
-default spacing level classic uses `-11pt`, compact `-9pt` — compact sets
-`\parskip` to 2pt, so the same `\vspace` yields a larger gap, and it must stay
-the denser of the two. Those are the `section_end_pt` baselines in
-`layout.py`, tuned to those `\parskip` settings; if a template changes
-`\parskip`, re-measure with the gap assertion in
+Each preamble defines `\resumeEntryGap` (between entries), `\resumeItemSep`
+(every bullet list's `itemsep`), `\resumeBulletLead` (the gap above a bullet
+list), three section trailers and the `resumebullets` environment that every
+bullet list goes through, and `_document.tex.j2` uses only those names. The
+section trailer is the length
+that decides whether a resume fits one page: a uniform `\vspace{-6pt}` left a
+~19pt hole and pushed the last section onto page 2, against 13.8–15.4pt in the
+reference CV. At the default spacing level classic uses `-11pt`, compact `-9pt`
+— compact sets `\parskip` to 2pt, so the same `\vspace` yields a larger gap,
+and it must stay the denser of the two. Those are the `section_end_pt`
+baselines in `layout.py`, tuned to those `\parskip` settings; if a template
+changes `\parskip`, re-measure with the gap assertions in
 `tests/unit/test_latex_compile.py` rather than copying the number.
+
+**The gap is chosen by the construct that closed the section, not by the
+section's kind.** TeX decides interline glue from the depth of the last item on
+the page, so a bullet list, a bare title row and a `tabularx` each leave a
+different amount behind — up to 22pt of spread between adjacent headings in one
+resume. The three trailers absorb exactly that difference, each term in the
+unit the thing it pays for actually follows: `\baselineskip` for what the
+interline glue costs, `em` for the part that tracks the font rather than the
+leading, and fixed points for row and rule padding that tracks neither.
+
+| Macro | Used after | Offset from `section_end` |
+| ----- | ---------- | ------------------------- |
+| `\resumeAfterFlow` | a paragraph or an `itemize` — `text`, `tags`, and an `entries` section whose last entry has bullets, a `summary` or a subtitle line | `+0.383\baselineskip` |
+| `\resumeAfterRow` | a bare `jobshort` title/period row, i.e. an `entries` section whose last entry has nothing but its header row | `-0.804pt -0.257em -0.425\baselineskip` (classic) / `-0.279pt -0.289em -0.402\baselineskip` (compact) |
+| `\resumeAfterTable` | the `groups` `tabularx` | `-3.008pt +0.084\baselineskip` (classic) / `-3.09pt +0.088\baselineskip` (compact) |
+
+Those coefficients are least-squares fits over compiled fixtures across
+fontSize 1/3/5 × lineHeight 1…9, not guesses: a single `\baselineskip` term
+fitted at the neutral level only was within 0.1pt there but drifted to 2.0pt
+at the loose corner, because a bare `tabularx` row's leftover follows the
+font's strut while a `groups` table's `\\[3pt]` does not. Recalibrate by
+running the fixtures at the corners and refitting, never by widening a
+tolerance.
+
+`\resumeAfterRow` and `\resumeAfterTable` prefix `\par\nointerlineskip\hbox{}\par`:
+a box deeper than TeX's `\lineskiplimit` clamps the following glue to
+`\lineskip` while a shallow one does not, which made the gap depend on how many
+rows the box held. Dropping the glue and landing a zero-size line negotiates
+the next gap from a known depth instead. For the same reason `joblong` has no
+`minipage` — it made a bullet-terminated entry a box, so 1 bullet measured
+21.9pt against 14.6pt for 2 or more. The trade is that a long bullet list can
+now break across a page.
+
+`\resumeAfterFlow` prefixes `\ifvmode\else\strut\fi\par`. A line's depth is
+irrelevant while TeX honours `\baselineskip`, but not below single leading, and
+the strut gives a closing paragraph the depth a list item already gets from
+`after=\strut` — without it a `text` section and a bullet list drifted 1.6pt
+apart at `lineHeight` 1. The `\ifvmode` guard matters: after
+`\end{resumebullets}` the paragraph is already closed, and a bare `\strut`
+there would open a new one and add a whole line.
+
+**Below single leading the gaps are close, not identical.** `lineHeight` 1 and
+2 ask for leading tighter than the type, and there TeX abandons the baseline
+grid: it spaces from the previous box's depth instead, so a paragraph, a list
+and a `tabularx` cannot be made to agree by tuning trailers. Measured worst
+case at those two levels is 1.8pt, against 0.2pt everywhere else.
+`\lineskiplimit=-\maxdimen` does pin the grid and make them agree — and is not
+an option: the header and `groups` tables are `tabularx` rows that rely on the
+same fallback to stay apart, and they collapse onto one baseline (verified by
+rendering; the Skills block became unreadable).
+
+`test_every_section_terminator_leaves_the_same_gap` compiles one fixture per
+terminator shape and fails if any of them drifts: ≤0.5pt spread at the default
+level, ≤0.75pt anywhere else in the 1–9 spacing range including the font-size
+and line-height extremes, and ≤2pt at `lineHeight` 1–2, which
+`test_sub_single_leading_keeps_the_gaps_close_but_not_identical` pins
+separately so the limit stays visible instead of widening the main tolerance.
+A new terminating construct must be added to that fixture list.
+
+**The tight end of `sectionSpacing` is floored, not linear.** The trailer is
+negative, so scaling it down far enough asks for a pull larger than the line
+pitch and the heading prints through the line above — reachable in the old 1-5
+vocabulary too (its level 1 measured 5.8pt of baseline distance, and
+`pdftotext -bbox` put five headings' boxes inside the line above them).
+`_section_end` in `layout.py` predicts the gap each level is about to produce,
+from a measured model of the neutral gap (`heading_gap_fit`,
+`a·\baselineskip + c·font_pt + b`, worst residual 0.5pt), and gives back
+whatever it owes `1.15 × font_pt`. That minimum is where the ink stops meeting:
+a `\large` heading's cap height is ~0.84 of the base size and the line above
+hangs ~0.2 of it in descenders, so 0.95 still overprinted and 1.15 clears every
+font-size/leading combination — verified by box-overlap analysis of 96 renders
+of a real resume across both templates × fontSize 1/3/5 × lineHeight 1/3/5/9 ×
+sectionSpacing 1/3/5/9, zero overprints.
+
+The floor binds only on tight combinations — the reference look and every level
+above neutral come back untouched — and while it binds the gap holds at the
+tightest safe value while `section_after` keeps moving, so `section_end` alone
+is deliberately not monotonic. It cannot live in the level table: whether a
+level collides depends on the leading and the font size too.
+`test_a_tight_section_level_never_prints_the_heading_through_the_line_above`
+pins it.
+
+**The gap *above* a bullet list is `\resumeBulletLead`, and nothing else moves
+with it.** With `nosep` a list's own top glue is `\parskip`, so before the knob
+existed the lead-in was whatever `parskip` happened to set: 6pt in classic
+(`.5\baselineskip`), 2pt in compact (fixed). `resumebullets` cancels that with
+`topsep=-\parskip` and puts `item_lead` there as an explicit `\vskip`, after an
+`\unskip\par` — without the `\unskip` the space left after `joblong`'s
+full-width `tabularx` wraps to a second line and adds a whole `\baselineskip`.
+Because LaTeX also lands `topsep` at a list's *bottom*, the environment adds
+`\parskip` back after `\end{itemize}`; otherwise the knob would drag the
+entry-to-entry and section gaps below the list along with it. The neutral level
+(4, the old 2) reproduces the old implicit lengths exactly — classic 19.0pt
+from a title row to its first bullet, compact 14.6pt — so no existing tex
+resume reflows.
+`test_the_bullet_lead_in_moves_only_the_gap_above_the_list` measures the
+lead-in growing while the bullet-to-bullet, entry-to-entry and heading gaps
+stay put.
 
 Publications and similar are ordinary `entries` sections, so **no biblatex**
 is involved — Tectonic's bundled biblatex must version-match an external
@@ -306,9 +467,12 @@ All under the `/api/v1` prefix; router `app/routers/tex.py`, schemas
 "The formatting controls" is the `tex_format_settings` dependency, shared by
 all four rendering routes: `pageSize` (`A4` | `LETTER`), the four
 `margin*` (5–25mm, optional — absent means the template's reference geometry),
-and `sectionSpacing`, `itemSpacing`, `lineHeight`, `fontSize`, `headerScale`
-(1–5) plus `compactMode`. Out-of-range values are a 422. The names and bounds
-are the Chromium `/pdf` route's, so one control cannot mean two things across
+`sectionSpacing` (1–9, default 5), `itemSpacing` (1–9, default 4),
+`bulletLeadIn` (1–9, default 4), `lineHeight` (1–9, default 5), `fontSize`
+(1–5, default 3), `headerScale` (1–5, default 3)
+plus `compactMode`. Out-of-range values are a 422. The names and bounds
+are the Chromium `/pdf` route's — `bulletLeadIn` excepted, which is LaTeX-only
+— so one control cannot mean two things across
 the two renderers; the client builds them with `texFormatParams`
 (`apps/frontend/lib/api/tex.ts`).
 

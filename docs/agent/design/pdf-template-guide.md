@@ -85,11 +85,20 @@ retains explicit ownership; it does not claim the browser was physically stopped
 | template | swiss-single | swiss-single, swiss-two-column, modern, modern-two-column, latex, clean, vivid (HTML only — a `tex-*` id is a 400) |
 | pageSize | A4 | A4, LETTER |
 | marginTop/Bottom/Left/Right | 10 | 5-25mm |
-| sectionSpacing | 3 | 1-5 |
-| itemSpacing | 2 | 1-5 |
-| lineHeight | 3 | 1-5 |
+| sectionSpacing | 5 | 1-9 |
+| itemSpacing | 4 | 1-9 |
+| lineHeight | 5 | 1-9 |
 | fontSize | 3 | 1-5 |
 | headerScale | 3 | 1-5 |
+
+The four spacing axes (`sectionSpacing`, `itemSpacing`, `lineHeight`, and
+`bulletLeadIn`, which is LaTeX-only and therefore not a parameter here) take
+levels **1-9**; the two font axes take levels **1-5**, because the LaTeX side's
+`extarticle`/`extsizes` ladder offers 8/9/10/11/12pt and nothing below 8pt, so
+there is no step to add downward and both renderers must keep one vocabulary.
+Anything outside its range is a 422. Levels 3-7 on a spacing axis are exactly
+what 1-5 used to be — see the per-level values in
+[latex-export.md](../features/latex-export.md#what-a-level-actually-means).
 
 ## Critical CSS Rule
 

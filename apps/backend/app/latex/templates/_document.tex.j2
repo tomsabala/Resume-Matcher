@@ -40,7 +40,7 @@
 \section{<< section.heading | tex >>}
 <% if section.kind == SectionKind.TEXT %>
 << section.text | tex >>
-\resumeBlockEnd
+\resumeAfterFlow
 
 <% elif section.kind == SectionKind.ENTRIES %>
 <% for entry in section.entries %>
@@ -57,7 +57,9 @@
 <% endif %>
 << entry.summary | tex >>
 \end{jobshort}
-\begin{itemize}[nosep,after=\strut, leftmargin=1em, itemsep=\resumeItemSep,label=\textbullet]
+<# Same environment `joblong` opens, so a summary + bullets entry and a
+     bullets-only entry get the same lead-in and leave the same gap behind. #>
+\begin{resumebullets}
 <% for bullet in entry.bullets %>
 <% if bullet.style == 'plain' %>
 \item[] << bullet.text | tex_rich >>
@@ -65,7 +67,7 @@
 \item << bullet.text | tex_rich >>
 <% endif %>
 <% endfor %>
-\end{itemize}
+\end{resumebullets}
 <% elif entry.bullets %>
 \begin{joblong}{<< title | tex >>}{<< right | tex | dates >><< link_icons(entry.links) >>}
 <% for bullet in entry.bullets %>
@@ -97,12 +99,22 @@
 
 <% endif %>
 <% endfor %>
-\resumeSectionEnd
+<# The construct that closed the block decides the gap, so mirror the
+     per-entry branches above on the last entry: bullets end in an
+     `itemize`, a summary or a subtitle line ends in a paragraph, and an
+     entry with none of them is nothing but the `tabularx` header row.
+     `entry.meta` never stands alone — it only rides the subtitle line. #>
+<% set last_entry = section.entries[-1] %>
+<% if last_entry.bullets or last_entry.summary or (last_entry.subtitle and last_entry.title) %>
+\resumeAfterFlow
+<% else %>
+\resumeAfterRow
+<% endif %>
 
 <% elif section.kind == SectionKind.TAGS %>
 <% for value in section.tags | select | list %><< value | tex >><% if not loop.last %> $|$ <% endif %><% endfor %>
 
-\resumeBlockEnd
+\resumeAfterFlow
 
 <% else %>
 \begin{tabularx}{\linewidth}{ @{}l X@{} }
@@ -112,7 +124,7 @@
 <% endif %>
 <% endfor %>
 \end{tabularx}
-\resumeBlockEnd
+\resumeAfterTable
 
 <% endif %>
 <% endfor %>

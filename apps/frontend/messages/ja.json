@@ -359,6 +359,7 @@
       "spacing": "間隔",
       "spacingSection": "セクション",
       "spacingItems": "項目",
+      "spacingBulletLeadIn": "前余白",
       "spacingLines": "行間",
       "fontSize": "フォントサイズ",
       "baseFontSize": "本文",

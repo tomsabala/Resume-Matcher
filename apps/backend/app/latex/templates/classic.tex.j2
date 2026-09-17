@@ -25,7 +25,6 @@
 \titleformat{\section}{<< layout.section_size >>\scshape\raggedright}{}{0em}{}[\titlerule]
 \titlespacing{\section}{0pt}{<< layout.section_before >>}{<< layout.section_after >>}
 \linespread{<< layout.linespread >>}
-
 <# Vertical rhythm, named so the two templates can differ and a change is one
      edit. The values come from `app/latex/layout.py`, which scales the tuned
      baselines by the panel's spacing levels. Tuned against the reference CV:
@@ -33,9 +32,47 @@
      13.8-14.9pt at the neutral level, against the reference's 13.8-15.4pt.
      `-6pt` gave 18.8pt and cost a whole page. #>
 \newcommand{\resumeEntryGap}{\vspace{<< layout.entry_gap >>}}
-\newcommand{\resumeSectionEnd}{\vspace{<< layout.section_end >>}}
-\newcommand{\resumeBlockEnd}{\vspace{<< layout.block_end >>}}
+<# One gap for every section boundary. `section_end` is the tuned base; the
+     rest is what each terminating construct leaves behind, in units that
+     track it: `\baselineskip` for anything the interline glue pays for, `em`
+     for the one part that follows the font rather than the leading, and fixed
+     points for the row/rule padding that neither scales. A block that ends
+     with a box gets the box neutralised first: `\nointerlineskip\hbox{}`
+     drops the interline glue and lands a zero-size line of its own, so the
+     gap stops depending on how many rows the box had. Coefficients are least
+     squares fits over compiled fixtures at fontSize 1/3/5 x lineHeight
+     1..9 - `test_the_uniform_gap_holds_at_the_spacing_extremes` is what
+     holds them honest; recalibrate there, do not guess.
+
+     `\resumeAfterFlow` struts its last line first, and only if that line is
+     still open: below single leading TeX stops honouring `\baselineskip` and
+     negotiates from the line's own depth, so a paragraph that happens to end
+     in a descender left a different gap than one that did not. A `\strut`
+     gives every closing line the depth a list item already has from
+     `after=\strut`. At normal leading it is free - baseline-to-baseline
+     spacing ignores depth. #>
+\newcommand{\resumeAfterFlow}{\ifvmode\else\strut\fi\par\vspace{\dimexpr << layout.section_end >> + 0.383\baselineskip\relax}}
+\newcommand{\resumeAfterRow}{\par\nointerlineskip\hbox{}\par\vspace{\dimexpr << layout.section_end >> - 0.804pt - 0.257em - 0.425\baselineskip\relax}}
+\newcommand{\resumeAfterTable}{\par\nointerlineskip\hbox{}\par\vspace{\dimexpr << layout.section_end >> - 3.008pt + 0.084\baselineskip\relax}}
 \newcommand{\resumeItemSep}{<< layout.item_sep >>}
+<# The gap above a bullet list, as a length instead of an accident. With
+     `nosep` the list's own top glue is `\parskip`, so the lead-in used to be
+     whatever `parskip` happened to set; `topsep=-\parskip` cancels that and an
+     explicit `\vskip` puts `item_lead` there. `topsep` also lands at the
+     list's *bottom*, so the environment adds `\parskip` back after
+     `\end{itemize}` — otherwise the knob would drag the entry and section
+     gaps below the list with it. #>
+\newlength{\resumeBulletLead}
+\setlength{\resumeBulletLead}{<< layout.item_lead >>}
+\newenvironment{resumebullets}
+    {
+    \unskip\par\vskip\resumeBulletLead
+    \begin{itemize}[nosep,topsep=-\parskip,after=\strut, leftmargin=1em, itemsep=\resumeItemSep,label=\textbullet]
+    }
+    {
+    \end{itemize}
+    \vspace{\parskip}
+    }
 
 \usepackage[unicode, draft=false]{hyperref}
 \definecolor{linkcolour}{rgb}{0,0.2,0.6}
@@ -55,12 +92,10 @@
     \begin{tabularx}{\linewidth}{@{}l X r@{}}
     \textbf{#1} & \hfill & #2 \\[2pt]
     \end{tabularx}
-    \begin{minipage}[t]{\linewidth}
-    \begin{itemize}[nosep,after=\strut, leftmargin=1em, itemsep=\resumeItemSep,label=\textbullet]
+    \begin{resumebullets}
     }
     {
-    \end{itemize}
-    \end{minipage}
+    \end{resumebullets}
     }
 
 <% include '_document.tex.j2' %>

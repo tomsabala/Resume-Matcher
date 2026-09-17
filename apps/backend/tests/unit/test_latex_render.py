@@ -134,9 +134,56 @@ def test_a_summary_and_bullets_together_keep_the_summary_out_of_the_list() -> No
         )
     )
 
-    # Search the body: the preamble defines an itemize inside `joblong`.
+    # Search the body: the preamble defines `resumebullets` and `joblong`.
     body = source[source.index(r"\begin{document}") :]
-    assert body.index("Owned the platform.") < body.index(r"\begin{itemize}")
+    assert body.index("Owned the platform.") < body.index(r"\begin{resumebullets}")
+
+
+def test_both_bullet_shapes_open_the_same_list_environment() -> None:
+    """A bullets-only entry lists inside ``joblong`` and a summary + bullets
+    entry lists after ``jobshort``. Two copies of the option list is how the
+    two shapes drifted apart; both must go through ``resumebullets`` so the
+    lead-in and the gap left behind are one definition."""
+    source = render_document_tex(
+        _document(
+            s=_section(
+                "experience",
+                "entries",
+                entries=[
+                    _entry(bullets=[{"text": "Shipped it", "style": "bullet"}]),
+                    _entry(
+                        summary="Owned the platform.",
+                        bullets=[{"text": "Shipped it too", "style": "bullet"}],
+                    ),
+                ],
+            )
+        )
+    )
+
+    body = source[source.index(r"\begin{document}") :]
+    assert body.count(r"\begin{resumebullets}") == 1  # the other is inside joblong
+    assert r"\begin{itemize}" not in body
+    assert source.count(r"\newenvironment{resumebullets}") == 1
+
+
+@pytest.mark.parametrize(
+    "template_id,neutral",
+    [("tex-classic", "6pt"), ("tex-compact", "2pt")],
+)
+def test_the_bullet_lead_in_is_a_length_the_panel_moves(
+    template_id: str, neutral: str
+) -> None:
+    """The gap above a bullet list used to be whatever ``\\parskip`` happened
+    to be. The neutral level must still render exactly that length, or every
+    existing tex resume reflows the first time someone opens the builder."""
+    document = _document(s=_section("exp", "entries", entries=[_entry()]))
+
+    default = render_document_tex(document, template_id)
+    tight = render_document_tex(document, template_id, settings={"bulletLeadIn": 1})
+
+    assert f"\\setlength{{\\resumeBulletLead}}{{{neutral}}}" in default
+    assert f"\\setlength{{\\resumeBulletLead}}{{{neutral}}}" not in tight
+    assert "topsep=-\\parskip" in default
 
 
 def test_a_plain_bullet_renders_without_a_marker() -> None:
@@ -374,6 +421,8 @@ def test_the_section_trailer_is_a_named_length_each_template_tunes() -> None:
     classic = render_document_tex(document, "tex-classic")
     compact = render_document_tex(document, "tex-compact")
 
-    assert r"\resumeSectionEnd" in classic
-    assert r"\newcommand{\resumeSectionEnd}{\vspace{-11pt}}" in classic
-    assert r"\newcommand{\resumeSectionEnd}{\vspace{-9pt}}" in compact
+    assert r"\resumeAfterFlow" in classic
+    # The tuned base and its `\baselineskip` term, not the macro's plumbing:
+    # the strut and `\par` in front of it are mechanism, the length is contract.
+    assert r"\vspace{\dimexpr -11pt + 0.383\baselineskip\relax}" in classic
+    assert r"\vspace{\dimexpr -9pt + 0.383\baselineskip\relax}" in compact

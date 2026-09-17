@@ -64,17 +64,27 @@ class MarginSettings(BaseModel):
 
 
 class SpacingSettings(BaseModel):
-    """Spacing steps, 1 (tightest) to 5 (loosest)."""
+    """Spacing steps, 1 (tightest) to 9 (loosest).
+
+    ``bulletLeadIn`` is the gap above a bullet list. It only reaches the LaTeX
+    templates — the Chromium renderer has no equivalent length — but it is
+    stored with the rest, because it is part of the look the user chose.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    section: int = Field(3, ge=1, le=5)
-    item: int = Field(2, ge=1, le=5)
-    lineHeight: int = Field(3, ge=1, le=5)
+    section: int = Field(5, ge=1, le=9)
+    item: int = Field(4, ge=1, le=9)
+    bulletLeadIn: int = Field(4, ge=1, le=9)
+    lineHeight: int = Field(5, ge=1, le=9)
 
 
 class FontSizeSettings(BaseModel):
-    """Type scale steps plus the two font families."""
+    """Type scale steps plus the two font families.
+
+    1-5, not 1-9 like the spacing axes: ``extarticle`` offers 8/9/10/11/12pt
+    and nothing below 8pt, so there is no honest step to add downward.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -85,10 +95,20 @@ class FontSizeSettings(BaseModel):
 
 
 class TemplateSettings(BaseModel):
-    """One resume's presentation settings. Defaults mirror the frontend's."""
+    """One resume's presentation settings. Defaults mirror the frontend's.
+
+    ``settingsVersion`` tells a stored payload's level vocabulary apart from
+    its predecessor's: the spacing axes used to run 1-5 and now run 1-9, so
+    the two ranges overlap and the levels alone are ambiguous. It is
+    *required*, deliberately: a body without it comes from a client speaking
+    v1, and a 422 it can see beats silently storing its levels two steps
+    tighter than the user chose. Rows already in the database predate the
+    marker, so `app/routers/resumes.py` upgrades those on read.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
+    settingsVersion: Literal[2]
     template: TemplateId = "swiss-single"
     pageSize: Literal["A4", "LETTER"] = "A4"
     margins: MarginSettings = Field(default_factory=MarginSettings)

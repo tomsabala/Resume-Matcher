@@ -20,7 +20,24 @@ export type PageSize = 'A4' | 'LETTER';
 
 export type AccentColor = 'blue' | 'green' | 'orange' | 'red';
 
-export type SpacingLevel = 1 | 2 | 3 | 4 | 5;
+/**
+ * Spacing levels for the four spacing axes (section, item, bullet lead-in,
+ * line height). Level 1 is the tightest the layout stays legible at, 9 the
+ * airiest; the neutral reference look sits mid-range (see
+ * `DEFAULT_TEMPLATE_SETTINGS`).
+ */
+export type SpacingLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+
+/**
+ * Font levels for the two type axes (base size, header scale). These stay 1-5:
+ * the LaTeX `extarticle` class offers 8/9/10/11/12pt and nothing below 8pt, so
+ * there is no honest step to add in either direction.
+ */
+export type FontLevel = 1 | 2 | 3 | 4 | 5;
+
+/** The level buttons each axis offers, so no UI hardcodes the range. */
+export const SPACING_LEVELS: readonly SpacingLevel[] = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+export const FONT_LEVELS: readonly FontLevel[] = [1, 2, 3, 4, 5];
 
 export type HeaderFontFamily = 'serif' | 'sans-serif' | 'mono';
 export type BodyFontFamily = 'serif' | 'sans-serif' | 'mono';
@@ -36,16 +53,28 @@ export interface SpacingSettings {
   section: SpacingLevel; // Gap between major sections
   item: SpacingLevel; // Gap between items within sections
   lineHeight: SpacingLevel; // Text line height
+  bulletLeadIn: SpacingLevel; // Gap above a bullet list (LaTeX templates only)
 }
 
 export interface FontSizeSettings {
-  base: SpacingLevel; // Overall text scale
-  headerScale: SpacingLevel; // Header size multiplier
+  base: FontLevel; // Overall text scale
+  headerScale: FontLevel; // Header size multiplier
   headerFont: HeaderFontFamily; // Header font family
   bodyFont: BodyFontFamily; // Body text font family
 }
 
+/**
+ * Version marker for a persisted `TemplateSettings` payload.
+ *
+ * v2 widened the four spacing axes from levels 1-5 to 1-9 by renumbering: an
+ * old level `n` is the new level `n + 2`, so every physical value is preserved.
+ * A v1 payload's levels are all valid v2 levels too, which makes the two
+ * indistinguishable without this marker — hence the marker.
+ */
+export const TEMPLATE_SETTINGS_VERSION = 2 as const;
+
 export interface TemplateSettings {
+  settingsVersion: typeof TEMPLATE_SETTINGS_VERSION;
   template: TemplateType;
   pageSize: PageSize;
   margins: MarginSettings;
@@ -60,10 +89,11 @@ export interface TemplateSettings {
  * Default template settings
  */
 export const DEFAULT_TEMPLATE_SETTINGS: TemplateSettings = {
+  settingsVersion: TEMPLATE_SETTINGS_VERSION,
   template: 'swiss-single',
   pageSize: 'A4',
   margins: { top: 10, bottom: 10, left: 10, right: 10 },
-  spacing: { section: 3, item: 2, lineHeight: 3 },
+  spacing: { section: 5, item: 4, lineHeight: 5, bulletLeadIn: 4 },
   fontSize: { base: 3, headerScale: 3, headerFont: 'serif', bodyFont: 'sans-serif' },
   compactMode: false,
   showContactIcons: false,
@@ -82,30 +112,42 @@ export const PAGE_SIZE_INFO: Record<PageSize, { name: string; dimensions: string
  * CSS Variable mappings for spacing levels
  */
 export const SECTION_SPACING_MAP: Record<SpacingLevel, string> = {
-  1: '0.375rem', // 6px
-  2: '0.625rem', // 10px
-  3: '1rem', // 16px - default
-  4: '1.25rem', // 20px
-  5: '1.5rem', // 24px
+  1: '0.125rem', // 2px
+  2: '0.25rem', // 4px
+  3: '0.375rem', // 6px
+  4: '0.625rem', // 10px
+  5: '1rem', // 16px - default
+  6: '1.25rem', // 20px
+  7: '1.5rem', // 24px
+  8: '2rem', // 32px
+  9: '2.5rem', // 40px
 };
 
 export const ITEM_SPACING_MAP: Record<SpacingLevel, string> = {
-  1: '0.125rem', // 2px
-  2: '0.25rem', // 4px - default
-  3: '0.5rem', // 8px
-  4: '0.75rem', // 12px
-  5: '1rem', // 16px
+  1: '0rem', // 0px
+  2: '0.0625rem', // 1px
+  3: '0.125rem', // 2px
+  4: '0.25rem', // 4px - default
+  5: '0.5rem', // 8px
+  6: '0.75rem', // 12px
+  7: '1rem', // 16px
+  8: '1.5rem', // 24px
+  9: '2rem', // 32px
 };
 
 export const LINE_HEIGHT_MAP: Record<SpacingLevel, number> = {
-  1: 1.15, // tight
-  2: 1.25,
-  3: 1.35, // default
-  4: 1.45,
-  5: 1.55, // loose
+  1: 1.05, // tightest
+  2: 1.1,
+  3: 1.15,
+  4: 1.25,
+  5: 1.35, // default
+  6: 1.45,
+  7: 1.55,
+  8: 1.7,
+  9: 1.85, // loosest
 };
 
-export const FONT_SIZE_MAP: Record<SpacingLevel, string> = {
+export const FONT_SIZE_MAP: Record<FontLevel, string> = {
   1: '11px',
   2: '12px',
   3: '14px', // default
@@ -113,7 +155,7 @@ export const FONT_SIZE_MAP: Record<SpacingLevel, string> = {
   5: '16px',
 };
 
-export const HEADER_SCALE_MAP: Record<SpacingLevel, number> = {
+export const HEADER_SCALE_MAP: Record<FontLevel, number> = {
   1: 1.5,
   2: 1.75,
   3: 2, // default
@@ -122,12 +164,12 @@ export const HEADER_SCALE_MAP: Record<SpacingLevel, number> = {
 };
 
 // Section header scale (SUMMARY, EXPERIENCE, etc.) - slightly smaller than name
-export const SECTION_HEADER_SCALE_MAP: Record<SpacingLevel, number> = {
-  1: 1.0,
-  2: 1.1,
-  3: 1.2, // default
-  4: 1.3,
-  5: 1.4,
+export const SECTION_HEADER_SCALE_MAP: Record<FontLevel, number> = {
+  1: 1.0, // 1.0x
+  2: 1.1, // 1.1x
+  3: 1.2, // 1.2x - default
+  4: 1.3, // 1.3x
+  5: 1.4, // 1.4x
 };
 
 /**

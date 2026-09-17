@@ -8,6 +8,7 @@ import {
   type TemplateType,
   type PageSize,
   type SpacingLevel,
+  type FontLevel,
   type HeaderFontFamily,
   type BodyFontFamily,
   type AccentColor,
@@ -18,6 +19,8 @@ import {
   LINE_HEIGHT_MAP,
   FONT_SIZE_MAP,
   HEADER_SCALE_MAP,
+  SPACING_LEVELS,
+  FONT_LEVELS,
   COMPACT_MULTIPLIER,
   COMPACT_LINE_HEIGHT_MULTIPLIER,
   TEMPLATE_OPTIONS,
@@ -97,7 +100,7 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
     });
   };
 
-  const handleFontChange = (key: keyof TemplateSettings['fontSize'], value: SpacingLevel) => {
+  const handleFontChange = (key: 'base' | 'headerScale', value: FontLevel) => {
     onChange({
       ...settings,
       fontSize: { ...settings.fontSize, [key]: value },
@@ -341,18 +344,28 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
               {t('builder.formatting.spacing')}
             </h4>
             <div className="space-y-3">
-              <SpacingSelector
+              <LevelSelector
                 label={t('builder.formatting.spacingSection')}
+                levels={SPACING_LEVELS}
                 value={settings.spacing.section}
                 onChange={(v) => handleSpacingChange('section', v)}
               />
-              <SpacingSelector
+              <LevelSelector
                 label={t('builder.formatting.spacingItems')}
+                levels={SPACING_LEVELS}
                 value={settings.spacing.item}
                 onChange={(v) => handleSpacingChange('item', v)}
               />
-              <SpacingSelector
+              <LevelSelector
+                label={t('builder.formatting.spacingBulletLeadIn')}
+                levels={SPACING_LEVELS}
+                value={settings.spacing.bulletLeadIn}
+                onChange={(v) => handleSpacingChange('bulletLeadIn', v)}
+                disabled={!usesTexEngine}
+              />
+              <LevelSelector
                 label={t('builder.formatting.spacingLines')}
+                levels={SPACING_LEVELS}
                 value={settings.spacing.lineHeight}
                 onChange={(v) => handleSpacingChange('lineHeight', v)}
               />
@@ -365,13 +378,15 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
               {t('builder.formatting.fontSize')}
             </h4>
             <div className="space-y-3">
-              <SpacingSelector
+              <LevelSelector
                 label={t('builder.formatting.baseFontSize')}
+                levels={FONT_LEVELS}
                 value={settings.fontSize.base}
                 onChange={(v) => handleFontChange('base', v)}
               />
-              <SpacingSelector
+              <LevelSelector
                 label={t('builder.formatting.headerScale')}
+                levels={FONT_LEVELS}
                 value={settings.fontSize.headerScale}
                 onChange={(v) => handleFontChange('headerScale', v)}
               />
@@ -597,23 +612,32 @@ const MarginSlider: React.FC<MarginSliderProps> = ({ label, value, onChange, dis
 };
 
 /**
- * Spacing Selector Component
+ * Level Selector Component
  *
- * Button group for selecting spacing levels (1-5)
+ * Button group for one formatting axis. The level list comes from the axis
+ * (`SPACING_LEVELS` is 1-9, `FONT_LEVELS` 1-5), so the row length follows the
+ * vocabulary instead of a hardcoded array. The label sits above the buttons:
+ * nine 24px buttons plus an inline label do not fit the editor column at its
+ * narrowest, and stacking keeps every row identical in button geometry.
  */
-interface SpacingSelectorProps {
+interface LevelSelectorProps<L extends number> {
   label: string;
-  value: SpacingLevel;
-  onChange: (value: SpacingLevel) => void;
+  levels: readonly L[];
+  value: L;
+  onChange: (value: L) => void;
   disabled?: boolean;
 }
 
-const SpacingSelector: React.FC<SpacingSelectorProps> = ({ label, value, onChange, disabled }) => {
-  const levels: SpacingLevel[] = [1, 2, 3, 4, 5];
-
+function LevelSelector<L extends number>({
+  label,
+  levels,
+  value,
+  onChange,
+  disabled,
+}: LevelSelectorProps<L>) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="font-mono text-xs w-16 text-ink-soft">{label}:</span>
+    <div className="flex flex-col gap-1">
+      <span className="font-mono text-xs text-ink-soft">{label}:</span>
       <div className="flex gap-1">
         {levels.map((level) => (
           <button
@@ -632,6 +656,6 @@ const SpacingSelector: React.FC<SpacingSelectorProps> = ({ label, value, onChang
       </div>
     </div>
   );
-};
+}
 
 export default FormattingControls;

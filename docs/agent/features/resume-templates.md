@@ -46,9 +46,10 @@ LaTeX options render disabled when `getTexCapabilities()` reports no engine.
 | Control | Range | Default | Effect |
 |---------|-------|---------|--------|
 | Margins | 5-25mm | 8mm | Page margins |
-| Section Spacing | 1-5 | 3 | Gap between major sections |
-| Item Spacing | 1-5 | 2 | Gap between items within sections |
-| Line Height | 1-5 | 3 | Text line height |
+| Section Spacing | 1-9 | 5 | Gap between major sections |
+| Item Spacing | 1-9 | 4 | Gap between items within sections |
+| Line Height | 1-9 | 5 | Text line height |
+| Bullet Lead-In | 1-9 | 4 | Gap above a bullet list (LaTeX templates only) |
 | Base Font Size | 1-5 | 3 | Overall text scale (11-16px) |
 | Header Scale | 1-5 | 3 | Name/section header size multiplier |
 | Header Font | serif/sans-serif/mono | serif | Font family for headers |
@@ -56,6 +57,15 @@ LaTeX options render disabled when `getTexCapabilities()` reports no engine.
 | Compact Mode | boolean | false | Apply 0.6x spacing multiplier (spacing only; margins unchanged) |
 | Contact Icons | boolean | false | Show icons next to contact info |
 | Accent Color | blue/green/orange/red | blue | Accent color for color templates (modern, modern-two-column, vivid) |
+
+The four spacing axes run **1-9**; the two font axes run **1-5**, because the
+LaTeX side's `extarticle`/`extsizes` ladder offers 8/9/10/11/12pt and has
+nothing below 8pt, so there is no step to add downward. The spacing axes were
+widened by two steps at each end, so levels 3-7 are exactly what 1-5 used to
+be and no existing resume reflows; stored settings carry `settingsVersion: 2`
+and a payload without it is renumbered on read. Per-level physical values for
+both renderers are tabulated in
+[latex-export.md](latex-export.md#what-a-level-actually-means).
 
 Every control above is CSS-driven for the HTML target. With a LaTeX template
 selected, page size, margins, spacing, base font size, header scale and
@@ -86,9 +96,10 @@ edits, and `GET /api/v1/resumes?resume_id=` returns it as
   echoing back a value it has just adopted.
 - **localStorage is only the last-used default.** `resume_builder_settings`,
   owned by `lib/utils/template-settings-storage.ts` (`readTemplateSettings`,
-  `writeTemplateSettings`), merges over `DEFAULT_TEMPLATE_SETTINGS` and drops an
-  unknown template id. It supplies the starting point for resumes with no
-  stored choice; it no longer *is* the choice.
+  `writeTemplateSettings`), merges over `DEFAULT_TEMPLATE_SETTINGS`, drops an
+  unknown template id and upgrades a payload written before `settingsVersion: 2`
+  by adding 2 to each spacing level. It supplies the starting point for resumes
+  with no stored choice; it no longer *is* the choice.
 - **The viewer reads the resume's own settings.**
   `app/(default)/resumes/[id]/page.tsx` prefers `data.template_settings`,
   falling back to the stored last-used ones, renders `TexPdfPreview` for a tex

@@ -365,9 +365,9 @@ _TIGHT: dict[str, object] = {
 }
 
 _LOOSE: dict[str, object] = {
-    "sectionSpacing": 5,
-    "itemSpacing": 5,
-    "lineHeight": 5,
+    "sectionSpacing": 9,
+    "itemSpacing": 9,
+    "lineHeight": 9,
     "fontSize": 5,
     "headerScale": 5,
     "marginTop": 25,
@@ -432,13 +432,13 @@ async def test_section_spacing_moves_the_heading_gap_and_leaves_bullets_alone() 
         level: await compile_tex_to_pdf(
             render_document_tex(document, "tex-classic", settings={"sectionSpacing": level})
         )
-        for level in (1, 3, 5)
+        for level in (1, 5, 9)
     }
 
-    gaps = [_baseline_gap_before(pdfs[level], "Summary") for level in (1, 3, 5)]
+    gaps = [_baseline_gap_before(pdfs[level], "Summary") for level in (1, 5, 9)]
     bullet_gaps = [
         _baseline_of(pdfs[level], "Shipped") - _baseline_of(pdfs[level], "Owned")
-        for level in (1, 3, 5)
+        for level in (1, 5, 9)
     ]
 
     assert gaps[0] < gaps[1] < gaps[2]
@@ -455,7 +455,7 @@ async def test_item_spacing_moves_the_bullet_gap_and_leaves_headings_alone() -> 
         render_document_tex(document, "tex-classic", settings={"itemSpacing": 1})
     )
     loose = await compile_tex_to_pdf(
-        render_document_tex(document, "tex-classic", settings={"itemSpacing": 5})
+        render_document_tex(document, "tex-classic", settings={"itemSpacing": 9})
     )
 
     def bullet_gap(pdf: bytes) -> float:
@@ -474,16 +474,309 @@ async def test_item_spacing_moves_the_bullet_gap_and_leaves_headings_alone() -> 
 async def test_line_spacing_moves_the_leading_and_leaves_the_gaps_alone() -> None:
     """``\\linespread`` is leading inside a paragraph. ``parskip`` fixes
     ``\\parskip`` from the class size, so it cannot leak into the spacing
-    macros — the rendered lengths stay byte-identical."""
+    macros — the rendered lengths stay byte-identical.
+
+    Levels 3 and 9, not 1 and 9: below single leading the collision floor
+    deliberately shortens the trailer so the heading stays off the line above,
+    which ``test_only_sub_single_leading_borrows_from_the_section_trailer``
+    pins. Everywhere else leading must not touch a single length here.
+    """
     document = _rhythm_document()
     sources = {
         level: render_document_tex(document, "tex-classic", settings={"lineHeight": level})
-        for level in (1, 5)
+        for level in (3, 9)
     }
-    tight = await compile_tex_to_pdf(sources[1])
-    loose = await compile_tex_to_pdf(sources[5])
+    tight = await compile_tex_to_pdf(sources[3])
+    loose = await compile_tex_to_pdf(sources[9])
 
     assert _leading_below(tight, "Summary") < _leading_below(loose, "Summary")
     for source in sources.values():
         assert "\\newcommand{\\resumeItemSep}{2pt}" in source
-        assert "\\newcommand{\\resumeSectionEnd}{\\vspace{-11pt}}" in source
+        assert r"\vspace{\dimexpr -11pt + 0.383\baselineskip\relax}" in source
+
+
+def _terminator_documents() -> dict[str, ResumeDocument]:
+    """One two-section document per construct a section body can end with.
+
+    Every probe section is followed by a ``text`` section headed ``Marker``,
+    so ``_baseline_gap_before(pdf, "Marker")`` measures exactly what the
+    probe's trailer left behind. The keys are the closed set of shapes
+    ``_document.tex.j2`` can emit: a new terminator belongs in this dict.
+    """
+    bullets = [
+        {"text": "Shipped the platform."},
+        {"text": "Owned latency budgets."},
+        {"text": "Cut deploy time."},
+    ]
+
+    def probe(**fields: Any) -> dict[str, Any]:
+        return {
+            "id": "s-1",
+            "key": "probe",
+            "heading": "Probe",
+            "visible": True,
+            "column": "main",
+            **fields,
+        }
+
+    def entries(count: int, **extra: Any) -> dict[str, Any]:
+        entry = {
+            "id": "e-1",
+            "title": "Acme",
+            "period": "2020 - 2024",
+            "bullets": bullets[:count],
+            **extra,
+        }
+        return probe(kind="entries", entries=[entry])
+
+    probes = {
+        "bullets-1": entries(1),
+        "bullets-3": entries(3),
+        "summary-bullets": entries(2, summary="Led the platform team."),
+        "row-subtitle": entries(0, subtitle="Staff Engineer"),
+        "row-bare": entries(0),
+        "text": probe(kind="text", text="A closing paragraph."),
+        "tags": probe(kind="tags", tags=["English", "Hebrew"]),
+        "groups-1": probe(kind="groups", groups=[{"label": "Languages", "values": ["Go"]}]),
+        "groups-3": probe(
+            kind="groups",
+            groups=[
+                {"label": "Languages", "values": ["Go"]},
+                {"label": "Tools", "values": ["Docker"]},
+                {"label": "Cloud", "values": ["AWS"]},
+            ],
+        ),
+    }
+    marker = {
+        "id": "s-2",
+        "key": "summary",
+        "heading": "Marker",
+        "kind": "text",
+        "visible": True,
+        "column": "main",
+        "text": "A short paragraph.",
+    }
+    return {
+        name: ResumeDocument.model_validate(
+            {
+                "schemaVersion": 2,
+                "header": {"name": "Ada Lovelace"},
+                "sections": [section, marker],
+            }
+        )
+        for name, section in probes.items()
+    }
+
+
+_TERMINATORS = _terminator_documents()
+
+
+async def _terminator_gaps(
+    template_id: str, settings: dict[str, object]
+) -> dict[str, float]:
+    """The gap above the ``Marker`` heading for every terminator, in points."""
+    gaps: dict[str, float] = {}
+    for name, document in _TERMINATORS.items():
+        source = render_document_tex(document, template_id, settings=settings)
+        gaps[name] = round(_baseline_gap_before(await compile_tex_to_pdf(source), "Marker"), 2)
+    return gaps
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+@pytest.mark.parametrize("template_id", sorted(LATEX_TEMPLATES))
+async def test_every_section_terminator_leaves_the_same_gap(template_id: str) -> None:
+    """The gap before a heading used to be chosen by section *kind* while the
+    typeset result was decided by the construct that closed the block, so a
+    bullet list, a bare title row and a one-row table left 9.96/23.5/23.5pt
+    of space in classic. Each terminator now offsets from one tuned base.
+    """
+    gaps = await _terminator_gaps(template_id, {"fontSize": 3})
+
+    assert max(gaps.values()) - min(gaps.values()) <= 0.5, gaps
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+@pytest.mark.parametrize("template_id", sorted(LATEX_TEMPLATES))
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"fontSize": 1},
+        {"fontSize": 5},
+        {"fontSize": 5, "lineHeight": 9},
+        {"fontSize": 1, "lineHeight": 3},
+        {"sectionSpacing": 1},
+        {"sectionSpacing": 9},
+        {"itemSpacing": 1},
+        {"itemSpacing": 9},
+        {"fontSize": 3, "compactMode": True},
+    ],
+    ids=[
+        "small",
+        "large",
+        "large-loose",
+        "small-tight",
+        "section-tight",
+        "section-loose",
+        "items-tight",
+        "items-loose",
+        "compact-mode",
+    ],
+)
+async def test_the_uniform_gap_holds_at_the_spacing_extremes(
+    template_id: str, settings: dict[str, object]
+) -> None:
+    """Each per-terminator offset is split across the units it actually
+    follows — ``\\baselineskip``, ``em`` and fixed points — because a single
+    ``\\baselineskip`` coefficient fitted at the neutral level drifted 2pt
+    apart at the loose corner. Measured worst case across this grid is 0.2pt,
+    so a spread above 0.75pt means a coefficient needs refitting, not a wider
+    tolerance."""
+    gaps = await _terminator_gaps(template_id, settings)
+
+    assert max(gaps.values()) - min(gaps.values()) <= 0.75, gaps
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+@pytest.mark.parametrize("template_id", sorted(LATEX_TEMPLATES))
+@pytest.mark.parametrize("level", [1, 2])
+async def test_sub_single_leading_keeps_the_gaps_close_but_not_identical(
+    template_id: str, level: int
+) -> None:
+    """``lineHeight`` 1 and 2 ask for leading tighter than the type itself, and
+    there TeX abandons the baseline grid: once two lines would sit closer than
+    ``\\lineskiplimit`` it spaces them from the previous box's *depth* instead,
+    so a paragraph, a list and a ``tabularx`` stop agreeing however the
+    trailers are tuned. Pinning the grid (``\\lineskiplimit=-\\maxdimen``) does
+    make them agree and is not an option: the header and ``groups`` tables are
+    ``tabularx`` rows that rely on the same fallback, and they collapse onto
+    one baseline. So these two levels carry a measured 1.8pt worst case, one
+    order of magnitude worse than the 0.2pt everywhere else and still under a
+    third of the gap itself."""
+    gaps = await _terminator_gaps(template_id, {"fontSize": 3, "lineHeight": level})
+
+    assert max(gaps.values()) - min(gaps.values()) <= 2.0, gaps
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+@pytest.mark.parametrize("template_id", sorted(LATEX_TEMPLATES))
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"fontSize": 3, "lineHeight": 3, "sectionSpacing": 1},
+        {"fontSize": 3, "lineHeight": 3, "sectionSpacing": 3},
+        {"fontSize": 3, "lineHeight": 5, "sectionSpacing": 1},
+        {"fontSize": 3, "lineHeight": 9, "sectionSpacing": 1},
+    ],
+    ids=["tightest-tight-leading", "old-level-1", "tightest", "tightest-loose-leading"],
+)
+async def test_a_tight_section_level_never_prints_the_heading_through_the_line_above(
+    template_id: str, settings: dict[str, object]
+) -> None:
+    """The trailer is negative, so a tight section level — alone or with tight
+    leading — used to pull the heading onto the previous line: ``sectionSpacing``
+    3, what the old 1-5 vocabulary called level 1, measured 5.8pt of baseline
+    distance and `pdftotext -bbox` showed five headings' boxes inside the line
+    above them. The ink meets at about 10.4pt for a 10pt base size (a ``\\large``
+    heading's 8.4pt cap height plus the 2pt descenders hanging off the line
+    above), which is what ``_section_end``'s floor has to clear."""
+    gaps = await _terminator_gaps(template_id, settings)
+
+    assert min(gaps.values()) >= 10.4, gaps
+
+
+def _lead_in_document() -> ResumeDocument:
+    """Both bullet shapes, an entry boundary and a following heading.
+
+    The tokens are deliberately unique words: every gap the lead-in must not
+    move is read between two of them.
+    """
+    return ResumeDocument.model_validate(
+        {
+            "schemaVersion": 2,
+            "header": {"name": "Ada Lovelace"},
+            "sections": [
+                {
+                    "id": "s-1", "key": "experience", "heading": "Experience",
+                    "kind": "entries", "visible": True, "column": "main",
+                    "entries": [
+                        {
+                            "id": "e-1", "title": "Rowone", "period": "2020 - 2024",
+                            "bullets": [
+                                {"text": "Alphabullet shipped the platform."},
+                                {"text": "Betabullet owned the budgets."},
+                            ],
+                        },
+                        {
+                            "id": "e-2", "title": "Rowtwo", "period": "2016 - 2020",
+                            "summary": "Summaryline led the team.",
+                            "bullets": [{"text": "Gammabullet cut deploy time."}],
+                        },
+                    ],
+                },
+                {
+                    "id": "s-2", "key": "summary", "heading": "Marker", "kind": "text",
+                    "visible": True, "column": "main", "text": "A short paragraph.",
+                },
+            ],
+        }
+    )
+
+
+async def _lead_in_geometry(template_id: str, level: int) -> dict[str, float]:
+    """Every gap around the two bullet lists, in points."""
+    source = render_document_tex(
+        _lead_in_document(), template_id, settings={"bulletLeadIn": level}
+    )
+    pdf = await compile_tex_to_pdf(source)
+    return {
+        "row_to_bullet": round(_baseline_of(pdf, "Rowone") - _baseline_of(pdf, "Alphab"), 2),
+        "summary_to_bullet": round(
+            _baseline_of(pdf, "Summar") - _baseline_of(pdf, "Gammab"), 2
+        ),
+        "bullet_to_bullet": round(
+            _baseline_of(pdf, "Alphab") - _baseline_of(pdf, "Betabu"), 2
+        ),
+        "bullet_to_next_entry": round(
+            _baseline_of(pdf, "Betabu") - _baseline_of(pdf, "Rowtwo"), 2
+        ),
+        "heading_gap": round(_baseline_gap_before(pdf, "Marker"), 2),
+    }
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+@pytest.mark.parametrize("template_id", sorted(LATEX_TEMPLATES))
+async def test_the_bullet_lead_in_moves_only_the_gap_above_the_list(
+    template_id: str,
+) -> None:
+    """``bulletLeadIn`` is a fourth spacing axis, so it must be as disjoint as
+    the other three. ``topsep`` alone would not do: LaTeX puts it at both ends
+    of a list, which dragged the entry and section gaps below the list with
+    it — ``resumebullets`` adds ``\\parskip`` back after ``\\end{itemize}``
+    exactly to keep them still.
+    """
+    tight = await _lead_in_geometry(template_id, 1)
+    loose = await _lead_in_geometry(template_id, 9)
+
+    assert loose["row_to_bullet"] - tight["row_to_bullet"] > 2.0, (tight, loose)
+    assert loose["summary_to_bullet"] - tight["summary_to_bullet"] > 2.0, (tight, loose)
+    # ``_baselines`` rounds each y to 0.1pt, so a two-baseline gap can read one
+    # step off; the real drift measures 0.01pt while the signal above is ~6pt.
+    for key in ("bullet_to_bullet", "bullet_to_next_entry", "heading_gap"):
+        assert abs(loose[key] - tight[key]) <= 0.2, (key, tight, loose)
+
+
+@pytest.mark.skipif(latex_engine() is None, reason="no LaTeX engine installed")
+@pytest.mark.parametrize(
+    "template_id,row_to_bullet,summary_to_bullet",
+    [("tex-classic", 19.03, 17.93), ("tex-compact", 14.55, 13.95)],
+)
+async def test_the_neutral_lead_in_level_reproduces_the_implicit_parskip_gap(
+    template_id: str, row_to_bullet: float, summary_to_bullet: float
+) -> None:
+    """Before the knob existed the lead-in *was* ``\\parskip``. These are the
+    lengths it produced; the neutral level must still measure them, or opening
+    the builder reflows every existing tex resume."""
+    geometry = await _lead_in_geometry(template_id, 4)
+
+    assert abs(geometry["row_to_bullet"] - row_to_bullet) <= 0.2, geometry
+    assert abs(geometry["summary_to_bullet"] - summary_to_bullet) <= 0.2, geometry

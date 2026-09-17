@@ -69,9 +69,11 @@ export async function getTexCapabilities(): Promise<TexCapabilities> {
 /**
  * The formatting controls the LaTeX engine reads.
  *
- * Spelled exactly like the Chromium `/pdf` route's parameters, so one control
- * cannot mean two things across the two renderers. Font family, accent colour
- * and contact icons are HTML-only and deliberately absent.
+ * Every control shared with the Chromium `/pdf` route is spelled exactly like
+ * that route's parameter, so one control cannot mean two things across the two
+ * renderers. `bulletLeadIn` is the one LaTeX-only control: it has no Chromium
+ * equivalent and the `/pdf` route never receives it. Font family, accent colour
+ * and contact icons are HTML-only and deliberately absent here.
  */
 export type TexFormatSettings = Pick<
   TemplateSettings,
@@ -88,6 +90,7 @@ export function texFormatParams(settings?: TexFormatSettings): URLSearchParams {
   params.set('marginRight', String(settings.margins.right));
   params.set('sectionSpacing', String(settings.spacing.section));
   params.set('itemSpacing', String(settings.spacing.item));
+  params.set('bulletLeadIn', String(settings.spacing.bulletLeadIn));
   params.set('lineHeight', String(settings.spacing.lineHeight));
   params.set('fontSize', String(settings.fontSize.base));
   params.set('headerScale', String(settings.fontSize.headerScale));

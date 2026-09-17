@@ -78,9 +78,10 @@ def tex_format_settings(
     marginBottom: int | None = Query(None, ge=5, le=25),  # noqa: N803
     marginLeft: int | None = Query(None, ge=5, le=25),  # noqa: N803
     marginRight: int | None = Query(None, ge=5, le=25),  # noqa: N803
-    sectionSpacing: int = Query(3, ge=1, le=5),  # noqa: N803
-    itemSpacing: int = Query(2, ge=1, le=5),  # noqa: N803
-    lineHeight: int = Query(3, ge=1, le=5),  # noqa: N803
+    sectionSpacing: int = Query(5, ge=1, le=9),  # noqa: N803
+    itemSpacing: int = Query(4, ge=1, le=9),  # noqa: N803
+    bulletLeadIn: int = Query(4, ge=1, le=9),  # noqa: N803
+    lineHeight: int = Query(5, ge=1, le=9),  # noqa: N803
     fontSize: int = Query(3, ge=1, le=5),  # noqa: N803
     headerScale: int = Query(3, ge=1, le=5),  # noqa: N803
     compactMode: bool = Query(False),  # noqa: N803
@@ -88,9 +89,10 @@ def tex_format_settings(
     """The formatting controls the LaTeX templates read, as a settings dict.
 
     Names and bounds are the Chromium route's (``resumes.py``'s ``/pdf``), so
-    one control cannot mean two things across the two renderers. Margins stay
-    optional: with none given the templates keep their paper-proportional
-    reference geometry.
+    one control cannot mean two things across the two renderers —
+    ``bulletLeadIn`` excepted, because the gap above a bullet list is a LaTeX
+    list length with no Chromium equivalent. Margins stay optional: with none
+    given the templates keep their paper-proportional reference geometry.
     """
     margins = {
         "marginTop": marginTop,
@@ -103,6 +105,7 @@ def tex_format_settings(
         **{key: value for key, value in margins.items() if value is not None},
         "sectionSpacing": sectionSpacing,
         "itemSpacing": itemSpacing,
+        "bulletLeadIn": bulletLeadIn,
         "lineHeight": lineHeight,
         "fontSize": fontSize,
         "headerScale": headerScale,

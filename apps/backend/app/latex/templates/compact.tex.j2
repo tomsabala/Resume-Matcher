@@ -26,15 +26,34 @@
 \titlespacing{\section}{0pt}{<< layout.section_before >>}{<< layout.section_after >>}
 \linespread{<< layout.linespread >>}
 \setlength{\parskip}{2pt}
-
 <# Same rhythm knobs as classic, tighter: compact sets `\parskip` to 2pt, so
      the identical `\vspace` yields a larger gap. The lengths come from
      `app/latex/layout.py`; at the neutral level `-9pt` measures 11.1pt
      against classic's 13.8pt, keeping compact the denser template. #>
 \newcommand{\resumeEntryGap}{\vspace{<< layout.entry_gap >>}}
-\newcommand{\resumeSectionEnd}{\vspace{<< layout.section_end >>}}
-\newcommand{\resumeBlockEnd}{\vspace{<< layout.block_end >>}}
+<# Same three terminators as classic, same units and the same calibration
+     procedure - see `classic.tex.j2` for what each term pays for. Compact's
+     coefficients differ because it fixes `\parskip` at 2pt, which changes
+     what a row and a table leave behind. #>
+\newcommand{\resumeAfterFlow}{\ifvmode\else\strut\fi\par\vspace{\dimexpr << layout.section_end >> + 0.383\baselineskip\relax}}
+\newcommand{\resumeAfterRow}{\par\nointerlineskip\hbox{}\par\vspace{\dimexpr << layout.section_end >> - 0.279pt - 0.289em - 0.402\baselineskip\relax}}
+\newcommand{\resumeAfterTable}{\par\nointerlineskip\hbox{}\par\vspace{\dimexpr << layout.section_end >> - 3.09pt + 0.088\baselineskip\relax}}
 \newcommand{\resumeItemSep}{<< layout.item_sep >>}
+<# Same lead-in mechanism as classic; compact's baseline is smaller because
+     it fixes `\parskip` at 2pt instead of taking `parskip`'s
+     `.5\baselineskip`. See `classic.tex.j2` for why `topsep` is cancelled at
+     both ends. #>
+\newlength{\resumeBulletLead}
+\setlength{\resumeBulletLead}{<< layout.item_lead >>}
+\newenvironment{resumebullets}
+    {
+    \unskip\par\vskip\resumeBulletLead
+    \begin{itemize}[nosep,topsep=-\parskip,after=\strut, leftmargin=1em, itemsep=\resumeItemSep,label=\textbullet]
+    }
+    {
+    \end{itemize}
+    \vspace{\parskip}
+    }
 
 \usepackage[unicode, draft=false]{hyperref}
 \definecolor{linkcolour}{rgb}{0,0.2,0.6}
@@ -54,12 +73,10 @@
     \begin{tabularx}{\linewidth}{@{}l X r@{}}
     \textbf{#1} & \hfill & #2 \\[1pt]
     \end{tabularx}
-    \begin{minipage}[t]{\linewidth}
-    \begin{itemize}[nosep,after=\strut, leftmargin=1em, itemsep=\resumeItemSep,label=\textbullet]
+    \begin{resumebullets}
     }
     {
-    \end{itemize}
-    \end{minipage}
+    \end{resumebullets}
     }
 
 <% include '_document.tex.j2' %>

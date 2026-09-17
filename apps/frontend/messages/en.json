@@ -359,6 +359,7 @@
       "spacing": "Spacing",
       "spacingSection": "Section",
       "spacingItems": "Items",
+      "spacingBulletLeadIn": "Lead-in",
       "spacingLines": "Lines",
       "fontSize": "Font Size",
       "baseFontSize": "Base",

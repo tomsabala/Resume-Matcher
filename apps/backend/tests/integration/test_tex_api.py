@@ -381,26 +381,37 @@ async def test_the_formatting_controls_reach_the_generated_source(
     async with _client() as client:
         response = await client.get(
             f"/api/v1/resumes/{resume_id}/tex",
-            params={"marginLeft": 20, "fontSize": 5, "sectionSpacing": 5},
+            params={
+                "marginLeft": 20,
+                "fontSize": 5,
+                "sectionSpacing": 9,
+                "bulletLeadIn": 1,
+            },
         )
 
     source = response.json()["source"]
     assert "left=20mm" in source
     assert "12pt]{article}" in source
-    assert "\\newcommand{\\resumeSectionEnd}{\\vspace{-7.5pt}}" in source
+    # The loosest of the nine section levels: 2.5 x the reference rhythm, so
+    # the trailing pull-up is all but gone.
+    assert "\\vspace{\\dimexpr -0.5pt + 0.383\\baselineskip\\relax}" in source
+    # The tightest lead-in cancels `\parskip` outright.
+    assert "\\setlength{\\resumeBulletLead}{0pt}" in source
     assert "scale=0.9" not in source
 
 
+@pytest.mark.parametrize(("knob", "level"), [("fontSize", 9), ("sectionSpacing", 10)])
 async def test_an_out_of_range_formatting_level_is_rejected(
-    isolated_db: Any, sample_resume: dict[str, Any]
+    isolated_db: Any, sample_resume: dict[str, Any], knob: str, level: int
 ) -> None:
-    """The levels are a 1-5 vocabulary shared with the Chromium route; a pt
-    value here used to be a silently different meaning of ``fontSize``."""
+    """The levels are a vocabulary shared with the Chromium route — 1-9 on the
+    spacing axes, 1-5 on the font axes. A pt value here used to be a silently
+    different meaning of ``fontSize``."""
     resume_id = await _seed(isolated_db, sample_resume)
 
     async with _client() as client:
         response = await client.get(
-            f"/api/v1/resumes/{resume_id}/tex", params={"fontSize": 9}
+            f"/api/v1/resumes/{resume_id}/tex", params={knob: level}
         )
 
     assert response.status_code == 422

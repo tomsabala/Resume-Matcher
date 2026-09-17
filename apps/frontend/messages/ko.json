@@ -337,6 +337,7 @@
       "spacing": "간격",
       "spacingSection": "섹션",
       "spacingItems": "항목",
+      "spacingBulletLeadIn": "앞여백",
       "spacingLines": "줄",
       "fontSize": "글꼴 크기",
       "baseFontSize": "기본",

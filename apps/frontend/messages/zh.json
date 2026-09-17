@@ -359,6 +359,7 @@
       "spacing": "间距",
       "spacingSection": "板块",
       "spacingItems": "条目",
+      "spacingBulletLeadIn": "前导",
       "spacingLines": "行距",
       "fontSize": "字号",
       "baseFontSize": "正文",

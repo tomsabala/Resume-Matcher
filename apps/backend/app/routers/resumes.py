@@ -205,6 +205,25 @@ def _parse_interview_prep(
         return None
 
 
+# The spacing axes were widened from 1-5 to 1-9 by adding two steps at each
+# end, so a level means what it used to mean two numbers higher up. v1 and v2
+# values overlap, which is why a payload carries `settingsVersion`: without
+# the marker, `section: 3` is either today's tightest-but-one or yesterday's
+# reference look. The frontend upgrades its own stored copy identically
+# (`lib/utils/template-settings-storage.ts`).
+_V1_SPACING_NEUTRAL = {"section": 5, "item": 4, "bulletLeadIn": 4, "lineHeight": 5}
+
+
+def _upgrade_v1_settings(raw: dict[str, Any]) -> dict[str, Any]:
+    """A pre-``settingsVersion`` payload in today's level vocabulary."""
+    spacing = raw.get("spacing")
+    upgraded = dict(spacing) if isinstance(spacing, dict) else {}
+    for key, neutral in _V1_SPACING_NEUTRAL.items():
+        level = upgraded.get(key)
+        upgraded[key] = level + 2 if isinstance(level, int) and 1 <= level <= 5 else neutral
+    return {**raw, "settingsVersion": 2, "spacing": upgraded}
+
+
 def _parse_template_settings(
     raw: Any,
     *,
@@ -217,6 +236,8 @@ def _parse_template_settings(
     """
     if raw in (None, ""):
         return None
+    if isinstance(raw, dict) and "settingsVersion" not in raw:
+        raw = _upgrade_v1_settings(raw)
     try:
         return TemplateSettings.model_validate(raw)
     except (TypeError, ValidationError, ValueError) as e:
@@ -2037,9 +2058,9 @@ async def download_resume_pdf(
     marginBottom: int = Query(10, ge=5, le=25),
     marginLeft: int = Query(10, ge=5, le=25),
     marginRight: int = Query(10, ge=5, le=25),
-    sectionSpacing: int = Query(3, ge=1, le=5),
-    itemSpacing: int = Query(2, ge=1, le=5),
-    lineHeight: int = Query(3, ge=1, le=5),
+    sectionSpacing: int = Query(5, ge=1, le=9),
+    itemSpacing: int = Query(4, ge=1, le=9),
+    lineHeight: int = Query(5, ge=1, le=9),
     fontSize: int = Query(3, ge=1, le=5),
     headerScale: int = Query(3, ge=1, le=5),
     headerFont: str = Query("serif", pattern="^(serif|sans-serif|mono)$"),
@@ -2057,9 +2078,9 @@ async def download_resume_pdf(
       compiled by GET /resumes/{resume_id}/tex/pdf and rejected here.
     - pageSize: A4 or LETTER
     - marginTop/Bottom/Left/Right: page margins in mm (5-25)
-    - sectionSpacing: gap between sections (1-5)
-    - itemSpacing: gap between items (1-5)
-    - lineHeight: text line height (1-5)
+    - sectionSpacing: gap between sections (1-9)
+    - itemSpacing: gap between items (1-9)
+    - lineHeight: text line height (1-9)
     - fontSize: base font size (1-5)
     - headerScale: header size scale (1-5)
     - headerFont: serif, sans-serif, or mono

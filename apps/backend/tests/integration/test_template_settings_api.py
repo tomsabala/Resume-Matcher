@@ -16,10 +16,11 @@ from app.schemas.document import ResumeDocument
 from tests.integration.test_direct_improve_transactions import direct_case  # noqa: F401
 
 TEX_SETTINGS: dict[str, Any] = {
+    "settingsVersion": 2,
     "template": "tex-classic",
     "pageSize": "LETTER",
     "margins": {"top": 12, "bottom": 12, "left": 15, "right": 15},
-    "spacing": {"section": 2, "item": 1, "lineHeight": 4},
+    "spacing": {"section": 4, "item": 3, "bulletLeadIn": 9, "lineHeight": 6},
     "fontSize": {
         "base": 2,
         "headerScale": 4,
@@ -29,6 +30,14 @@ TEX_SETTINGS: dict[str, Any] = {
     "compactMode": True,
     "showContactIcons": True,
     "accentColor": "green",
+}
+
+# `TEX_SETTINGS` as the vocabulary that shipped before the spacing axes were
+# widened to 1-9 would have stored it: no marker, every spacing level two
+# steps lower, and no `bulletLeadIn` at all.
+V1_SETTINGS: dict[str, Any] = {
+    **{key: value for key, value in TEX_SETTINGS.items() if key != "settingsVersion"},
+    "spacing": {"section": 2, "item": 1, "lineHeight": 4},
 }
 
 
@@ -78,6 +87,27 @@ async def test_a_resume_with_no_choice_reports_none_rather_than_defaults(
     assert fetched.json()["data"]["template_settings"] is None
 
 
+async def test_a_row_stored_before_the_levels_widened_keeps_its_look(
+    isolated_db: Any, sample_resume: dict[str, Any]
+) -> None:
+    """The spacing axes gained two steps at each end, so every stored level
+    means what it used to mean two numbers higher up. Without the upgrade a
+    resume designed yesterday opens two steps tighter than the user left it."""
+    resume_id = await _seed(isolated_db, sample_resume)
+    await isolated_db.update_resume(resume_id, {"template_settings": V1_SETTINGS})
+
+    async with _client() as client:
+        fetched = await client.get(f"/api/v1/resumes?resume_id={resume_id}")
+
+    assert fetched.json()["data"]["template_settings"] == {
+        **TEX_SETTINGS,
+        # Levels shifted +2; a v1 payload had no lead-in, so it takes the
+        # neutral one, which is the gap `\parskip` used to leave on its own.
+        "spacing": {"section": 4, "item": 3, "bulletLeadIn": 4, "lineHeight": 6},
+    }
+
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -103,16 +133,44 @@ async def test_an_unrenderable_choice_is_rejected(
     assert fetched.json()["data"]["template_settings"] is None
 
 
+@pytest.mark.parametrize(
+    ("patch", "reason"),
+    [
+        ({"margins": {"top": 40}}, "the print route clamps to 5-25mm"),
+        ({"spacing": {"section": 10}}, "the spacing axes stop at 9"),
+        ({"fontSize": {"base": 6}}, "the font axes stop at 5"),
+    ],
+)
 async def test_out_of_range_formatting_is_rejected(
-    isolated_db: Any, sample_resume: dict[str, Any]
+    isolated_db: Any,
+    sample_resume: dict[str, Any],
+    patch: dict[str, dict[str, int]],
+    reason: str,
 ) -> None:
     resume_id = await _seed(isolated_db, sample_resume)
     payload = copy.deepcopy(TEX_SETTINGS)
-    payload["margins"]["top"] = 40  # the print route clamps to 5-25mm
+    for group, values in patch.items():
+        payload[group].update(values)
 
     async with _client() as client:
         response = await client.put(
             f"/api/v1/resumes/{resume_id}/template-settings", json=payload
+        )
+
+    assert response.status_code == 422, reason
+
+
+async def test_a_body_without_the_version_marker_is_rejected(
+    isolated_db: Any, sample_resume: dict[str, Any]
+) -> None:
+    """A client still speaking the 1-5 vocabulary must be told so. Accepting
+    its body would store every spacing level two steps tighter than the user
+    chose, which nothing downstream could detect."""
+    resume_id = await _seed(isolated_db, sample_resume)
+
+    async with _client() as client:
+        response = await client.put(
+            f"/api/v1/resumes/{resume_id}/template-settings", json=V1_SETTINGS
         )
 
     assert response.status_code == 422

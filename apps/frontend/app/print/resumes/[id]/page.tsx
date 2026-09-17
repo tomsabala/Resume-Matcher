@@ -4,10 +4,12 @@ import {
   type PageSize,
   type TemplateSettings,
   type SpacingLevel,
+  type FontLevel,
   type HeaderFontFamily,
   type BodyFontFamily,
   type AccentColor,
   DEFAULT_TEMPLATE_SETTINGS,
+  TEMPLATE_SETTINGS_VERSION,
 } from '@/lib/types/template-settings';
 import { emptyDocument, type ResumeDocument } from '@/lib/types/document';
 import { API_BASE } from '@/lib/api/client';
@@ -107,13 +109,27 @@ async function fetchResumeDocument(id: string): Promise<ResumeDocument> {
 }
 
 /**
- * Parse spacing level from string, clamped to valid range 1-5
+ * Parse a spacing level from a query param, clamped to the valid range 1-9.
  */
 function parseSpacingLevel(value: string | undefined, defaultValue: SpacingLevel): SpacingLevel {
   if (!value) return defaultValue;
   const num = parseInt(value, 10);
-  if (isNaN(num) || num < 1 || num > 5) return defaultValue;
+  if (isNaN(num) || num < 1 || num > 9) return defaultValue;
   return num as SpacingLevel;
+}
+
+/**
+ * Parse a font level from a query param, clamped to the valid range 1-5.
+ *
+ * The type axes have a narrower vocabulary than the spacing axes: `extarticle`
+ * offers 8-12pt in one-point steps and nothing outside that, so the levels the
+ * two renderers share stop at 5.
+ */
+function parseFontLevel(value: string | undefined, defaultValue: FontLevel): FontLevel {
+  if (!value) return defaultValue;
+  const num = parseInt(value, 10);
+  if (isNaN(num) || num < 1 || num > 5) return defaultValue;
+  return num as FontLevel;
 }
 
 /**
@@ -169,6 +185,7 @@ export default async function PrintResumePage({ params, searchParams }: PageProp
 
   // Parse template settings from query params
   const settings: TemplateSettings = {
+    settingsVersion: TEMPLATE_SETTINGS_VERSION,
     template: parseTemplate(resolvedSearchParams?.template),
     pageSize: parsePageSize(resolvedSearchParams?.pageSize),
     margins: {
@@ -196,13 +213,13 @@ export default async function PrintResumePage({ params, searchParams }: PageProp
         resolvedSearchParams?.lineHeight,
         DEFAULT_TEMPLATE_SETTINGS.spacing.lineHeight
       ),
+      // The bullet lead-in is a LaTeX preamble length; this HTML print route
+      // never receives it, so it stays at its neutral default.
+      bulletLeadIn: DEFAULT_TEMPLATE_SETTINGS.spacing.bulletLeadIn,
     },
     fontSize: {
-      base: parseSpacingLevel(
-        resolvedSearchParams?.fontSize,
-        DEFAULT_TEMPLATE_SETTINGS.fontSize.base
-      ),
-      headerScale: parseSpacingLevel(
+      base: parseFontLevel(resolvedSearchParams?.fontSize, DEFAULT_TEMPLATE_SETTINGS.fontSize.base),
+      headerScale: parseFontLevel(
         resolvedSearchParams?.headerScale,
         DEFAULT_TEMPLATE_SETTINGS.fontSize.headerScale
       ),
