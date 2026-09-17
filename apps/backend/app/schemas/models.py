@@ -170,6 +170,10 @@ class ResumeFetchData(BaseModel):
     interview_prep: InterviewPrepData | None = None
     parent_id: str | None = None  # For determining if resume is tailored
     title: str | None = None
+    # Master-ness lives on the resume, so a client must read it from here
+    # rather than from its own `master_resume_id` cache: another tab, another
+    # workspace or a promotion can have moved it since that cache was written.
+    is_master: bool = False
     # None means this resume has no stored choice yet; the client then applies
     # its last-used settings instead of overriding them with defaults.
     template_settings: TemplateSettings | None = None
@@ -180,6 +184,18 @@ class ResumeFetchResponse(BaseModel):
 
     request_id: str
     data: ResumeFetchData
+
+
+class SetMasterResumeResponse(BaseModel):
+    """The promotion's outcome: the new master, and the one it replaced.
+
+    ``previous_master_id`` is what the client needs to know the demoted resume
+    moved into the ordinary list — it is kept, not deleted.
+    """
+
+    resume_id: str
+    is_master: bool
+    previous_master_id: str | None = None
 
 
 class ResumeSummary(BaseModel):

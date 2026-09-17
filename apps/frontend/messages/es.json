@@ -67,6 +67,7 @@
     "selectModule": "Seleccionar módulo",
     "masterResume": "Currículum maestro",
     "tailoredResume": "Currículum personalizado",
+    "baseResume": "Currículum base",
     "initializeMasterResume": "Inicializar currículum maestro",
     "initializeSequence": "Secuencia de inicialización",
     "refreshStatus": "Actualizar estado",
@@ -125,7 +126,10 @@
       "deleteTitle": "Eliminar currículum",
       "deleteDescription": "«{title}» y su historial se eliminarán permanentemente.",
       "deleteMasterDescription": "«{title}» es tu currículum maestro. Al eliminarlo se borra su historial; los currículums personalizados permanecen.",
-      "deleteFailed": "No se pudo eliminar este currículum. Inténtalo de nuevo."
+      "deleteFailed": "No se pudo eliminar este currículum. Inténtalo de nuevo.",
+      "setMaster": "Definir como maestro",
+      "setMasterResume": "Definir {title} como currículum maestro",
+      "setMasterFailed": "No se pudo definir este currículum como maestro. Inténtalo de nuevo."
     },
     "aiFailures": {
       "title": "Problemas de IA",
@@ -818,6 +822,7 @@
     "deleteAndStartOver": "Eliminar y empezar de nuevo",
     "returnToDashboard": "Volver al Panel",
     "enhanceResume": "Mejorar currículum",
+    "setMaster": "Definir como maestro",
     "downloadResume": "Descargar currículum",
     "deletedTitle": "Currículum eliminado",
     "deletedDescriptionMaster": "Tu currículum maestro se ha eliminado permanentemente del sistema.",
@@ -955,6 +960,8 @@
     "deleteResumeFromSystemDescription": "El currículum se eliminará permanentemente.",
     "deleteResumeConfirmLabel": "Eliminar currículum",
     "keepResumeCancelLabel": "Conservar currículum",
+    "setMasterTitle": "¿Convertir «{title}» en el currículum maestro?",
+    "setMasterDescription": "Todas las personalizaciones futuras se verificarán con este currículum. Tu currículum maestro actual se conservará como un currículum normal.",
     "discardChanges": "¿Descartar los cambios sin guardar?",
     "discardChangesDescription": "Perderás cualquier trabajo que no hayas guardado.",
     "clearApiKeys": "¿Borrar Todas las Claves API?",

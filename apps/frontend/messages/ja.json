@@ -67,6 +67,7 @@
     "selectModule": "モジュールを選択",
     "masterResume": "マスター履歴書",
     "tailoredResume": "カスタマイズ履歴書",
+    "baseResume": "ベース履歴書",
     "initializeMasterResume": "マスター履歴書を初期化",
     "initializeSequence": "初期化シーケンス",
     "refreshStatus": "ステータスを更新",
@@ -125,7 +126,10 @@
       "deleteTitle": "履歴書を削除",
       "deleteDescription": "「{title}」とその履歴は完全に削除されます。",
       "deleteMasterDescription": "「{title}」はマスター履歴書です。削除すると履歴も消えますが、カスタマイズ済みの履歴書は残ります。",
-      "deleteFailed": "この履歴書を削除できませんでした。もう一度お試しください。"
+      "deleteFailed": "この履歴書を削除できませんでした。もう一度お試しください。",
+      "setMaster": "マスターに設定",
+      "setMasterResume": "{title} をマスター履歴書に設定",
+      "setMasterFailed": "この履歴書をマスターに設定できませんでした。もう一度お試しください。"
     },
     "aiFailures": {
       "title": "AI の問題",
@@ -818,6 +822,7 @@
     "deleteAndStartOver": "削除してやり直す",
     "returnToDashboard": "ダッシュボードに戻る",
     "enhanceResume": "履歴書を強化",
+    "setMaster": "マスターに設定",
     "downloadResume": "履歴書をダウンロード",
     "deletedTitle": "履歴書を削除しました",
     "deletedDescriptionMaster": "マスター履歴書はシステムから完全に削除されました。",
@@ -955,6 +960,8 @@
     "deleteResumeFromSystemDescription": "履歴書は完全に削除されます。",
     "deleteResumeConfirmLabel": "履歴書を削除",
     "keepResumeCancelLabel": "履歴書を保持",
+    "setMasterTitle": "「{title}」をマスター履歴書にしますか？",
+    "setMasterDescription": "今後のカスタマイズはすべてこの履歴書を基準に検証されます。現在のマスター履歴書は通常の履歴書として残ります。",
     "discardChanges": "保存していない変更を破棄しますか？",
     "discardChangesDescription": "保存していない作業内容は失われます。",
     "clearApiKeys": "すべてのAPIキーを消去しますか？",

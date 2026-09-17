@@ -12,6 +12,7 @@ import {
   deleteResume,
   retryProcessing,
   renameResume,
+  setMasterResume,
 } from '@/lib/api/resume';
 import { useStatusCache } from '@/lib/context/status-cache';
 import {
@@ -23,6 +24,7 @@ import {
   Sparkles,
   Pencil,
   MessagesSquare,
+  Star,
 } from 'lucide-react';
 import { EnrichmentModal } from '@/components/enrichment/enrichment-modal';
 import { TexPdfPreview } from '@/components/latex/tex-pdf-preview';
@@ -65,6 +67,9 @@ export default function ResumeViewerPage() {
   const [showEnrichmentModal, setShowEnrichmentModal] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isSettingMaster, setIsSettingMaster] = useState(false);
+  const [showSetMasterDialog, setShowSetMasterDialog] = useState(false);
+  const [setMasterError, setSetMasterError] = useState<string | null>(null);
   const [resumeTitle, setResumeTitle] = useState<string | null>(null);
   const renameBusyRef = useRef(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -89,6 +94,7 @@ export default function ResumeViewerPage() {
   const { begin: beginRename, isCurrent: isCurrentRename } = useOperationOwner(resumeId);
   const { begin: beginDownload, isCurrent: isCurrentDownload } = useOperationOwner(resumeId);
   const { begin: beginDelete, isCurrent: isCurrentDelete } = useOperationOwner(resumeId);
+  const { begin: beginSetMaster, isCurrent: isCurrentSetMaster } = useOperationOwner(resumeId);
 
   useEffect(() => {
     if (!resumeId) return;
@@ -104,6 +110,9 @@ export default function ResumeViewerPage() {
     setShowDeleteDialog(false);
     setShowDeleteSuccessDialog(false);
     setShowDownloadSuccessDialog(false);
+    setIsSettingMaster(false);
+    setShowSetMasterDialog(false);
+    setSetMasterError(null);
     const token = beginResumeLoad();
     if (token === null) return;
 
@@ -121,6 +130,15 @@ export default function ResumeViewerPage() {
         // Capture title for editable display (always set to clear stale state)
         setResumeTitle(data.title ?? null);
         setIsTailoredResume(Boolean(data.parent_id));
+        // The server owns master-ness. The cached id only covers the gap before
+        // this response lands; once it is here, reconcile the cache with it so a
+        // promotion in another tab or workspace cannot mislabel this resume.
+        setIsMasterResume(data.is_master);
+        if (data.is_master) {
+          localStorage.setItem('master_resume_id', resumeId);
+        } else if (localStorage.getItem('master_resume_id') === resumeId) {
+          localStorage.removeItem('master_resume_id');
+        }
         // The resume's own choice wins; without one, the last used in the
         // builder is the closest thing to the user's intent.
         if (data.template_settings) setTemplateSettings(data.template_settings);
@@ -153,8 +171,10 @@ export default function ResumeViewerPage() {
       }
     };
 
-    loadResume();
+    // Pre-fetch guess, so master-only affordances do not flicker in and out
+    // while the authoritative `is_master` is still in flight.
     setIsMasterResume(localStorage.getItem('master_resume_id') === resumeId);
+    loadResume();
   }, [resumeId, beginResumeLoad, isCurrentResumeLoad]);
 
   const handleRetryProcessing = async () => {
@@ -294,6 +314,30 @@ export default function ResumeViewerPage() {
       setDownloadError(t('resumeViewer.errors.failedToDownload'));
     } finally {
       if (isCurrentDownload(token)) setIsDownloading(false);
+    }
+  };
+
+  // Promotion swaps the roles: this resume becomes the source of truth and the
+  // old master stays on as an ordinary resume, so nothing needs reloading here.
+  const handleSetMaster = async () => {
+    const token = beginSetMaster();
+    if (token === null) return;
+    setIsSettingMaster(true);
+    try {
+      setSetMasterError(null);
+      await setMasterResume(resumeId);
+      localStorage.setItem('master_resume_id', resumeId);
+      setHasMasterResume(true);
+      if (!isCurrentSetMaster(token)) return;
+      setShowSetMasterDialog(false);
+      setIsMasterResume(true);
+    } catch (err) {
+      if (!isCurrentSetMaster(token)) return;
+      console.error('Failed to set master resume:', err);
+      setShowSetMasterDialog(false);
+      setSetMasterError(t('dashboard.manage.setMasterFailed'));
+    } finally {
+      if (isCurrentSetMaster(token)) setIsSettingMaster(false);
     }
   };
 
@@ -473,6 +517,16 @@ export default function ResumeViewerPage() {
                 {t('resumeViewer.enhanceResume')}
               </Button>
             )}
+            {!isMasterResume && processingStatus === 'ready' && (
+              <Button
+                variant="outline"
+                onClick={() => setShowSetMasterDialog(true)}
+                disabled={isSettingMaster}
+              >
+                <Star className="w-4 h-4" />
+                {t('resumeViewer.setMaster')}
+              </Button>
+            )}
             <Button variant="outline" onClick={handleEdit}>
               <Edit className="w-4 h-4" />
               {t('dashboard.editResume')}
@@ -581,6 +635,34 @@ export default function ResumeViewerPage() {
         cancelLabel={t('common.cancel')}
         onConfirm={handleTitleSave}
         onCancel={() => setRenameError(null)}
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        open={showSetMasterDialog}
+        onOpenChange={setShowSetMasterDialog}
+        title={t('confirmations.setMasterTitle', {
+          title:
+            resumeTitle ||
+            t(isTailoredResume ? 'dashboard.tailoredResume' : 'dashboard.baseResume'),
+        })}
+        description={t('confirmations.setMasterDescription')}
+        confirmLabel={t('resumeViewer.setMaster')}
+        cancelLabel={t('common.cancel')}
+        confirmDisabled={isSettingMaster}
+        closeOnConfirm={false}
+        onConfirm={handleSetMaster}
+      />
+
+      <ConfirmDialog
+        open={setMasterError !== null}
+        onOpenChange={(open) => !open && setSetMasterError(null)}
+        title={t('common.error')}
+        description={setMasterError ?? ''}
+        confirmLabel={t('common.retry')}
+        cancelLabel={t('common.cancel')}
+        onConfirm={handleSetMaster}
+        onCancel={() => setSetMasterError(null)}
         variant="danger"
       />
 

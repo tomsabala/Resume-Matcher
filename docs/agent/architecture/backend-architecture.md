@@ -110,7 +110,7 @@ await db.create_resume(content, content_type, filename, is_master, processed_dat
 await db.get_resume(resume_id) → dict | None
 await db.update_resume(resume_id, updates) → dict
 await db.delete_resume(resume_id) → bool
-await db.set_master_resume(resume_id)            # Exactly one master allowed
+await db.set_master_resume(resume_id)            # One master per workspace; demote + promote in one txn
 await db.create_application(...) / list_applications / update_application / bulk_*
 await db.get_stats() → {total_resumes, total_jobs, total_improvements, total_applications}
 get_api_key_ciphertexts() / replace_api_keys(...)  # sync; encrypted api_keys table
@@ -123,9 +123,14 @@ the document tables + `applications`; a **sync** engine serves the encrypted
 through `llm.py`. Both apply PRAGMAs `journal_mode=WAL`, `foreign_keys=ON`,
 `busy_timeout` on connect.
 
-**Single-master invariant** is enforced by a partial unique index on `is_master`.
+**Single-master invariant** is enforced by a partial unique index on `is_master`
+(`ux_resumes_workspace_master`, scoped per workspace).
 Master replacement and tracker read-modify-write operations reserve SQLite writes
-with `BEGIN IMMEDIATE`, including across Database instances.
+with `BEGIN IMMEDIATE`, including across Database instances. Master-ness is not
+fixed at creation: `POST /resumes/{id}/master` promotes any `ready` resume
+through `set_master_resume()`, demoting the previous master to an ordinary
+resume (nothing else about it changes) in the same transaction — see
+[the master resume](backend-guide.md#the-master-resume).
 **Jobs' dynamic fields** (`job_keywords`, `job_keywords_hash`, `company`/`role`,
 `preview_hash`, `preview_hashes`, and `preview_prompt_id`) are stored in
 `metadata_json` and flattened on read; immutable preview identity, fingerprints,

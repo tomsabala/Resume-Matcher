@@ -67,6 +67,7 @@
     "selectModule": "Sélectionner un module",
     "masterResume": "CV principal",
     "tailoredResume": "CV personnalisé",
+    "baseResume": "CV de base",
     "initializeMasterResume": "Initialiser le CV principal",
     "initializeSequence": "Séquence d'initialisation",
     "refreshStatus": "Actualiser le statut",
@@ -125,7 +126,10 @@
       "deleteTitle": "Supprimer le CV",
       "deleteDescription": "« {title} » et son historique seront définitivement supprimés.",
       "deleteMasterDescription": "« {title} » est votre CV principal. Le supprimer efface son historique ; les CV personnalisés sont conservés.",
-      "deleteFailed": "Impossible de supprimer ce CV. Veuillez réessayer."
+      "deleteFailed": "Impossible de supprimer ce CV. Veuillez réessayer.",
+      "setMaster": "Définir comme principal",
+      "setMasterResume": "Définir {title} comme CV principal",
+      "setMasterFailed": "Impossible de définir ce CV comme principal. Veuillez réessayer."
     },
     "aiFailures": {
       "title": "Problèmes d'IA",
@@ -818,6 +822,7 @@
     "deleteAndStartOver": "Supprimer et recommencer",
     "returnToDashboard": "Retourner au tableau de bord",
     "enhanceResume": "Améliorer le CV",
+    "setMaster": "Définir comme principal",
     "downloadResume": "Télécharger le CV",
     "deletedTitle": "CV supprimé",
     "deletedDescriptionMaster": "Votre CV principal a été définitivement supprimé du système.",
@@ -955,6 +960,8 @@
     "deleteResumeFromSystemDescription": "Le CV sera définitivement supprimé.",
     "deleteResumeConfirmLabel": "Supprimer le CV",
     "keepResumeCancelLabel": "Conserver le CV",
+    "setMasterTitle": "Faire de « {title} » le CV principal ?",
+    "setMasterDescription": "Toutes les personnalisations futures seront vérifiées par rapport à ce CV. Votre CV principal actuel est conservé comme un CV ordinaire.",
     "discardChanges": "Ignorer les modifications non enregistrées ?",
     "discardChangesDescription": "Vous perdrez tout travail non enregistré.",
     "clearApiKeys": "Effacer toutes les clés API ?",

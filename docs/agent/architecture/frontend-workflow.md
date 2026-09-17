@@ -13,7 +13,11 @@ Dashboard → Upload Master Resume → Tailor for Job → View/Edit → Download
 ### 1. Dashboard (`/dashboard`)
 
 - **No master:** "Initialize Master Resume" card
-- **Has master:** "Master Resume" card + tailored tiles
+- **Has master:** "Master Resume" card + tailored tiles. Any `ready` card can be
+  promoted with `setMasterResume(id)` (`POST /resumes/{id}/master`); the old
+  master is demoted to an ordinary tile, keeping its document, versions and
+  tracker links, and can be promoted back
+  ([contract](../apis/front-end-apis.md#the-master-resume-post-resumesidmaster))
 - **Create:** "+" card opens `/tailor`
 - Auto-refreshes on window focus
 - List and status results are applied only while their request and master identity are current. Late responses cannot replace newer cards or clear a different master.
@@ -38,7 +42,9 @@ Dashboard → Upload Master Resume → Tailor for Job → View/Edit → Download
 ### 2. Resume Viewer (`/resumes/[id]`)
 
 - Read-only display at 250mm width
-- Actions: Back, Edit, Download PDF, Delete
+- Actions: Back, Edit, Download PDF, Delete, and — on a `ready` resume that is
+  not already the master — **Set as master**, gated on `data.is_master` from the
+  fetch rather than on the cached `master_resume_id`
 - Renders and exports with the resume's own `template_settings` (see
   [Template Settings](#template-settings)), not with the defaults
 - Delete shows confirmation + success dialogs
@@ -95,7 +101,7 @@ Dashboard → Upload Master Resume → Tailor for Job → View/Edit → Download
 
 | Key | Purpose |
 | --- | --- |
-| `master_resume_id` | Master resume UUID |
+| `master_resume_id` | Master resume UUID — a **cache/fallback only**. The server owns master-ness: `GET /resumes?resume_id=` returns `is_master`, and a promotion in another tab or browser leaves this key naming a demoted resume |
 | `resume_builder_draft:<resumeId>` / `resume_builder_draft:new` | Resume-scoped recovery draft; a failed write is shown as unavailable and never described as saved |
 | `resume_builder_settings` | Last-used template/formatting settings — the default for a resume that has none of its own, not the choice itself |
 | `resume_wizard_draft` | Versioned wizard state; nested resume/history values are normalized before restoration |
@@ -110,7 +116,7 @@ to another browser.
 | --- | --- |
 | Read on load | `components/builder/resume-builder.tsx` → `adoptTemplateSettings(data.template_settings)`; a `null` keeps the browser's last-used settings, so no existing resume resets to `swiss-single` |
 | Write on change | `saveResumeTemplateSettings(resumeId, settings)` (`lib/api/resume.ts`) after `TEMPLATE_SETTINGS_SAVE_DEBOUNCE_MS` = 700 ms, only while `loadingState === 'loaded'` so a slow GET cannot pin this resume to the previous one's template |
-| Last-used default | `lib/utils/template-settings-storage.ts` — `readTemplateSettings` / `writeTemplateSettings` over `resume_builder_settings`, merged onto `DEFAULT_TEMPLATE_SETTINGS` with an unknown template id dropped |
+| Last-used default | `lib/utils/template-settings-storage.ts` — `readTemplateSettings` / `writeTemplateSettings` over `resume_builder_settings`, merged onto `DEFAULT_TEMPLATE_SETTINGS` with an unknown template id dropped and a payload lacking `settingsVersion: 2` upgraded from the old 1-5 spacing levels (+2 per spacing axis) |
 | Viewer | `app/(default)/resumes/[id]/page.tsx` prefers `data.template_settings`, falls back to the stored last-used ones, renders `TexPdfPreview` or `<Resume settings={…}>` from them and passes them to `downloadResumePdf` |
 | Inheritance | A tailored resume is created with its parent's `template_settings` |
 

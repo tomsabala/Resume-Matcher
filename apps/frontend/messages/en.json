@@ -67,6 +67,7 @@
     "selectModule": "Select Module",
     "masterResume": "Master Resume",
     "tailoredResume": "Tailored Resume",
+    "baseResume": "Base Resume",
     "initializeMasterResume": "Initialize Master Resume",
     "initializeSequence": "Initialize Sequence",
     "refreshStatus": "Refresh status",
@@ -125,7 +126,10 @@
       "deleteTitle": "Delete resume",
       "deleteDescription": "“{title}” and its history will be permanently deleted.",
       "deleteMasterDescription": "“{title}” is your master resume. Deleting it removes its history; tailored resumes stay.",
-      "deleteFailed": "Could not delete this resume. Please try again."
+      "deleteFailed": "Could not delete this resume. Please try again.",
+      "setMaster": "Set as master",
+      "setMasterResume": "Set {title} as master resume",
+      "setMasterFailed": "Could not set this resume as master. Please try again."
     },
     "aiFailures": {
       "title": "AI problems",
@@ -818,6 +822,7 @@
     "deleteAndStartOver": "Delete & Start Over",
     "returnToDashboard": "Return to Dashboard",
     "enhanceResume": "Enhance Resume",
+    "setMaster": "Set as Master",
     "downloadResume": "Download Resume",
     "deletedTitle": "Resume Deleted",
     "deletedDescriptionMaster": "Your master resume has been permanently deleted from the system.",
@@ -955,6 +960,8 @@
     "deleteResumeFromSystemDescription": "The resume will be permanently removed.",
     "deleteResumeConfirmLabel": "Delete Resume",
     "keepResumeCancelLabel": "Keep Resume",
+    "setMasterTitle": "Make “{title}” the master resume?",
+    "setMasterDescription": "Every future tailoring will be verified against this resume. Your current master resume is kept as an ordinary resume.",
     "discardChanges": "Discard unsaved changes?",
     "discardChangesDescription": "You'll lose any work that hasn't been saved.",
     "clearApiKeys": "Clear All API Keys?",

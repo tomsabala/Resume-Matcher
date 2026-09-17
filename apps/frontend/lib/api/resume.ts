@@ -32,6 +32,8 @@ export interface ResumeDetail {
   outreach_message?: string | null;
   interview_prep?: InterviewPrepData | null;
   parent_id?: string | null; // For determining if resume is tailored
+  /** Server-owned master flag; the only authority on which resume is master. */
+  is_master: boolean;
   title?: string | null;
   /** Null when this resume has no stored choice yet. */
   template_settings?: TemplateSettings | null;
@@ -321,6 +323,24 @@ export async function renameResume(resumeId: string, title: string): Promise<voi
     const text = await res.text().catch(() => '');
     throw new Error(`Failed to rename resume (status ${res.status}): ${text}`);
   }
+}
+
+/** Response of the promote-to-master route. */
+export interface SetMasterResumeResult {
+  resume_id: string;
+  is_master: boolean;
+  /** The resume that was demoted, or null when there was no master yet. */
+  previous_master_id: string | null;
+}
+
+/** Promotes a ready resume to master; the previous master is demoted, not deleted. */
+export async function setMasterResume(resumeId: string): Promise<SetMasterResumeResult> {
+  const res = await apiPost(`/resumes/${encodeURIComponent(resumeId)}/master`, {});
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to set master resume (status ${res.status}): ${text}`);
+  }
+  return res.json();
 }
 
 /** Downloads cover letter as PDF */

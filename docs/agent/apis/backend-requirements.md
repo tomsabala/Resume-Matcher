@@ -38,8 +38,14 @@ POST /resumes/upload       ← multipart/form-data {file}
                            → {resume_id}
 GET /resumes?resume_id=    → Resume object
 GET /resumes/list          → [{resume_id, filename, is_master, created_at}]
+                           # master excluded unless ?include_master=true
 PATCH /resumes/{id}        ← ResumeDocument (the whole document)
 DELETE /resumes/{id}       → {message}
+POST /resumes/{id}/master  → {resume_id, is_master, previous_master_id}
+                           # promote any ready resume to the workspace master
+                           # (X-Workspace-Id scoped); 404 unknown or other
+                           # workspace, 409 processing_status != "ready".
+                           # The previous master is demoted, not deleted.
 GET /resumes/{id}/pdf      → application/pdf
 POST /resumes/improve      ← {resume_id, job_id}
                            → {data, cover_letter?, outreach_message?, interview_prep?}

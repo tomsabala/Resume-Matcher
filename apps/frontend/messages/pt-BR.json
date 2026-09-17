@@ -67,6 +67,7 @@
     "selectModule": "Selecionar Módulo",
     "masterResume": "Currículo Principal",
     "tailoredResume": "Currículo Personalizado",
+    "baseResume": "Currículo Base",
     "initializeMasterResume": "Inicializar Currículo Principal",
     "initializeSequence": "Iniciar Sequência",
     "refreshStatus": "Atualizar status",
@@ -125,7 +126,10 @@
       "deleteTitle": "Excluir currículo",
       "deleteDescription": "“{title}” e seu histórico serão excluídos permanentemente.",
       "deleteMasterDescription": "“{title}” é o seu currículo mestre. Excluí-lo remove o histórico; os currículos personalizados permanecem.",
-      "deleteFailed": "Não foi possível excluir este currículo. Tente novamente."
+      "deleteFailed": "Não foi possível excluir este currículo. Tente novamente.",
+      "setMaster": "Definir como principal",
+      "setMasterResume": "Definir {title} como currículo principal",
+      "setMasterFailed": "Não foi possível definir este currículo como principal. Tente novamente."
     },
     "aiFailures": {
       "title": "Problemas de IA",
@@ -818,6 +822,7 @@
     "deleteAndStartOver": "Excluir e recomeçar",
     "returnToDashboard": "Voltar ao Painel",
     "enhanceResume": "Aprimorar Currículo",
+    "setMaster": "Definir como Principal",
     "downloadResume": "Baixar Currículo",
     "deletedTitle": "Currículo Excluído",
     "deletedDescriptionMaster": "Seu currículo principal foi permanentemente excluído do sistema.",
@@ -955,6 +960,8 @@
     "deleteResumeFromSystemDescription": "O currículo será removido permanentemente.",
     "deleteResumeConfirmLabel": "Excluir Currículo",
     "keepResumeCancelLabel": "Manter Currículo",
+    "setMasterTitle": "Tornar “{title}” o currículo principal?",
+    "setMasterDescription": "Todas as personalizações futuras serão verificadas com base neste currículo. Seu currículo principal atual será mantido como um currículo comum.",
     "discardChanges": "Descartar alterações não salvas?",
     "discardChangesDescription": "Você perderá qualquer trabalho que não foi salvo.",
     "clearApiKeys": "Limpar Todas as Chaves de API?",

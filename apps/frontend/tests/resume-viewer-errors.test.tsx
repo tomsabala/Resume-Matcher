@@ -7,6 +7,7 @@ import {
   fetchResume,
   renameResume,
   retryProcessing,
+  type ResumeDetail,
 } from '@/lib/api/resume';
 import { openUrlInNewTab } from '@/lib/utils/download';
 import { sampleDocument } from './fixtures/document';
@@ -60,7 +61,7 @@ beforeEach(() => {
     title: 'Original title',
     processed_resume: sampleDocument({ header: { name: 'Ada' } }),
     raw_resume: { processing_status: 'ready' },
-  } as Awaited<ReturnType<typeof fetchResume>>);
+  } as ResumeDetail);
 });
 
 describe('resume viewer operation errors', () => {
@@ -157,7 +158,7 @@ it('keeps the current resume visible when an old retry settles after identity ch
     title: 'Failed A',
     processed_resume: null,
     raw_resume: { content: '', processing_status: 'failed' },
-  } as Awaited<ReturnType<typeof fetchResume>>);
+  } as ResumeDetail);
   const view = render(<ResumeViewerPage />);
   fireEvent.click(await screen.findByRole('button', { name: 'resumeViewer.retryProcessing' }));
   route.resumeId = 'resume-b';
@@ -184,7 +185,7 @@ it('keeps the current resume title when an old rename settles after identity cha
     title: 'New B title',
     processed_resume: sampleDocument({ header: { name: 'B' } }),
     raw_resume: { processing_status: 'ready' },
-  } as Awaited<ReturnType<typeof fetchResume>>);
+  } as ResumeDetail);
   route.resumeId = 'resume-b';
   view.rerender(<ResumeViewerPage />);
   await screen.findByRole('button', { name: 'New B title' });
@@ -201,6 +202,13 @@ it('keeps a replacement master cached when an old delete completes after unmount
         settle = resolve;
       })
   );
+  // The page takes master-ness from the server, not from the cached id.
+  mockedFetch.mockResolvedValueOnce({
+    title: 'Original title',
+    is_master: true,
+    processed_resume: sampleDocument({ header: { name: 'Ada' } }),
+    raw_resume: { processing_status: 'ready' },
+  } as ResumeDetail);
   localStorage.setItem('master_resume_id', 'resume-123');
   const view = render(<ResumeViewerPage />);
   fireEvent.click(

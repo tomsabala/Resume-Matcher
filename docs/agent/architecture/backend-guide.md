@@ -58,7 +58,7 @@ await db.get_resume(resume_id) → dict | None
 await db.list_resumes() → list[dict]
 await db.update_resume(resume_id, updates)
 await db.delete_resume(resume_id) → bool
-await db.set_master_resume(resume_id)            # Exactly one master per workspace
+await db.set_master_resume(resume_id)            # Demote + promote in one transaction
 await db.claim_resume_processing(resume_id)      # Rotate private operation token
 await db.finish_resume_processing(...)           # Token-guarded ready/failed commit
 await db.create_job(content, resume_id)
@@ -83,6 +83,44 @@ headers, and the browser's stored id can outlive a deleted workspace.
 Scoping applies to list/create/master paths only; fetch-by-id is not filtered, so a
 direct link (or the print route) still resolves a document from any workspace.
 `ux_resumes_workspace_master` replaces the old database-global single-master index.
+
+### The master resume
+
+Exactly one resume per workspace has `is_master = 1`, and
+`ux_resumes_workspace_master` is the final guarantee. Two paths set it:
+
+- **creation** — the first upload or wizard finalize in a workspace
+  (`create_resume_atomic_master`), or a replacement upload while the current
+  master is stuck `failed`/`processing`;
+- **promotion** — `POST /resumes/{resume_id}/master`, workspace-scoped through
+  `X-Workspace-Id`, which calls `db.set_master_resume()`: the demotion of the
+  old master and the promotion of the target share **one transaction** (the
+  demotion is flushed first, so the partial unique index never sees two
+  masters, and a failure leaves the old master in place). `404` when the resume
+  does not exist or belongs to another workspace, `409` unless
+  `processing_status == "ready"`; `200` returns
+  `{resume_id, is_master, previous_master_id}` (`SetMasterResumeResponse`),
+  with `previous_master_id` `null` when there was no master or the target
+  already was it.
+
+The demoted resume is **kept as an ordinary resume** — not deleted, not
+archived. Only the flag moves: it keeps its document, version timeline, `.tex`
+override, template settings, cover letter, outreach message, interview prep and
+tracker links, reappears in `GET /resumes/list` (which filters the master out
+unless `include_master=true`), and can be promoted back with the same call.
+
+Any `ready` resume may be promoted, **a tailored one included**, and `parent_id`
+is deliberately preserved — it records where the document came from and gates
+the cover-letter, outreach, interview-prep and job-description routes, so
+clearing it would silently disable them. What promoting a tailored resume does
+change is the tailoring baseline: `get_master_resume()` is the source of truth
+the improve routes feed to `refine_resume`, and `app/prompts/refinement.py`
+tells the model to verify every claim against it, so a job-biased document
+becomes the anti-hallucination reference for every later tailoring.
+
+`GET /resumes?resume_id=` returns `is_master` (`ResumeData`). That flag is the
+authoritative answer; the browser's cached `master_resume_id` is a fallback only
+and can name a resume that has since been demoted.
 
 ### Schema migrations (Alembic)
 
@@ -265,11 +303,23 @@ resume, on any device. `resumes.template_settings` (migration
 - **The payload is validated, not trusted.**
   `PUT /resumes/{id}/template-settings` binds the body to `TemplateSettings`
   (`app/schemas/template_settings.py`): camelCase names mirroring the frontend
-  type, `extra="forbid"` at every level, margins 5–25 mm, spacing and
-  type-scale steps 1–5, and closed literals for `template`, `pageSize`, the two
+  type, `extra="forbid"` at every level, margins 5–25 mm, the four spacing axes
+  (`section`, `item`, `lineHeight`, `bulletLeadIn`) at levels 1–9, the two type
+  axes (`base`, `headerScale`) at levels 1–5 — `extarticle`/`extsizes` offers
+  8/9/10/11/12pt and nothing below 8pt, so there is no step to add downward —
+  and closed literals for `template`, `pageSize`, the two
   font families and `accentColor`. Unknown resume → 404, anything outside those
   bounds → 422.
-- **Not versioned.** Presentation is not content, so the column never reaches
+- **`settingsVersion` marks the level vocabulary.** It is `Literal[2] = 2` on
+  `TemplateSettings`; a stored payload without it is v1, whose spacing levels
+  ran 1–5. v1 and v2 numbers overlap, so the payload alone is ambiguous and the
+  marker is the only disambiguator. `_parse_template_settings` upgrades a v1
+  payload on read by adding 2 to each spacing level — the old 1–5 become 3–7,
+  which are the same physical lengths, so nothing reflows — leaving the font
+  levels and every other field alone. The frontend's
+  `readTemplateSettings` does the identical thing to `localStorage`.
+  This is not document history: see the next bullet.
+- **Not part of document history.** Presentation is not content, so the column never reaches
   `commit_resume_version` and `resume_versions` has no such field: restoring an
   older document does not revert how the resume looks, and a document `PATCH`
   leaves the settings untouched. Contrast `tex_source`, which *is* versioned
@@ -328,6 +378,7 @@ GET/PUT/DELETE /api/v1/resumes/{id}/tex       # LaTeX source: generated | overri
 GET  /api/v1/resumes/{id}/tex/source          # .tex download
 GET  /api/v1/resumes/{id}/tex/pdf             # compile (503 no engine, 422 bad source)
 DELETE /api/v1/resumes/{id}
+POST /api/v1/resumes/{id}/master  # promote to workspace master (404 unknown/other workspace, 409 not ready)
 GET/PATCH/DELETE /api/v1/versions/{id}        # resume version history
 POST /api/v1/diff                # compare two refs (resume/version), mode document|tex
 GET/POST /api/v1/workspaces (+ PATCH/DELETE /{id})

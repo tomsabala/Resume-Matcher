@@ -71,6 +71,7 @@ function status(
 ): ResumeResponse {
   return {
     resume_id: 'master',
+    is_master: true,
     processed_resume: sampleDocument({ header: { name: 'Ada' } }),
     raw_resume: {
       id: 1,

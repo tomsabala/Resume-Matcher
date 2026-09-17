@@ -51,6 +51,7 @@ beforeEach(() => {
   vi.mocked(fetchResumeList).mockResolvedValue([]);
   vi.mocked(fetchResume).mockResolvedValue({
     resume_id: 'resume-1',
+    is_master: true,
     raw_resume: {
       id: null,
       content: '',

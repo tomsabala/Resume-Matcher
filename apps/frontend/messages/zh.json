@@ -67,6 +67,7 @@
     "selectModule": "选择模块",
     "masterResume": "主简历",
     "tailoredResume": "定制简历",
+    "baseResume": "基础简历",
     "initializeMasterResume": "初始化主简历",
     "initializeSequence": "初始化流程",
     "refreshStatus": "刷新状态",
@@ -125,7 +126,10 @@
       "deleteTitle": "删除简历",
       "deleteDescription": "“{title}”及其历史记录将被永久删除。",
       "deleteMasterDescription": "“{title}”是您的主简历。删除后其历史记录会消失，定制简历仍会保留。",
-      "deleteFailed": "无法删除此简历，请重试。"
+      "deleteFailed": "无法删除此简历，请重试。",
+      "setMaster": "设为主简历",
+      "setMasterResume": "将 {title} 设为主简历",
+      "setMasterFailed": "无法将此简历设为主简历，请重试。"
     },
     "aiFailures": {
       "title": "AI 问题",
@@ -818,6 +822,7 @@
     "deleteAndStartOver": "删除并重新开始",
     "returnToDashboard": "返回仪表板",
     "enhanceResume": "增强简历",
+    "setMaster": "设为主简历",
     "downloadResume": "下载简历",
     "deletedTitle": "已删除简历",
     "deletedDescriptionMaster": "您的主简历已从系统中永久删除。",
@@ -955,6 +960,8 @@
     "deleteResumeFromSystemDescription": "该简历将被永久删除。",
     "deleteResumeConfirmLabel": "删除简历",
     "keepResumeCancelLabel": "保留简历",
+    "setMasterTitle": "将“{title}”设为主简历？",
+    "setMasterDescription": "今后所有的定制都将以这份简历为基准进行校验。当前的主简历会作为普通简历保留。",
     "discardChanges": "放弃未保存的更改？",
     "discardChangesDescription": "您将丢失所有未保存的工作。",
     "clearApiKeys": "清除所有 API 密钥？",

@@ -30,12 +30,14 @@ import Settings from 'lucide-react/dist/esm/icons/settings';
 import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
 import Pencil from 'lucide-react/dist/esm/icons/pencil';
 import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
+import Star from 'lucide-react/dist/esm/icons/star';
 
 import {
   fetchResume,
   fetchResumeList,
   deleteResume,
   renameResume,
+  setMasterResume,
   retryProcessing,
   fetchJobDescription,
   type ResumeListItem,
@@ -46,11 +48,13 @@ import { hasMeaningfulResumeContent } from '@/lib/utils/resume-content';
 
 type ProcessingStatus = 'pending' | 'processing' | 'ready' | 'failed' | 'loading';
 
-/** The identity a rename/delete acts on, for either kind of card. */
+/** The identity a rename/delete/promote acts on, for either kind of card. */
 interface ManagedResume {
   resumeId: string;
   title: string;
   isMaster: boolean;
+  /** Only a fully processed resume can be promoted; the server rejects the rest. */
+  isReady: boolean;
 }
 
 export default function DashboardPage() {
@@ -71,6 +75,7 @@ export default function DashboardPage() {
   const [renameTarget, setRenameTarget] = useState<ManagedResume | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<ManagedResume | null>(null);
+  const [masterTarget, setMasterTarget] = useState<ManagedResume | null>(null);
   const [manageError, setManageError] = useState<string | null>(null);
   const [isManaging, setIsManaging] = useState(false);
   const [masterTitle, setMasterTitle] = useState<string | null>(null);
@@ -425,6 +430,12 @@ export default function DashboardPage() {
     setManageError(null);
   };
 
+  const openSetMaster = (event: React.MouseEvent, resume: ManagedResume) => {
+    event.stopPropagation();
+    setMasterTarget(resume);
+    setManageError(null);
+  };
+
   const submitRename = async () => {
     if (!renameTarget) return;
     const trimmed = renameValue.trim();
@@ -469,9 +480,43 @@ export default function DashboardPage() {
     }
   };
 
-  /** Rename + delete buttons shared by the master and tailored cards. */
+  // Promotion is a swap, not a delete: the server demotes the old master to an
+  // ordinary resume, so the list reload moves both cards to their new places.
+  const submitSetMaster = async () => {
+    if (!masterTarget) return;
+    const { resumeId } = masterTarget;
+    setIsManaging(true);
+    try {
+      await setMasterResume(resumeId);
+      setMasterTarget(null);
+      localStorage.setItem('master_resume_id', resumeId);
+      adoptMasterResume(resumeId);
+      setHasMasterResume(true);
+      void checkResumeStatus(resumeId);
+      await loadTailoredResumes();
+    } catch (err) {
+      console.error('Failed to set master resume:', err);
+      setManageError(t('dashboard.manage.setMasterFailed'));
+    } finally {
+      setIsManaging(false);
+    }
+  };
+
+  /** Promote + rename + delete buttons shared by the master and tailored cards. */
   const cardActions = (resume: ManagedResume) => (
     <>
+      {!resume.isMaster && resume.isReady && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative z-10 h-7 w-7 rounded-none hover:bg-blue-100 hover:text-blue-700"
+          onClick={(event) => openSetMaster(event, resume)}
+          aria-label={t('dashboard.manage.setMasterResume', { title: resume.title })}
+          title={t('dashboard.manage.setMaster')}
+        >
+          <Star className="h-3.5 w-3.5" />
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="icon"
@@ -755,6 +800,7 @@ export default function DashboardPage() {
                     resumeId: masterResumeId,
                     title: masterTitle ?? t('dashboard.masterResume'),
                     isMaster: true,
+                    isReady: processingStatus === 'ready',
                   })}
                 </div>
               </div>
@@ -800,8 +846,13 @@ export default function DashboardPage() {
 
         {/* 2. Tailored Resumes */}
         {tailoredResumes.map((resume) => {
+          // A resume without a parent was never tailored from anything, so the
+          // generic fallback must not claim it was.
           const title =
-            resume.title || resume.jobSnippet || resume.filename || t('dashboard.tailoredResume');
+            resume.title ||
+            resume.jobSnippet ||
+            resume.filename ||
+            t(resume.parent_id ? 'dashboard.tailoredResume' : 'dashboard.baseResume');
           const color = cardPalette[hashTitle(title) % cardPalette.length];
           return (
             <Card
@@ -834,6 +885,7 @@ export default function DashboardPage() {
                       resumeId: resume.resume_id,
                       title: resume.title?.trim() || title,
                       isMaster: false,
+                      isReady: resume.processing_status === 'ready',
                     })}
                   </div>
                 </div>
@@ -964,6 +1016,21 @@ export default function DashboardPage() {
           closeOnConfirm={false}
           onConfirm={() => void submitDelete()}
           variant="danger"
+        />
+
+        <ConfirmDialog
+          open={masterTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setMasterTarget(null);
+          }}
+          title={t('confirmations.setMasterTitle', { title: masterTarget?.title ?? '' })}
+          description={t('confirmations.setMasterDescription')}
+          errorMessage={manageError ?? undefined}
+          confirmLabel={t('dashboard.manage.setMaster')}
+          cancelLabel={t('common.cancel')}
+          confirmDisabled={isManaging}
+          closeOnConfirm={false}
+          onConfirm={() => void submitSetMaster()}
         />
       </SwissGrid>
     </div>

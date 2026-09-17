@@ -41,6 +41,13 @@ default to `applied` but can be created as `saved`.
 server-renumbered on PATCH), `created_at`, `updated_at`. `create_application`
 dedupes on `(job_id, resume_id)` to survive double-submit.
 
+`master_resume_id` is a historical record of the resume this card's resume was
+tailored from, not a pointer to the workspace's current master.
+`POST /resumes/{id}/master` ([promotion](../apis/front-end-apis.md#the-master-resume-post-resumesidmaster))
+never rewrites it, so after a promotion it can name a resume that is now an
+ordinary one — and a card's `resume_id` can be the master. Cards on the demoted
+resume survive: promotion demotes, it does not delete.
+
 ## API (`prefix=/applications`, mounted under `/api/v1`)
 
 | Method | Path | Purpose |

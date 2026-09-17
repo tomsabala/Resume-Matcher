@@ -51,6 +51,7 @@ from app.schemas import (
     ResumeListResponse,
     ResumeSummary,
     ResumeUploadResponse,
+    SetMasterResumeResponse,
     RawResume,
     UpdateCoverLetterRequest,
     UpdateOutreachMessageRequest,
@@ -1067,6 +1068,7 @@ async def get_resume(resume_id: str = Query(...)) -> ResumeFetchResponse:
             ),
             parent_id=resume.get("parent_id"),
             title=resume.get("title"),
+            is_master=bool(resume.get("is_master", False)),
             template_settings=_parse_template_settings(
                 resume.get("template_settings"), resume_id=resume_id
             ),
@@ -1094,6 +1096,65 @@ async def save_resume_template_settings(
     except ResumeNotFoundError:
         raise HTTPException(status_code=404, detail="Resume not found")
     return request
+
+
+@router.post("/{resume_id}/master", response_model=SetMasterResumeResponse)
+async def set_master_resume(
+    resume_id: str, workspace_id: WorkspaceId
+) -> SetMasterResumeResponse:
+    """Make this resume the workspace's master.
+
+    The previous master is demoted, not deleted: it keeps its document, its
+    version timeline, its `.tex` override, its template settings and its
+    tracker links, reappears in ``GET /resumes/list``, and can be promoted
+    back. Exactly one resume per workspace carries the flag, which
+    ``set_master_resume`` enforces by demoting and promoting inside one
+    transaction — the partial unique index would reject any overlap.
+
+    Any *ready* resume qualifies, a tailored one included. ``parent_id`` stays:
+    it records where the document came from and gates the cover-letter,
+    outreach, interview-prep and job-description routes, so clearing it here
+    would quietly disable them. What promoting a tailored resume does mean is
+    that a job-biased document becomes the source of truth every later
+    tailoring is verified against (see ``get_master_resume`` callers and
+    ``app/prompts/refinement.py``) — the client says so before asking.
+    """
+    resume = await db.get_resume(resume_id)
+    # `get_resume` is not workspace-scoped and `set_master_resume` takes its
+    # scope from the target row, so without this check a stray id would
+    # promote a master in someone else's workspace.
+    if not resume or resume.get("workspace_id") != workspace_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    status = resume.get("processing_status", "pending")
+    if status != "ready":
+        # The dashboard gates tailoring on a ready master and `/status` reports
+        # `setup_required` without one, so promoting an unready resume would
+        # deliberately break the workspace.
+        raise HTTPException(
+            status_code=409,
+            detail="Only a resume that finished processing can become the master.",
+        )
+
+    previous = await db.get_master_resume(workspace_id)
+    previous_id = previous.get("resume_id") if previous else None
+    if previous_id == resume_id:
+        return SetMasterResumeResponse(
+            resume_id=resume_id, is_master=True, previous_master_id=None
+        )
+
+    if not await db.set_master_resume(resume_id):
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    logger.info(
+        "Promoted resume %s to master in workspace %s, demoting %s",
+        resume_id,
+        workspace_id,
+        previous_id or "<none>",
+    )
+    return SetMasterResumeResponse(
+        resume_id=resume_id, is_master=True, previous_master_id=previous_id
+    )
 
 
 @router.get("/list", response_model=ResumeListResponse)

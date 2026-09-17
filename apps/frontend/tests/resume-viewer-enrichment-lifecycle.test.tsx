@@ -50,6 +50,7 @@ function resume(name: string, resumeId = 'resume-a'): Awaited<ReturnType<typeof 
   return {
     resume_id: resumeId,
     title: `${name} resume`,
+    is_master: true,
     processed_resume: sampleDocument({ header: { name } }),
     raw_resume: {
       id: null,

@@ -33,7 +33,8 @@ apps/frontend/
 - Master resume card + tailored resume tiles
 - States: `loading | pending | processing | ready | failed`
 - Auto-refreshes on window focus
-- localStorage: `master_resume_id`
+- localStorage: `master_resume_id` (cache/fallback; the server's `is_master` is authoritative)
+- Promote any `ready` card with `setMasterResume(id)`; the old master is demoted, not deleted
 
 ### Builder (`/builder`)
 - Left: Editor Panel (forms + formatting controls)
@@ -86,7 +87,7 @@ API_URL, API_BASE, apiFetch, apiPost, apiPatch, apiDelete
 
 // resume.ts
 uploadJobDescriptions, improveResume, fetchResume, fetchResumeList
-updateResume, downloadResumePdf, deleteResume
+updateResume, downloadResumePdf, deleteResume, setMasterResume
 
 // config.ts
 fetchLlmConfig, updateLlmConfig, testLlmConnection, fetchSystemStatus
@@ -96,7 +97,7 @@ fetchLlmConfig, updateLlmConfig, testLlmConnection, fetchSystemStatus
 
 | Key | Purpose |
 |-----|---------|
-| `master_resume_id` | Master resume UUID |
+| `master_resume_id` | Master resume UUID — cache/fallback only; master-ness comes from `is_master` on `GET /resumes?resume_id=`, which a promotion can move to another resume |
 | `resume_builder_draft:{id}` | Auto-saved form data, per resume |
 | `resume_builder_settings` | Last template/formatting choice — the default for a resume with none of its own. The choice itself lives on the resume (`template_settings`) |
 

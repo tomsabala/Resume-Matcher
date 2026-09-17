@@ -67,6 +67,7 @@
     "selectModule": "모듈 선택",
     "masterResume": "마스터 이력서",
     "tailoredResume": "맞춤화된 이력서",
+    "baseResume": "기본 이력서",
     "initializeMasterResume": "마스터 이력서 초기화",
     "initializeSequence": "초기화 시퀀스",
     "refreshStatus": "상태 새로고침",
@@ -125,7 +126,10 @@
       "deleteTitle": "이력서 삭제",
       "deleteDescription": "“{title}”과(와) 해당 기록이 영구적으로 삭제됩니다.",
       "deleteMasterDescription": "“{title}”은(는) 마스터 이력서입니다. 삭제하면 기록도 사라지지만 맞춤 이력서는 남습니다.",
-      "deleteFailed": "이력서를 삭제하지 못했습니다. 다시 시도해 주세요."
+      "deleteFailed": "이력서를 삭제하지 못했습니다. 다시 시도해 주세요.",
+      "setMaster": "마스터로 설정",
+      "setMasterResume": "{title}을(를) 마스터 이력서로 설정",
+      "setMasterFailed": "이 이력서를 마스터로 설정하지 못했습니다. 다시 시도해 주세요."
     },
     "aiFailures": {
       "title": "AI 문제",
@@ -818,6 +822,7 @@
     "deleteAndStartOver": "삭제 후 다시 시작",
     "returnToDashboard": "대시보드로 돌아가기",
     "enhanceResume": "이력서 개선",
+    "setMaster": "마스터로 설정",
     "downloadResume": "이력서 다운로드",
     "deletedTitle": "이력서가 삭제되었습니다",
     "deletedDescriptionMaster": "마스터 이력서가 시스템에서 영구적으로 삭제되었습니다.",
@@ -955,6 +960,8 @@
     "deleteResumeFromSystemDescription": "이력서가 영구적으로 제거됩니다.",
     "deleteResumeConfirmLabel": "이력서 삭제",
     "keepResumeCancelLabel": "이력서 유지",
+    "setMasterTitle": "“{title}”을(를) 마스터 이력서로 지정할까요?",
+    "setMasterDescription": "앞으로의 모든 맞춤화는 이 이력서를 기준으로 검증됩니다. 현재 마스터 이력서는 일반 이력서로 유지됩니다.",
     "discardChanges": "저장하지 않은 변경 사항을 취소하시겠습니까?",
     "discardChangesDescription": "저장하지 않은 작업 내용이 사라집니다.",
     "clearApiKeys": "모든 API 키를 삭제하시겠습니까?",

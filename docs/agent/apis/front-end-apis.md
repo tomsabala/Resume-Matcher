@@ -38,6 +38,7 @@ fetchResume(resumeId: string) → ResumeDetail
 fetchResumeList(includeMaster?: boolean) → ResumeListItem[]
 updateResume(resumeId: string, resumeData: ResumeDocument) → ResumeDetail
 deleteResume(resumeId: string) → void
+setMasterResume(resumeId: string) → { resume_id, is_master, previous_master_id }
 saveResumeTemplateSettings(resumeId: string, settings: TemplateSettings) → TemplateSettings
 
 // PDF
@@ -111,7 +112,7 @@ Contract notes that matter on the wire:
 
 | Endpoint | Body | Response |
 |---|---|---|
-| `GET /resumes?resume_id=` | — | `{ request_id, data: { resume_id, raw_resume, processed_resume: ResumeDocument \| null, cover_letter, outreach_message, interview_prep, parent_id, title, template_settings: TemplateSettings \| null } }` |
+| `GET /resumes?resume_id=` | — | `{ request_id, data: { resume_id, raw_resume, processed_resume: ResumeDocument \| null, cover_letter, outreach_message, interview_prep, parent_id, title, is_master, template_settings: TemplateSettings \| null } }` |
 | `PATCH /resumes/{id}` | a complete `ResumeDocument` | same shape as `GET /resumes` |
 | `POST /resumes/improve/preview` | `{ resume_id, job_id, prompt_id? }` | `{ request_id, data: ImproveResumeData }` — `resume_preview` is a `ResumeDocument`, `resume_id` is `null` |
 | `POST /resumes/improve/confirm` | `{ resume_id, job_id, preview_id, improved_data: ResumeDocument, improvements, accepted_paths? }` | `{ request_id, data: ImproveResumeData }` — `resume_id` is the persisted tailored resume |
@@ -131,6 +132,52 @@ could not be made, and the response then carries a warning saying so.
 accepts the whole proposal, an array takes only those diff-row paths. Selectable
 paths are content leaves only — see
 [document-diff.md](../features/document-diff.md#partial-accept).
+
+## The master resume (`POST /resumes/{id}/master`)
+
+| Endpoint | Body | Response |
+|---|---|---|
+| `POST /resumes/{id}/master` | — | `{ resume_id, is_master: true, previous_master_id: string \| null }` |
+
+Workspace-scoped like every other write: the target must belong to the
+`X-Workspace-Id` workspace (`SetMasterResumeResponse` in
+`apps/backend/app/schemas/models.py`).
+
+| Status | Meaning |
+| ------ | ------- |
+| `200` | promoted; `previous_master_id` names the resume that was demoted, and is `null` when the workspace had no master or the target already was it (the call is idempotent) |
+| `404` | no such resume — **or** it belongs to another workspace |
+| `409` | `processing_status` is not `ready`; a pending, processing or failed resume cannot become the master |
+
+Exactly one resume per workspace carries `is_master`, enforced by the partial
+unique index `ux_resumes_workspace_master`. The route goes through
+`db.set_master_resume()`, which demotes the old master and promotes the target
+**inside one transaction** (demotions flushed first), so the index never sees
+two masters and a failure leaves the old master in place.
+
+**The previous master is kept as an ordinary resume** — not deleted, not
+archived. Only its flag changes: its document, version timeline, `.tex`
+override, template settings, cover letter, outreach message, interview prep and
+tracker links are all untouched. It reappears in `GET /resumes/list` (which
+filters the master out unless `include_master=true`), and promoting it back is
+this same call.
+
+Any `ready` resume qualifies, **a tailored one included**, and `parent_id` is
+deliberately *not* cleared: it records where the document came from and is what
+gates the cover-letter, outreach, interview-prep and job-description routes, so
+clearing it would silently disable those on the new master. The consequence
+worth telling the user about is upstream of tailoring: `get_master_resume()` is
+the baseline every later tailoring is verified against
+(`app/routers/resumes.py` feeds it to the refiner and
+`app/prompts/refinement.py` instructs the model to check every claim against
+it), so promoting a tailored resume makes a job-biased document the
+anti-hallucination reference for future tailoring.
+
+`GET /resumes?resume_id=` returns `is_master`, and **that flag is the only
+authoritative answer to "is this the master?"**. The browser's
+`master_resume_id` localStorage key is a cache/fallback: a promotion in another
+tab, workspace switch or another browser leaves it pointing at a resume that is
+now an ordinary one.
 
 ## Template settings (`PUT /resumes/{id}/template-settings`)
 
@@ -153,10 +200,12 @@ a silent drop. A `200` returns the object exactly as stored.
 
 ```jsonc
 {
+  "settingsVersion": 2,        // level-vocabulary marker; absent = v1
   "template": "swiss-single",  // one of the nine template ids (see below)
   "pageSize": "A4",            // "A4" | "LETTER"
   "margins":  { "top": 10, "bottom": 10, "left": 10, "right": 10 },  // mm, 5-25 each
-  "spacing":  { "section": 3, "item": 2, "lineHeight": 3 },          // steps, 1-5 each
+  "spacing":  { "section": 5, "item": 4, "lineHeight": 5, "bulletLeadIn": 4 },
+                                                                     // steps, 1-9 each
   "fontSize": {
     "base": 3, "headerScale": 3,                                     // steps, 1-5
     "headerFont": "serif", "bodyFont": "sans-serif"                  // serif | sans-serif | mono
@@ -166,6 +215,19 @@ a silent drop. A `200` returns the object exactly as stored.
   "accentColor": "blue"        // "blue" | "green" | "orange" | "red"
 }
 ```
+
+The four spacing axes take levels **1-9**, the two font axes **1-5** (the LaTeX
+`extarticle`/`extsizes` ladder is 8/9/10/11/12pt with nothing below 8pt, so
+those axes have no step to add downward); every value shown is that field's
+default and out-of-range is a `422`. `settingsVersion` is `Literal[2]`, and a
+stored payload **without** it is v1, whose spacing levels ran 1-5: v1 and v2
+level numbers overlap, so the marker is the only thing that disambiguates the
+payload. Reading a v1 payload upgrades it — `+2` on each spacing level, which
+puts the old 1-5 on 3-7 with identical physical output, font levels and all
+other fields untouched — in `_parse_template_settings`
+(`apps/backend/app/routers/resumes.py`) and, client-side, in
+`readTemplateSettings`
+(`apps/frontend/lib/utils/template-settings-storage.ts`).
 
 `template` is one of `swiss-single`, `swiss-two-column`, `modern`,
 `modern-two-column`, `latex`, `clean`, `vivid` (the Chromium-rendered
@@ -277,7 +339,7 @@ createInitialResumeWizardState() → ResumeWizardState
 Backend endpoints:
 
 - `POST /api/v1/resume-wizard/turn` — one adaptive turn. `action` is `start | answer | skip | back | review`. A turn targets `intro`, `contact`, `review`, or one section of the document as `section:<section_key>` (e.g. `section:military_service`) — the wizard has no built-in section enum, so a section the user added is a legitimate target. `answer`/`skip` run one AI call that updates `resume_data` (a full `ResumeDocument`), returns the next `current_question`, `inferred_skills`, and a strict boolean `is_complete` flag; `back`/`review`/`start` are deterministic (no LLM). The service validates the complete model envelope before advancing history or progress. Invalid envelopes return a recoverable `422` and leave the client state unchanged. Entries are merged back by their stable `Entry.id`, falling back to a `(title, subtitle, period)` signature when the model omits or invents one; a new entry is allocated a fresh id. Partial model echoes preserve entries they omit. Deterministic fallback questions and review copy use the configured content language. The full `ResumeWizardState` round-trips in the request and response.
-- `POST /api/v1/resume-wizard/finalize` — creates the single master resume from the draft (`processing_status: "ready"`), or `409` if a master already exists.
+- `POST /api/v1/resume-wizard/finalize` — creates the single master resume from the draft (`processing_status: "ready"`), or `409` if a master already exists. Creation is not the only way a workspace gets its master: an existing `ready` resume can be promoted later with [`POST /resumes/{id}/master`](#the-master-resume-post-resumesidmaster).
 
 The wizard is an AI-led, one-question-at-a-time flow that builds a general master resume; it does not require a job description and does not replace the upload parser. Question and content text are produced in the configured **content language**; static UI chrome uses the `resumeWizard.*` i18n keys.
 
@@ -410,14 +472,15 @@ clearing a stored override. `PUT` bodies are `{ source }`, 1–400,000 chars.
 `format` is a `TexFormatSettings` (a `TemplateSettings` narrowed to
 `pageSize`, `margins`, `spacing`, `fontSize`, `compactMode`) and becomes the
 query the LaTeX engine reads — same parameter names and bounds as the Chromium
-`/pdf` route. Omitted, only `pageSize=A4` is sent and each template keeps its
+`/pdf` route (spacing axes 1–9, font axes 1–5), plus the LaTeX-only
+`bulletLeadIn`. Omitted, only `pageSize=A4` is sent and each template keeps its
 reference geometry.
 
 | Status | Meaning |
 | ------ | ------- |
 | `400` | unknown `template` id; the detail lists the valid ones |
 | `404` | unknown resume id |
-| `422` | a formatting parameter outside its range (margins 5–25mm, levels 1–5), or `/tex/pdf` — the engine rejected the source. The compile detail is `{ message, log }`, surfaced by the client as `TexCompileError` with the engine log attached |
+| `422` | a formatting parameter outside its range (margins 5–25mm, spacing levels 1–9, font levels 1–5), or `/tex/pdf` — the engine rejected the source. The compile detail is `{ message, log }`, surfaced by the client as `TexCompileError` with the engine log attached |
 | `503` | `/tex/pdf` — no engine on this host, raised as `TexUnavailableError`. Distinct from a `500`: the request is valid, the capability is absent, and the caller should offer the `.tex` download instead |
 
 A `PUT` or `DELETE` writes a version checkpoint (`origin: "tex_edit"`,
@@ -451,7 +514,10 @@ Resumes are managed from the dashboard cards: the pencil calls
 `renameResume(id, title)` (`PATCH /resumes/{id}/title`, dashboard label only —
 the document is untouched) and the bin calls `deleteResume(id)`. Deleting the
 master clears the stored `master_resume_id` and the dashboard falls back to its
-upload card; tailored resumes survive.
+upload card; tailored resumes survive. The same manage surface calls
+`setMasterResume(id)` to promote a resume; that demotes the current master into
+an ordinary card instead of removing it — see
+[the master resume](#the-master-resume-post-resumesidmaster).
 
 ## Application Tracker (`lib/api/tracker.ts`)
 
