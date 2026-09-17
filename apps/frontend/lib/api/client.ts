@@ -31,7 +31,8 @@ function resolveRuntimeApiBase(apiBase: string): string {
   // Server components talk to uvicorn directly, so the gateway mount prefix has to come off
   // first: `${INTERNAL_API_ORIGIN}/a/resume-matcher/api/v1` would 404 (that prefix only
   // exists in front of Next). The print routes render through this branch.
-  const internal = BASE_PATH && apiBase.startsWith(`${BASE_PATH}/`) ? apiBase.slice(BASE_PATH.length) : apiBase;
+  const internal =
+    BASE_PATH && apiBase.startsWith(`${BASE_PATH}/`) ? apiBase.slice(BASE_PATH.length) : apiBase;
   return `${INTERNAL_API_ORIGIN}${internal}`;
 }
 
