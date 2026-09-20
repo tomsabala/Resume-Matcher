@@ -40,10 +40,10 @@ async def migrate(database: Database | None = None) -> dict[str, Any]:
         return {"status": "no_legacy_file"}
 
     # An instance-level one-shot with no request behind it, so the imported
-    # rows go to the standalone tenant's default workspace — the same one the
-    # first admin request claims. Without a scope they would land in
-    # workspace "", which no request can ever resolve to, and the import would
-    # look like silent data loss.
+    # rows go to the standalone tenant's default workspace — the same one
+    # ``CLAIM_TENANT_REF`` transfers to the operator. Without a scope they
+    # would land in workspace "", which no request can ever resolve to, and
+    # the import would look like silent data loss.
     workspace_id = await database.default_workspace_id()
     stats = await database.get_stats(workspace_id)
     if (stats["total_resumes"] or stats["total_jobs"] or stats["total_improvements"]):

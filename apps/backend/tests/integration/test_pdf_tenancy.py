@@ -76,10 +76,25 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     return captured
 
 
+GATEWAY_SECRET = "test-gateway-secret"
+
+
+def _header_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Flip to the shared-deployment posture, secret included."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "tenant_mode", "header")
+    monkeypatch.setattr(settings, "gateway_secret", GATEWAY_SECRET)
+
+
 def _client(tenant: str | None = None, role: str = "anon") -> AsyncClient:
     headers = {}
     if tenant is not None:
-        headers = {"X-Apps-Tenant": tenant, "X-Apps-Role": role}
+        headers = {
+            "X-Apps-Tenant": tenant,
+            "X-Apps-Role": role,
+            "X-Apps-Proxy-Secret": GATEWAY_SECRET,
+        }
     return AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test", headers=headers
     )
@@ -130,11 +145,12 @@ async def test_the_tenant_ref_travels_in_header_mode(
     """In single mode there is no tenant ref to send; in header mode there is.
 
     ``X-Workspace-Id`` alone selects the right *profile* but not the right
-    tenant, so both have to travel.
+    tenant, so both have to travel — and since the app now refuses a tenant
+    ref that arrives without the gateway secret, so does the secret. The
+    render is a loopback fetch that never passes the gateway; without it the
+    print page's own API call would 404.
     """
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "tenant_mode", "header")
+    _header_mode(monkeypatch)
 
     async with _client(TENANT) as client:
         workspaces = (await client.get("/api/v1/workspaces")).json()["workspaces"]
@@ -146,6 +162,7 @@ async def test_the_tenant_ref_travels_in_header_mode(
     assert recorder["headers"] == {
         "X-Workspace-Id": workspace_id,
         "X-Apps-Tenant": TENANT,
+        "X-Apps-Proxy-Secret": GATEWAY_SECRET,
     }
 
 
@@ -153,9 +170,7 @@ async def test_another_tenant_cannot_export_the_resume(
     isolated_db: Any, recorder: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The export 404s before Chromium is ever asked to render."""
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "tenant_mode", "header")
+    _header_mode(monkeypatch)
 
     async with _client(TENANT) as client:
         workspace_id = (await client.get("/api/v1/workspaces")).json()["workspaces"][0][
@@ -216,9 +231,7 @@ async def test_the_tenant_ref_stays_out_of_the_error_message(
     isolated_db: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A render failure must not echo the tenant ref: it is a cookie hash."""
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "tenant_mode", "header")
+    _header_mode(monkeypatch)
 
     async def failing_render(*args: Any, **kwargs: Any) -> bytes:
         del args, kwargs
@@ -239,3 +252,4 @@ async def test_the_tenant_ref_stays_out_of_the_error_message(
     assert response.status_code == 503
     assert TENANT not in response.text
     assert workspace_id not in response.text
+    assert GATEWAY_SECRET not in response.text

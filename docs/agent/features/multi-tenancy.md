@@ -35,33 +35,50 @@ rather than a FastAPI dependency is what lets the request-context-free paths see
 synchronous config cache and the API-key lookup are reached through
 `get_llm_config` → `load_config_file`, which take no `Request`.
 
-The gateway strips inbound `X-Apps-*` and `X-Auth-Request-*` headers and injects its own, so
-a header it sets cannot be forged by a client. The contract:
+The identity headers are only worth as much as the hop that carries them. The gateway strips
+inbound `X-Apps-*` and `X-Auth-Request-*` headers and injects its own, but that is a config
+file in another repository, and this app is reachable through the frontend's `/api/:path*`
+rewrite, which forwards client headers verbatim. So the app authenticates the hop itself:
 
 | header | value | meaning |
 |---|---|---|
 | `X-Apps-Tenant` | `anon-<16 hex>` | hash of the gateway session cookie — new cookie, new tenant |
 | `X-Apps-Tenant` | `admin-<16 hex>` | hash of the lowercased admin email — stable across browsers |
 | `X-Apps-Role` | `anon` \| `admin` | whether oauth2-proxy authenticated the viewer |
+| `X-Apps-Proxy-Secret` | `GATEWAY_SECRET` | proof the request really came through the gateway |
 
-Trust rests on reachability: the container publishes no port and lives on an internal Docker
-network, so the only path to it is the broker, which sets these headers on every request. The
-app treats `tenant_ref` as an opaque string and derives anonymity from `X-Apps-Role`, not from
-the prefix, so a format change upstream is harmless.
+**Without the secret nothing else is believed.** `X-Apps-Role: admin` unlocks the instance
+`LLM_API_KEY`; as a self-asserted header that is one `curl` away from spending the operator's
+money. `TENANT_MODE=header` therefore refuses to start unless `GATEWAY_SECRET` is set, and
+every `/api/**` request that presents a missing or wrong secret gets the same bare **404** as
+one with no tenant at all.
 
-`TENANT_MODE` (`single` | `header`, default `single`) selects the behaviour:
+Three further rules follow from the same mistrust:
 
-- **`single`** is exactly today's standalone app: one implicit tenant (`tenant_ref = ""`),
-  `admin` role, the `LLM_API_KEY` env fallback allowed. The upstream test suite passes
-  unchanged.
-- **`header`** requires `X-Apps-Tenant` on every `/api/**` request and answers **404**
-  without one — never a fallback to the default workspace. The effective mode is logged once
-  at startup, because a typo in the instance env file would otherwise degrade silently to
-  single-tenant, which is indistinguishable from working until two visitors see each other's
-  resumes.
+- **A repeated identity header is rejected, not resolved.** Header lookup returns the first
+  match, so a gateway that *appends* its value instead of replacing the client's would let
+  the client's copy win. Two occurrences of `X-Apps-Tenant`, `X-Apps-Role` or
+  `X-Apps-Proxy-Secret` → 404.
+- **In `single` mode, any identity header at all is rejected**, with an `ERROR` log. A private
+  instance has no gateway, so their presence means either a probe or — worse — a live gateway
+  in front of an instance that never got `TENANT_MODE=header`, which is the silent
+  misconfiguration that shares one dataset with every visitor.
+- **The app treats `tenant_ref` as an opaque string** and derives anonymity from `X-Apps-Role`,
+  so a format change upstream is harmless.
 
-Exempt paths: `/`, `/docs`, `/redoc`, `/openapi.json`, `/api/v1/health`. `GET /status` is
-**not** exempt — it reports the caller's own resume counts.
+`TENANT_MODE` (`single` | `header`) selects the behaviour and **has no default**: the two
+modes have opposite security postures, and a default makes the dangerous one the accident. A
+blank or misspelled value is a startup error, not a quiet fallback to `single`.
+
+- **`single`** is the private standalone app: one implicit tenant (`tenant_ref = ""`), `admin`
+  role, the `LLM_API_KEY` env fallback allowed. The upstream test suite passes unchanged.
+- **`header`** requires `X-Apps-Tenant` *and* a valid `X-Apps-Proxy-Secret` on every `/api/**`
+  request and answers **404** without them — never a fallback to the default workspace.
+
+Exempt paths: `/`, `/api/v1/health`, and — in `single` mode only — `/docs`, `/redoc`,
+`/openapi.json`. Header mode serves no docs at all: they are exempt from tenancy, so on a
+shared instance they would publish the endpoint inventory to anyone who can reach the app.
+`GET /status` is **not** exempt — it reports the caller's own resume counts.
 
 ### Tenant → workspaces is one-to-many
 
@@ -84,13 +101,22 @@ Two deliberate asymmetries:
   outlives a tenant (a new gateway cookie means a new tenant), and the tenant's own default is
   always safe.
 
-### The first admin request claims the pre-existing data
+### The operator claims the pre-existing data, once, on purpose
 
 A standalone instance flipped to header mode already holds resumes, all carrying
-`tenant_ref = ""`. The first `admin`-role request stamps every still-unowned workspace with
-that admin's `tenant_ref` (`db.claim_unowned_workspaces`). Anonymous requests never claim.
-This is how today's data becomes the admin tenant instead of being orphaned behind a tenant
-nobody can present.
+`tenant_ref = ""`, which no gateway identity can present. `CLAIM_TENANT_REF` is how the
+operator adopts them: set it to their own `X-Apps-Tenant` value, start once, remove it. On
+startup every still-unowned workspace is stamped with that ref (`db.claim_unowned_workspaces`);
+a second run finds nothing left to move.
+
+This used to happen implicitly, on the first request from any tenant whose role header said
+`admin` and who owned nothing yet. That made the operator's entire dataset the prize in a
+race whose entry fee was one header, decided by whoever arrived first. **No request claims
+anything now** — a first-seen tenant always starts empty.
+
+Because the target may already own workspaces, the transfer respects both per-tenant
+uniqueness rules: claimed rows are demoted if the tenant already has a default, and their
+slugs are suffixed if they collide.
 
 If a second admin email is ever whitelisted they get a fresh empty tenant. That is the
 intended outcome, not a bug.
@@ -228,9 +254,13 @@ on export.
    browser context: the browser is process-wide and shared across tenants and up to
    `_PDF_MAX_CONCURRENCY` concurrent renders, so context-level headers would leak one caller's
    identity into another's export.
-2. `download_resume_pdf` and `download_cover_letter_pdf` send `X-Workspace-Id` plus
-   `X-Apps-Tenant` when there is one. Both are needed: the workspace id selects the right
-   *profile*, the tenant ref the right tenant.
+2. `download_resume_pdf` and `download_cover_letter_pdf` send `X-Workspace-Id` plus, when
+   there is a tenant ref, `X-Apps-Tenant` **and** `X-Apps-Proxy-Secret`
+   (`_render_identity_headers`). All three are needed: the workspace id selects the right
+   *profile*, the tenant ref the right tenant, and the secret is what makes the other two
+   believed — the loopback hop is exactly the unauthenticated path the secret exists to
+   close. Forwarding it grants nothing extra: a request that reaches the print route without
+   the secret cannot produce one.
 3. `app/print/resumes/[id]/page.tsx` and `app/print/cover-letter/[id]/page.tsx` read those
    headers from `next/headers` and forward them on their outbound `fetch`. They are server
    components using bare `fetch`, so they never pass through the header injector in
@@ -297,10 +327,12 @@ precedent for the column adds and the index swap, but note it contains **no tabl
 
 | file | what it pins |
 |---|---|
-| `tests/integration/test_tenancy.py` | Cross-tenant denial, per table: B reading A's id → 404; B writing A's id → 404 and A's row byte-identical; B's list → only B's rows. Plus: no tenant in header mode → 404 while `/health` still answers; the first admin request claims the pre-existing data and an anonymous one never does; a foreign `X-Workspace-Id` degrades to the caller's own default; per-tenant keys, prompts, features and reset; another tenant's workspace cannot be renamed or deleted; a tenant keeps multiple profiles. |
+| `tests/integration/test_tenancy.py` | Cross-tenant denial, per table: B reading A's id → 404; B writing A's id → 404 and A's row byte-identical; B's list → only B's rows. Plus: no tenant in header mode → 404 while `/health` still answers; no request ever claims the pre-existing data and `CLAIM_TENANT_REF` does (including into a tenant that already owns a default); a foreign `X-Workspace-Id` degrades to the caller's own default; per-tenant keys, prompts, features and reset; two tenants may hold the same profile slug; another tenant's workspace cannot be renamed or deleted; a tenant keeps multiple profiles. |
+| `tests/integration/test_gateway_trust.py` | The hop itself: a forged `admin` with no secret, a wrong secret, or a secret with no tenant → 404, and the instance `LLM_API_KEY` stays hidden; a repeated `X-Apps-Tenant`/`X-Apps-Role`/`X-Apps-Proxy-Secret` → 404 in either order; in `single` mode any identity header → 404 while ordinary requests and `X-Workspace-Id` still work. |
+| `tests/unit/test_tenant_mode_settings.py` | `TENANT_MODE` has no default and refuses blank/misspelled values; `header` refuses to start without `GATEWAY_SECRET`; `CLAIM_TENANT_REF` only applies to `header`; header mode serves no `/docs`, `/redoc` or `/openapi.json` (checked by importing the app in a clean subprocess). |
 | `tests/unit/test_database_scoping.py` | The structural tripwire. Parses `database.py` with `ast` and asserts Rules A and B for the seven tenant-owned models, with no allowlist. A third test proves the rules still fire, so a refactor cannot leave two tests that pass against anything. |
 | `tests/integration/test_migration_0006.py` | The only test that replays migrations: both backfills including the orphan fallback, the per-tenant default index, the composite `api_keys` key (two tenants may hold the same provider; the same pair twice may not), and a full downgrade/upgrade round trip. |
-| `tests/integration/test_pdf_tenancy.py` | The export forwards the caller's workspace, and the tenant ref too in header mode, on both the shared-browser and threaded-fallback paths; another tenant's export 404s before Chromium is asked to render; the tenant ref stays out of the error text. |
+| `tests/integration/test_pdf_tenancy.py` | The export forwards the caller's workspace, and the tenant ref plus the gateway secret too in header mode, on both the shared-browser and threaded-fallback paths; another tenant's export 404s before Chromium is asked to render; neither the tenant ref nor the secret appears in the error text. |
 
 The per-test isolation fixture clears the tenancy cache and the `last_seen_at` throttle, both
 process-global by design — without that, one test resolves the previous test's workspace.
@@ -322,18 +354,25 @@ process-global by design — without that, one test resolves the previous test's
 ## Gateway-side steps (out of scope for this repo)
 
 1. Merge and deploy the gateway branch that injects `X-Apps-Tenant` — header *stripping* is on
-   `main`, injection is not. Nothing here works until that lands.
+   `main`, injection is not. Nothing here works until that lands. The same branch must inject
+   `X-Apps-Proxy-Secret` with the instance's `GATEWAY_SECRET`; without it every `/api/**`
+   request 404s, which is the intended fail-closed direction.
 2. `frontend/src/apps/apps.json`: `"mode": "shared"` for `resume-matcher`, and re-size
    `memoryMb` — shared mode puts every tenant's export in one cgroup with swap disabled, so an
    OOM kill now takes all tenants down at once. `dataTmpfsMb` becomes dead weight.
-3. Create `gateway/instances/resume-matcher.shared.env` on the VPS with `TENANT_MODE=header`.
-   A missing env file is only a `log.warn`, which is why the app logs its effective mode at
-   startup.
-4. Rebuild with **both** build args:
+3. Create `gateway/instances/resume-matcher.shared.env` on the VPS with `TENANT_MODE=header`
+   and a freshly generated `GATEWAY_SECRET` (e.g. `openssl rand -hex 32`). A missing or
+   incomplete env file no longer degrades silently: the app refuses to start without an
+   explicit mode, and refuses `header` without a secret.
+4. To keep the data the standalone instance already holds, add `CLAIM_TENANT_REF=<the
+   operator's X-Apps-Tenant>` to that env file for **one** start, then remove it. Skipping
+   this leaves those workspaces owned by nobody — they are not lost, but no identity can
+   present them.
+5. Rebuild with **both** build args:
    `docker build --build-arg NEXT_PUBLIC_BASE_PATH=/a/resume-matcher --build-arg NEXT_PUBLIC_API_URL=/ -t ghcr.io/tomsabala/resume-matcher:apps-mount .`
-5. Retract the operator documentation that says Resume-Matcher must not run shared.
-6. Back up the `apps-resume-matcher-shared` volume before real use.
-7. Prune the old `apps-resume-matcher-anon-*` / `-admin-*` containers and volumes: after the
+6. Retract the operator documentation that says Resume-Matcher must not run shared.
+7. Back up the `apps-resume-matcher-shared` volume before real use.
+8. Prune the old `apps-resume-matcher-anon-*` / `-admin-*` containers and volumes: after the
    flip they are referenced by no key and will never be reaped by name.
 
 ## What stays the container's job

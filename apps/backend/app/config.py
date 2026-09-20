@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -224,8 +224,8 @@ def migrate_legacy_keys() -> None:
 
     An instance-level one-shot, run once from the lifespan: the keys came out
     of the operator's own file, so they land in the standalone tenant's default
-    workspace — which the first ``admin`` request then claims. They are never
-    handed to a visitor.
+    workspace — the one ``CLAIM_TENANT_REF`` later transfers to the operator.
+    They are never handed to a visitor.
     """
     config = _read_config_json()
     legacy_map = config.get("api_keys")
@@ -358,20 +358,96 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid LOG_LLM: {value}. Allowed: {ALLOWED_LOG_LEVELS}")
         return value
 
-    # Multi-tenancy. ``single`` is today's behaviour: one implicit tenant
-    # (``tenant_ref = ""``), admin role, the ``LLM_API_KEY`` env fallback
-    # allowed. ``header`` trusts an upstream gateway to inject
-    # ``X-Apps-Tenant``/``X-Apps-Role`` on every proxied request, and 404s any
-    # ``/api/**`` call that arrives without a tenant. Never expose an instance
-    # in ``header`` mode directly — the headers are the whole identity.
-    tenant_mode: Literal["single", "header"] = "single"
+    # Multi-tenancy. ``single`` is the private, single-user instance: one
+    # implicit tenant (``tenant_ref = ""``), admin role, the ``LLM_API_KEY``
+    # env fallback allowed, and identity headers rejected outright. ``header``
+    # trusts an authenticating gateway to inject ``X-Apps-Tenant`` /
+    # ``X-Apps-Role`` *and* the shared secret below on every proxied request,
+    # and 404s any ``/api/**`` call that arrives without them.
+    #
+    # There is deliberately NO default. The two modes have opposite security
+    # postures, and the dangerous mistake — shipping a shared deployment that
+    # silently fell back to ``single``, where every visitor is the admin of one
+    # shared dataset — is exactly what a default produces. Refusing to start is
+    # the only answer that cannot be missed.
+    tenant_mode: Literal["single", "header"]
+
+    #: The secret the gateway presents as ``X-Apps-Proxy-Secret``. Required in
+    #: ``header`` mode: without it ``X-Apps-Role: admin`` is self-asserted, and
+    #: anyone who can reach the app claims the operator's workspaces and spends
+    #: the operator's ``LLM_API_KEY``. Unused in ``single`` mode.
+    gateway_secret: str = ""
+
+    #: One-shot ownership transfer for an instance flipped from ``single`` to
+    #: ``header``: on startup, every still-unowned workspace (``tenant_ref =
+    #: ""``) is stamped with this tenant ref. Set it to the operator's own
+    #: ``X-Apps-Tenant`` value, run once, then remove it. Empty means "claim
+    #: nothing"; the transfer is never triggered by an inbound request.
+    claim_tenant_ref: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def surface_missing_tenant_mode(cls, data: Any) -> Any:
+        """Turn an absent ``TENANT_MODE`` into the field validator's error.
+
+        A required field that is simply missing yields pydantic's generic
+        "Field required", which tells an operator nothing about what to
+        choose. Substituting an empty value routes it through
+        :meth:`validate_tenant_mode`, which explains both options.
+        """
+        if isinstance(data, dict) and not any(
+            str(key).lower() == "tenant_mode" for key in data
+        ):
+            return {**data, "tenant_mode": ""}
+        return data
 
     @field_validator("tenant_mode", mode="before")
     @classmethod
-    def normalize_tenant_mode(cls, v: Any) -> str:
-        """Treat a blank env var as ``single`` rather than failing startup."""
-        value = "single" if not v else str(v).strip().lower()
-        return value or "single"
+    def validate_tenant_mode(cls, v: Any) -> str:
+        """Reject a blank or misspelled ``TENANT_MODE`` instead of guessing.
+
+        ``TENANT_MODE=heder`` used to normalize to ``single``, which is the
+        fail-open direction: the operator believes the instance is isolating
+        tenants and it is not.
+        """
+        value = str(v).strip().lower() if v is not None else ""
+        if value not in ("single", "header"):
+            raise ValueError(
+                "TENANT_MODE must be set explicitly to 'single' (a private, "
+                "single-user instance) or 'header' (behind an authenticating "
+                f"gateway); got {v!r}."
+            )
+        return value
+
+    @field_validator("gateway_secret", mode="before")
+    @classmethod
+    def strip_gateway_secret(cls, v: Any) -> str:
+        """Trim the secret, and keep it ASCII.
+
+        It is compared against a header value, which arrives as bytes and is
+        decoded latin-1; a non-ASCII secret could therefore never match what
+        the gateway sent. Every generated secret (hex, base64, uuid) is ASCII,
+        so refusing one is cheaper than a mismatch nobody can debug.
+        """
+        secret = "" if v is None else str(v).strip()
+        if not secret.isascii():
+            raise ValueError("GATEWAY_SECRET must be ASCII (e.g. `openssl rand -hex 32`).")
+        return secret
+
+    @model_validator(mode="after")
+    def require_gateway_secret_in_header_mode(self) -> "Settings":
+        """``header`` mode without a shared secret is not authenticated at all."""
+        if self.tenant_mode == "header" and not self.gateway_secret:
+            raise ValueError(
+                "TENANT_MODE=header requires GATEWAY_SECRET: the identity "
+                "headers are unauthenticated without it, so any client could "
+                "present X-Apps-Role: admin. Set the same value on the gateway."
+            )
+        if self.claim_tenant_ref and self.tenant_mode != "header":
+            raise ValueError(
+                "CLAIM_TENANT_REF only applies to TENANT_MODE=header."
+            )
+        return self
 
     # How long an anonymous tenant's data survives without a request. The
     # hourly purge in the lifespan deletes idle anonymous workspaces outright;

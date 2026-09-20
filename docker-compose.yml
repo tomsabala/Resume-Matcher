@@ -17,6 +17,20 @@ services:
     #secrets:
     #  - llm_api_key
     environment:
+      # Tenancy. `single` = a private instance: no authentication, every
+      # caller is the admin of one shared dataset. Correct on your own
+      # machine, WRONG the moment the port is reachable by anyone else.
+      # A shared deployment must set `header` AND `GATEWAY_SECRET`, and must
+      # sit behind a gateway that authenticates visitors and injects
+      # X-Apps-Tenant / X-Apps-Role / X-Apps-Proxy-Secret. The backend refuses
+      # to start if the mode is blank or misspelled, and refuses `header`
+      # without a secret.
+      - TENANT_MODE=${TENANT_MODE:-single}
+      # Shared secret the gateway presents; required by TENANT_MODE=header.
+      - GATEWAY_SECRET=${GATEWAY_SECRET:-}
+      # One-shot: adopt the workspaces a single-mode instance already holds.
+      # Set to the operator's X-Apps-Tenant value, start once, then remove.
+      #- CLAIM_TENANT_REF=${CLAIM_TENANT_REF:-}
       # domain in reverse proxy
       - FRONTEND_BASE_URL=${FRONTEND_BASE_URL:-http://localhost:3000}
       # Logging configuration: DEBUG, INFO, WARNING, ERROR

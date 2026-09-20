@@ -11,6 +11,10 @@ looks for:
   row exists.
 * **B writing A's id → 404, and A's row byte-identical afterwards.**
 * **B's list → only B's rows.**
+
+Every request also carries ``X-Apps-Proxy-Secret``, because identity without
+it is identity anyone can assert — see ``test_gateway_trust`` for the tests
+that hold *that* line.
 """
 
 from typing import Any
@@ -27,6 +31,9 @@ TENANT_B = "anon-bbbb000000000000"
 ADMIN = "admin-cccc000000000000"
 
 
+GATEWAY_SECRET = "test-gateway-secret"
+
+
 @pytest.fixture(autouse=True)
 def header_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run these tests the way the shared deployment runs.
@@ -37,6 +44,7 @@ def header_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config import settings
 
     monkeypatch.setattr(settings, "tenant_mode", "header")
+    monkeypatch.setattr(settings, "gateway_secret", GATEWAY_SECRET)
 
 
 def _client(tenant: str | None = None, role: str = "anon", **extra: str) -> AsyncClient:
@@ -44,6 +52,8 @@ def _client(tenant: str | None = None, role: str = "anon", **extra: str) -> Asyn
     if tenant is not None:
         headers["X-Apps-Tenant"] = tenant
         headers["X-Apps-Role"] = role
+    if tenant is not None or "X-Apps-Role" in headers:
+        headers.setdefault("X-Apps-Proxy-Secret", GATEWAY_SECRET)
     return AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test", headers=headers
     )
@@ -108,27 +118,25 @@ async def test_each_tenant_gets_its_own_fresh_workspace(isolated_db: Any) -> Non
     assert [row["workspace_id"] for row in listed] == [second]
 
 
-async def test_the_first_admin_request_claims_the_existing_data(
-    isolated_db: Any,
-) -> None:
-    """A standalone instance flipped to header mode must not orphan its data.
+async def test_no_request_claims_the_existing_data(isolated_db: Any) -> None:
+    """A self-asserted ``admin`` adopts nothing.
 
-    The default workspace the schema seeds carries ``tenant_ref = ""``; the
-    first ``admin`` request adopts it, resumes and all.
+    The default workspace the schema seeds carries ``tenant_ref = ""``. It
+    used to be adopted by the first request claiming ``X-Apps-Role: admin``,
+    which made the operator's whole dataset the prize in a race whose entry
+    fee was one header. Ownership transfer is now an operator decision taken
+    at startup (``CLAIM_TENANT_REF``).
     """
     default_id = await isolated_db.default_workspace_id()
-    resume_id = await _ready_resume(isolated_db, default_id, "Existing CV")
+    await _ready_resume(isolated_db, default_id, "Existing CV")
 
     async with _client(ADMIN, role="admin") as client:
         workspaces = (await client.get("/api/v1/workspaces")).json()["workspaces"]
-        assert [row["workspace_id"] for row in workspaces] == [default_id]
-        listed = (await client.get("/api/v1/resumes/list")).json()["data"]
-    assert [row["resume_id"] for row in listed] == [resume_id]
+        assert [row["workspace_id"] for row in workspaces] != [default_id]
+        assert (await client.get("/api/v1/resumes/list")).json()["data"] == []
 
-    # An anonymous visitor arriving afterwards gets nothing of the admin's.
-    async with _client(TENANT_B) as client:
-        listed = (await client.get("/api/v1/resumes/list")).json()["data"]
-    assert listed == []
+    still_unowned = await isolated_db.workspaces_for_tenant("")
+    assert [row["workspace_id"] for row in still_unowned] == [default_id]
 
 
 async def test_an_anonymous_request_never_claims_existing_data(
@@ -141,6 +149,56 @@ async def test_an_anonymous_request_never_claims_existing_data(
     assert anonymous_workspace != default_id
     async with _client(TENANT_A) as client:
         assert (await client.get("/api/v1/resumes/list")).json()["data"] == []
+
+
+async def test_the_operator_claim_transfers_the_unowned_workspaces(
+    isolated_db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``CLAIM_TENANT_REF`` is how a flipped instance keeps its own data."""
+    from app.config import settings
+    from app.main import claim_unowned_workspaces_for_operator
+
+    default_id = await isolated_db.default_workspace_id()
+    resume_id = await _ready_resume(isolated_db, default_id, "Existing CV")
+
+    monkeypatch.setattr(settings, "claim_tenant_ref", ADMIN)
+    await claim_unowned_workspaces_for_operator()
+
+    async with _client(ADMIN, role="admin") as client:
+        workspaces = (await client.get("/api/v1/workspaces")).json()["workspaces"]
+        assert [row["workspace_id"] for row in workspaces] == [default_id]
+        listed = (await client.get("/api/v1/resumes/list")).json()["data"]
+    assert [row["resume_id"] for row in listed] == [resume_id]
+
+    # Nobody else inherits it, and a second run has nothing left to move.
+    async with _client(TENANT_B) as client:
+        assert (await client.get("/api/v1/resumes/list")).json()["data"] == []
+    assert await isolated_db.claim_unowned_workspaces(ADMIN) == 0
+
+
+async def test_the_operator_claim_survives_an_existing_default(
+    isolated_db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Claiming into a tenant that already has profiles keeps both invariants.
+
+    One default per tenant and unique slugs per tenant are partial unique
+    indexes: a straight ``UPDATE ... SET tenant_ref`` would violate both the
+    moment the operator had used the instance before running the claim.
+    """
+    from app.config import settings
+    from app.main import claim_unowned_workspaces_for_operator
+
+    default_id = await isolated_db.default_workspace_id()
+    own_id = await _workspace_of(ADMIN, role="admin")
+    assert own_id != default_id
+
+    monkeypatch.setattr(settings, "claim_tenant_ref", ADMIN)
+    await claim_unowned_workspaces_for_operator()
+
+    rows = await isolated_db.workspaces_for_tenant(ADMIN)
+    assert {row["workspace_id"] for row in rows} == {own_id, default_id}
+    assert sum(1 for row in rows if row["is_default"]) == 1
+    assert len({row["slug"] for row in rows}) == 2
 
 
 async def test_a_foreign_workspace_header_falls_back_to_the_callers_own(
@@ -489,3 +547,28 @@ async def test_a_tenant_keeps_multiple_profiles(isolated_db: Any) -> None:
 
     async with _client(TENANT_B) as client:
         assert (await client.get("/api/v1/workspaces")).json()["workspaces"] != listed
+
+
+async def test_a_profile_name_another_tenant_uses_is_not_disclosed(
+    isolated_db: Any,
+) -> None:
+    """Slugs are per-tenant, so creation cannot be used as an existence oracle.
+
+    With a table-wide unique slug, asking for "Lior Hebrew" and being handed
+    ``lior-hebrew-2`` told you somebody else already had ``lior-hebrew``.
+    """
+    await _workspace_of(TENANT_A)
+    await _workspace_of(TENANT_B)
+
+    async with _client(TENANT_A) as client:
+        mine = (
+            await client.post("/api/v1/workspaces", json={"name": "Lior Hebrew"})
+        ).json()
+    async with _client(TENANT_B) as client:
+        theirs = (
+            await client.post("/api/v1/workspaces", json={"name": "Lior Hebrew"})
+        ).json()
+
+    assert mine["slug"] == "lior-hebrew"
+    assert theirs["slug"] == "lior-hebrew"
+    assert mine["workspace_id"] != theirs["workspace_id"]

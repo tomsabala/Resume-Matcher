@@ -20,6 +20,10 @@ _ORIGINAL_DATA_DIR = os.environ.get("DATA_DIR")
 _TEST_DATA_DIR_CONTEXT = tempfile.TemporaryDirectory(prefix="resume-matcher-tests-")
 _TEST_DATA_DIR = Path(_TEST_DATA_DIR_CONTEXT.name)
 os.environ["DATA_DIR"] = str(_TEST_DATA_DIR)
+# TENANT_MODE has no default — an instance must say which security posture it
+# runs under. The suite's baseline is the private one; the header-mode tests
+# monkeypatch ``settings`` directly.
+os.environ.setdefault("TENANT_MODE", "single")
 
 import app.config as _config_module  # noqa: E402 - DATA_DIR must be set first
 

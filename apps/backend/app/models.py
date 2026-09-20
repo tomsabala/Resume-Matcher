@@ -36,11 +36,12 @@ class Workspace(Base):
     feature survives per tenant: tenant → workspaces is one-to-many.
 
     ``tenant_ref = ""`` is the standalone tenant — what every row carries under
-    ``TENANT_MODE=single``, and what the first ``X-Apps-Role: admin`` request
-    claims when the instance is flipped to ``header`` mode. It is NOT NULL with
-    an empty-string sentinel on purpose: ``ux_workspaces_tenant_default``
-    enforces one default per tenant, and SQLite treats NULLs as distinct, so a
-    nullable column would silently lose that guarantee.
+    ``TENANT_MODE=single``, and what ``CLAIM_TENANT_REF`` transfers to the
+    operator's real tenant when the instance is flipped to ``header`` mode. It
+    is NOT NULL with an empty-string sentinel on purpose:
+    ``ux_workspaces_tenant_default`` enforces one default per tenant, and
+    SQLite treats NULLs as distinct, so a nullable column would silently lose
+    that guarantee.
 
     ``is_anonymous`` marks a workspace the hourly purge may delete once
     ``last_seen_at`` is older than ``ANONYMOUS_RETENTION_HOURS``. An admin's
@@ -63,9 +64,10 @@ class Workspace(Base):
     updated_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
 
     __table_args__ = (
-        # Slugs stay unique across the whole table, not per tenant:
-        # ``_insert_workspace`` already de-duplicates them globally.
-        Index("ux_workspaces_slug", "slug", unique=True),
+        # Slugs are unique *within a tenant*, not across the table. A global
+        # namespace leaked profile names between tenants: creating "Lior" and
+        # being handed ``lior-2`` told you somebody else already had ``lior``.
+        Index("ux_workspaces_tenant_slug", "tenant_ref", "slug", unique=True),
         Index(
             "ux_workspaces_tenant_default",
             "tenant_ref",

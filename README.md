@@ -253,9 +253,17 @@ Run on a single public port (`3030`) with API available at `/api`:
 ```bash
 docker run --name resume-matcher \
   -p 3030:3000 \
+  -e TENANT_MODE=single \
   -v resume-data:/app/backend/data \
   ghcr.io/srbhr/resume-matcher:latest
 ```
+
+`TENANT_MODE` is required and has no default. `single` is the private,
+single-user instance: there is no authentication, so **anyone who can reach
+the port is the owner of the data**. Only expose it on a network you trust.
+A shared deployment must run `TENANT_MODE=header` with a `GATEWAY_SECRET`
+behind a gateway that authenticates visitors — see
+[multi-tenancy](docs/agent/features/multi-tenancy.md).
 
 Prefer pinning a version in production, for example `ghcr.io/srbhr/resume-matcher:1.3.0` or
 `ghcr.io/srbhr/resume-matcher:1.3`.

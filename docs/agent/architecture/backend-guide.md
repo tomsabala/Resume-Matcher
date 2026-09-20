@@ -88,12 +88,14 @@ the profiles one identity owns, so tenant → workspaces is **one-to-many** and 
 switcher survives per tenant. Exactly one workspace per tenant has `is_default = 1`
 (`ux_workspaces_tenant_default`).
 
-`TENANT_MODE` selects where identity comes from:
+`TENANT_MODE` selects where identity comes from. It is **required** — the two modes have
+opposite security postures, so a blank or misspelled value is a startup error, not a quiet
+fallback:
 
 | mode | identity | behaviour |
 | ---- | -------- | --------- |
-| `single` (default) | none | One implicit tenant, `tenant_ref = ""`, `admin` role. The standalone app, unchanged. |
-| `header` | `X-Apps-Tenant` / `X-Apps-Role` from an upstream gateway | Every `/api/**` request without a tenant answers **404**. Never expose such an instance directly — the headers are the whole identity. |
+| `single` | none | One implicit tenant, `tenant_ref = ""`, `admin` role. The standalone app, unchanged — but it authenticates nobody, so anyone who can reach the port owns the data. Any `X-Apps-*` header on a request is rejected with an `ERROR` log: a private instance has no gateway to have set one. |
+| `header` | `X-Apps-Tenant` / `X-Apps-Role` from an upstream gateway, proven by `X-Apps-Proxy-Secret` matching `GATEWAY_SECRET` | Every `/api/**` request without a valid secret *and* a tenant answers **404**, as does any request that repeats one of those headers. Requires `GATEWAY_SECRET` to start. |
 
 `TenantMiddleware` (`app/tenancy.py`) resolves it **once per request**, in ASGI middleware
 rather than a dependency, and publishes an `ActiveTenant` on a `ContextVar`. That is what

@@ -24,6 +24,7 @@ from app.ai_budget import (
 from app.config_cache import get_content_language, load_config as _load_config
 from app.database import DatabaseBusyError, ProcessingFinishOutcome, ResumeNotFoundError, db
 from app.deps import ActiveTenantDep, WorkspaceId
+from app.tenancy import ActiveTenant
 from app.pdf import render_resume_pdf, PDFRenderError
 from app.config import settings
 from app.preview import (
@@ -2157,6 +2158,24 @@ async def restore_resume_version(
     return VersionSummary(**{k: v for k, v in restored.items() if k != "document"})
 
 
+def _render_identity_headers(tenant: ActiveTenant, workspace_id: str) -> dict[str, str]:
+    """The identity Chromium must replay when it loads the print route.
+
+    The render is a loopback fetch of the Next print page, which fetches this
+    API back — neither hop passes through the gateway, so the request carries
+    no ``X-Apps-*`` of its own and would come back unscoped (in header mode,
+    404). Since the app now refuses identity headers that are not accompanied
+    by the gateway secret, the secret has to travel with them; the print page
+    forwards all three verbatim.
+    """
+    headers = {"X-Workspace-Id": workspace_id}
+    if tenant.tenant_ref:
+        headers["X-Apps-Tenant"] = tenant.tenant_ref
+        if settings.gateway_secret:
+            headers["X-Apps-Proxy-Secret"] = settings.gateway_secret
+    return headers
+
+
 @router.get("/{resume_id}/pdf")
 async def download_resume_pdf(
     resume_id: str,
@@ -2245,13 +2264,7 @@ async def download_resume_pdf(
         "left": marginLeft,
     }
 
-    # Chromium fetches the Next print route over loopback, bypassing the
-    # gateway, so it carries no `X-Apps-*` of its own. Without these the print
-    # page's own fetch comes back unscoped (in header mode, 404) and the export
-    # fails only in the deployed configuration.
-    render_headers = {"X-Workspace-Id": workspace_id}
-    if tenant.tenant_ref:
-        render_headers["X-Apps-Tenant"] = tenant.tenant_ref
+    render_headers = _render_identity_headers(tenant, workspace_id)
 
     # Render PDF with margins applied to every page
     try:
@@ -2737,11 +2750,7 @@ async def download_cover_letter_pdf(
     if lang:
         url = f"{url}&lang={lang}"
 
-    # Same reason as the resume PDF: Chromium reaches the print route over
-    # loopback with no gateway headers of its own.
-    render_headers = {"X-Workspace-Id": workspace_id}
-    if tenant.tenant_ref:
-        render_headers["X-Apps-Tenant"] = tenant.tenant_ref
+    render_headers = _render_identity_headers(tenant, workspace_id)
 
     # Render PDF with cover letter selector
     try:

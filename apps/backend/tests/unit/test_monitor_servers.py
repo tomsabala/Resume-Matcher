@@ -107,6 +107,9 @@ def test_owned_backend_reads_seed_and_selected_credentials_then_tears_down(
             env={
                 "PATH": os.environ.get("PATH", ""),
                 "DATA_DIR": str(bundle.data_dir),
+                # Curated env: TENANT_MODE has no default, so the probe has to
+                # state the posture it runs under like any other instance.
+                "TENANT_MODE": "single",
                 "LLM_API_KEY": "",
                 "LITELLM_LOCAL_MODEL_COST_MAP": "True",
             },

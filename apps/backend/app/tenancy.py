@@ -1,16 +1,34 @@
 """Request-scoped tenant identity.
 
 One instance of this app can serve many visitors. The identity comes from an
-upstream gateway, which authenticates the visitor and injects two headers on
+upstream gateway, which authenticates the visitor and injects three headers on
 every proxied request:
 
 * ``X-Apps-Tenant`` — an opaque identity ref (the gateway's ``anon-<16 hex>`` /
   ``admin-<16 hex>``, treated here as a plain string).
 * ``X-Apps-Role`` — ``admin`` for a whitelisted operator, anything else is
   anonymous.
+* ``X-Apps-Proxy-Secret`` — the shared secret proving the request really came
+  through the gateway.
 
-``TenantMiddleware`` resolves that pair to an :class:`ActiveTenant` **once per
-request**, in the same task that runs the endpoint, and publishes it on a
+**The secret is what makes the other two trustworthy.** Without it the role is
+self-asserted: anyone who can put a header on a request that reaches this app
+— directly, or through the frontend's ``/api/:path*`` rewrite — is an admin,
+which means the operator's ``LLM_API_KEY`` and every unclaimed workspace.
+Reachability is not a boundary, so this module does not treat it as one.
+
+Two further rules follow from the same mistrust:
+
+* A repeated identity header is rejected, not resolved. Duplicates mean
+  something upstream *appended* its value instead of replacing the client's,
+  and picking an occurrence is a guess an attacker chooses.
+* In ``single`` mode any identity header at all is rejected. A private
+  instance has no gateway, so their presence means either a probe or a
+  deployment that turned the gateway on and forgot ``TENANT_MODE=header`` —
+  the silent misconfiguration that shares one dataset with every visitor.
+
+``TenantMiddleware`` resolves those headers into an :class:`ActiveTenant` **once
+per request**, in the same task that runs the endpoint, and publishes it on a
 ``ContextVar``. Resolving it in middleware rather than a FastAPI dependency is
 what lets the request-context-free paths see the tenant too: the synchronous
 config cache and the LLM key lookup are reached from
@@ -28,6 +46,7 @@ those layers imports.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import threading
 import time
@@ -45,16 +64,24 @@ logger = logging.getLogger(__name__)
 
 TENANT_HEADER = "x-apps-tenant"
 ROLE_HEADER = "x-apps-role"
+SECRET_HEADER = "x-apps-proxy-secret"
 WORKSPACE_HEADER = "x-workspace-id"
 
-#: The tenant every row carries in ``single`` mode, and the one the first
-#: ``admin`` request claims when an instance is flipped to ``header`` mode.
+#: The headers that carry identity. Repeating any of them is rejected, and in
+#: ``single`` mode presenting any of them at all is rejected.
+IDENTITY_HEADERS = (TENANT_HEADER, ROLE_HEADER, SECRET_HEADER)
+
+#: The tenant every row carries in ``single`` mode, and the one an operator
+#: transfers to a real tenant ref with ``CLAIM_TENANT_REF`` when an instance is
+#: flipped to ``header`` mode.
 SINGLE_TENANT_REF = ""
 
 TenantRole = Literal["anon", "admin"]
 
 # Paths that must answer without a tenant: the container healthcheck hits
-# /api/v1/health, and the docs are how the operator inspects a live instance.
+# /api/v1/health. The docs paths are listed for the private instance that
+# serves them; in header mode ``app.main`` builds the app with no docs routes
+# at all, so a shared deployment publishes no endpoint inventory.
 # GET /status is *not* exempt — it reports the caller's own resume stats.
 EXEMPT_PATHS = frozenset({"/", "/docs", "/redoc", "/openapi.json", "/api/v1/health"})
 
@@ -154,13 +181,45 @@ def _due_for_touch(tenant_ref: str, now: float) -> bool:
         return True
 
 
-def _header(scope: Scope, name: str) -> str:
-    """One request header, lowercased-name lookup against the raw ASGI list."""
+def _header_values(scope: Scope, name: str) -> list[str]:
+    """Every value sent for ``name``, lowercased-name lookup against ASGI."""
     wanted = name.encode("latin-1")
-    for key, value in scope.get("headers", ()):
-        if key == wanted:
-            return value.decode("latin-1").strip()
-    return ""
+    return [
+        value.decode("latin-1").strip()
+        for key, value in scope.get("headers", ())
+        if key == wanted
+    ]
+
+
+def _sole_header(scope: Scope, name: str) -> str | None:
+    """The one value sent for ``name``, or ``None`` when it was repeated.
+
+    Returning the first (or last) occurrence of a repeated identity header is
+    a guess, and the attacker picks which way it goes: a gateway that appends
+    its value instead of replacing the client's leaves both on the wire. There
+    is no correct answer, so there is no answer.
+    """
+    values = _header_values(scope, name)
+    if len(values) > 1:
+        return None
+    return values[0] if values else ""
+
+
+def _secret_matches(presented: str) -> bool:
+    """Constant-time comparison against the configured gateway secret.
+
+    Compared as bytes: ``hmac.compare_digest`` raises ``TypeError`` on a
+    non-ASCII ``str``, and the presented value is attacker-controlled — a
+    single high byte in the header would turn a 404 into a 500 and say that
+    something is listening. ``Settings`` keeps the configured side ASCII, so
+    the round trip is lossless for every value that can match.
+    """
+    expected = settings.gateway_secret
+    if not expected:
+        return False
+    return hmac.compare_digest(
+        presented.encode("utf-8", "replace"), expected.encode("utf-8", "replace")
+    )
 
 
 class TenantMiddleware:
@@ -184,23 +243,49 @@ class TenantMiddleware:
             return
 
         header_mode = settings.tenant_mode == "header"
+        if not header_mode and any(
+            _header_values(scope, name) for name in IDENTITY_HEADERS
+        ):
+            # A private instance has no gateway to have injected these. Either
+            # someone is probing, or the gateway is live and TENANT_MODE was
+            # never flipped — in which case every visitor is currently sharing
+            # the operator's single dataset and must be stopped, loudly.
+            logger.error(
+                "Rejected a request carrying gateway identity headers while "
+                "TENANT_MODE=single. If this instance is behind a gateway, set "
+                "TENANT_MODE=header and GATEWAY_SECRET; until then it is NOT "
+                "isolating visitors."
+            )
+            await self._not_found(send)
+            return
+
         if header_mode:
-            tenant_ref = _header(scope, TENANT_HEADER)
-            if not tenant_ref:
-                # Not 401: an instance in header mode is only ever reached
-                # through the gateway, so a request without a tenant is not a
-                # visitor who forgot to log in — it is someone who bypassed the
-                # proxy. Say nothing about what lives here.
+            secret = _sole_header(scope, SECRET_HEADER)
+            tenant_ref = _sole_header(scope, TENANT_HEADER)
+            presented_role = _sole_header(scope, ROLE_HEADER)
+            if secret is None or tenant_ref is None or presented_role is None:
+                logger.warning(
+                    "Rejected a request with a repeated identity header: an "
+                    "upstream proxy is appending headers instead of replacing "
+                    "the client's."
+                )
                 await self._not_found(send)
                 return
-            role: TenantRole = (
-                "admin" if _header(scope, ROLE_HEADER).lower() == "admin" else "anon"
-            )
+            # Not 401: an instance in header mode is only ever reached through
+            # the gateway, so a request without a valid secret and tenant is
+            # not a visitor who forgot to log in — it is someone who bypassed
+            # the proxy. Say nothing about what lives here.
+            if not _secret_matches(secret) or not tenant_ref:
+                await self._not_found(send)
+                return
+            role: TenantRole = "admin" if presented_role.lower() == "admin" else "anon"
         else:
             tenant_ref, role = SINGLE_TENANT_REF, "admin"
 
+        requested_workspace = _sole_header(scope, WORKSPACE_HEADER)
+
         tenant = await self._resolve(
-            tenant_ref, role, requested=_header(scope, WORKSPACE_HEADER)
+            tenant_ref, role, requested=requested_workspace or ""
         )
         if header_mode:
             await self._touch(tenant_ref)
@@ -260,18 +345,19 @@ class TenantMiddleware:
     async def _load(
         tenant_ref: str, role: TenantRole
     ) -> tuple[tuple[str, ...], str]:
+        """This tenant's workspaces, creating an empty first one if it has none.
+
+        A first-seen tenant never adopts data that is already here. Taking
+        ownership of the unowned (``tenant_ref = ""``) workspaces an instance
+        held before it was flipped to header mode is an operator decision,
+        made once at startup through ``CLAIM_TENANT_REF`` — see
+        ``app.main.claim_unowned_workspaces_for_operator``. Deciding it from
+        an inbound request made the operator's whole dataset the prize in a
+        race that ``X-Apps-Role: admin`` entered for free.
+        """
         from app.database import db
 
         rows = await db.workspaces_for_tenant(tenant_ref)
-        if not rows and role == "admin":
-            # First sight of an admin: adopt the data this instance already
-            # holds instead of orphaning it. Anonymous requests never claim.
-            claimed = await db.claim_unowned_workspaces(tenant_ref)
-            if claimed:
-                logger.info(
-                    "Admin tenant claimed %d pre-existing workspace(s)", claimed
-                )
-                rows = await db.workspaces_for_tenant(tenant_ref)
         if not rows:
             created = await db.create_workspace(
                 name="Default",

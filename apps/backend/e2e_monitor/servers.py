@@ -130,6 +130,11 @@ class Servers:
         env.update(
             {
                 "DATA_DIR": str(self.bundle.data_dir),
+                # The child is a throwaway private instance on loopback.
+                # ``TENANT_MODE`` has no default, so it has to be stated: the
+                # backend refuses to start without it rather than guess which
+                # security posture an operator meant.
+                "TENANT_MODE": "single",
                 "LLM_API_KEY": "",
                 "LLM_PROVIDER": selected.provider,
                 "LLM_MODEL": selected.model,

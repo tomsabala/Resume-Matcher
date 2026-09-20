@@ -92,13 +92,40 @@ async def _purge_idle_anonymous_tenants() -> None:
         await asyncio.sleep(_PURGE_INTERVAL_SECONDS)
 
 
+async def claim_unowned_workspaces_for_operator() -> None:
+    """Hand the pre-header-mode data to the operator, once, on request.
+
+    An instance flipped from ``single`` to ``header`` still holds workspaces
+    owned by the standalone tenant (``tenant_ref = ""``), which no gateway
+    identity can present. ``CLAIM_TENANT_REF`` is how the operator adopts
+    them: set it to their own ``X-Apps-Tenant`` value, start once, remove it.
+
+    This used to happen implicitly, on the first request from any tenant
+    claiming ``X-Apps-Role: admin`` — a race whose entry fee was one header.
+    """
+    if settings.tenant_mode != "header" or not settings.claim_tenant_ref:
+        return
+    claimed = await db.claim_unowned_workspaces(settings.claim_tenant_ref)
+    if claimed:
+        logger.info(
+            "CLAIM_TENANT_REF: transferred %d previously unowned workspace(s) "
+            "to the configured operator tenant. Remove the setting now.",
+            claimed,
+        )
+    else:
+        logger.info(
+            "CLAIM_TENANT_REF is set but no unowned workspaces remain; "
+            "the transfer has already happened. Remove the setting."
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager."""
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    # A typo in the instance env file would otherwise degrade silently to
-    # single-tenant, which is indistinguishable from working until two
-    # visitors see each other's resumes.
+    # The mode is explicit (Settings refuses a blank or misspelled
+    # TENANT_MODE), but it still belongs in the log: it is the one line that
+    # says whether this instance is isolating visitors.
     logger.info(
         "Tenancy: mode=%s, anonymous retention=%dh",
         settings.tenant_mode,
@@ -119,6 +146,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.config import migrate_legacy_keys
 
     migrate_legacy_keys()
+    await claim_unowned_workspaces_for_operator()
     purge_task: asyncio.Task[None] | None = None
     if settings.tenant_mode == "header":
         purge_task = asyncio.create_task(_purge_idle_anonymous_tenants())
@@ -151,11 +179,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.error(f"Error closing database: {e}")
 
 
+# In header mode the interactive docs are exempt from tenancy (they carry no
+# identity), so on a shared instance they would publish the full endpoint
+# inventory to anyone who can reach the app. A private instance keeps them.
+_DOCS_ENABLED = settings.tenant_mode == "single"
+
 app = FastAPI(
     title="Resume Matcher API",
     description="AI-powered resume tailoring for job descriptions",
     version=__version__,
     lifespan=lifespan,
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
 )
 
 @app.exception_handler(DatabaseBusyError)
@@ -174,13 +210,17 @@ async def database_busy_handler(request: Request, error: DatabaseBusyError) -> J
 # carries CORS headers instead of surfacing as an opaque browser error.
 app.add_middleware(TenantMiddleware)
 
-# CORS middleware - origins configurable via CORS_ORIGINS env var
+# CORS middleware - origins configurable via CORS_ORIGINS env var.
+# ``allow_headers`` is the exact set the browser client sends: with
+# ``allow_credentials=True`` a wildcard would let any allowlisted origin
+# preflight ``X-Apps-Tenant``/``X-Apps-Role``/``X-Apps-Proxy-Secret`` — the
+# identity headers — from a page this app does not control.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.effective_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "X-Workspace-Id"],
 )
 
 # Include routers

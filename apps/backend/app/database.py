@@ -75,6 +75,21 @@ def slugify_workspace_name(name: str) -> str:
     return slug or "workspace"
 
 
+def _unique_slug(base: str, taken: set[str]) -> str:
+    """``base``, suffixed until it is free.
+
+    Slugs are unique per tenant (``ux_workspaces_tenant_slug``), not across
+    the table: a global namespace let one tenant discover another's profile
+    names by watching which slug it was handed.
+    """
+    candidate = base
+    suffix = 2
+    while candidate in taken:
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
+
+
 class DatabaseBusyError(RuntimeError):
     """A write reservation could not be obtained; retry the unchanged request."""
 
@@ -342,7 +357,7 @@ class Database:
 
         "Instance default" means the default workspace of the standalone tenant
         (``tenant_ref = ""``) — in single mode the only tenant there is, and in
-        header mode the admin's, until the first admin request claims it. Every
+        header mode nobody's until ``CLAIM_TENANT_REF`` transfers it. Every
         tenant has a default of its own (``ux_workspaces_tenant_default``), so
         this lookup must filter by tenant or it would return whichever
         anonymous visitor's row the planner happened to reach first.
@@ -403,15 +418,17 @@ class Database:
         tenant_ref: str = SINGLE_TENANT_REF,
         is_anonymous: bool = False,
     ) -> Workspace:
-        """Stage one workspace row with a slug unique across the table."""
+        """Stage one workspace row with a slug unique within its tenant."""
         taken = set(
-            (await session.execute(select(Workspace.slug))).scalars().all()
+            (
+                await session.execute(
+                    select(Workspace.slug).where(Workspace.tenant_ref == tenant_ref)
+                )
+            )
+            .scalars()
+            .all()
         )
-        candidate = slug
-        suffix = 2
-        while candidate in taken:
-            candidate = f"{slug}-{suffix}"
-            suffix += 1
+        candidate = _unique_slug(slug, taken)
         now = _now()
         row = Workspace(
             workspace_id=str(uuid4()),
@@ -560,29 +577,66 @@ class Database:
         return counts
 
     async def claim_unowned_workspaces(self, tenant_ref: str) -> int:
-        """Stamp every still-unowned workspace with ``tenant_ref``.
+        """Transfer every still-unowned workspace to ``tenant_ref``.
 
-        How a standalone instance's existing data becomes the admin's when it
-        is flipped to header mode: without it, every resume already on disk
-        would belong to a tenant nobody can present. Only ever called for an
-        ``admin`` role, and only while the admin owns nothing yet, so it cannot
-        transfer one tenant's data to another. Claiming ``""`` for itself is a
-        no-op by construction.
+        How a standalone instance's existing data becomes the operator's when
+        it is flipped to header mode: without it, every resume already on disk
+        would belong to a tenant nobody can present.
+
+        Called once at startup from ``CLAIM_TENANT_REF`` — never from a
+        request. It used to fire on first sight of an ``X-Apps-Role: admin``
+        tenant that owned nothing, which made the operator's entire dataset
+        the prize in a race any client could enter by setting one header.
+
+        The target may already own workspaces, so both per-tenant uniqueness
+        rules have to survive the transfer: at most one default
+        (``ux_workspaces_tenant_default``) and unique slugs
+        (``ux_workspaces_tenant_slug``). Claiming ``""`` for itself is a no-op
+        by construction, and a second run finds nothing left to claim.
         """
         if tenant_ref == SINGLE_TENANT_REF:
             return 0
         async with self._write_session() as session:
-            result = await session.execute(
-                update(Workspace)
-                .where(Workspace.tenant_ref == SINGLE_TENANT_REF)
-                .values(tenant_ref=tenant_ref, is_anonymous=False, updated_at=_now())
+            unowned = list(
+                (
+                    await session.execute(
+                        select(Workspace)
+                        .where(Workspace.tenant_ref == SINGLE_TENANT_REF)
+                        .order_by(Workspace.created_at, Workspace.workspace_id)
+                    )
+                )
+                .scalars()
+                .all()
             )
+            if not unowned:
+                return 0
+            owned = list(
+                (
+                    await session.execute(
+                        select(Workspace).where(Workspace.tenant_ref == tenant_ref)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            taken = {row.slug for row in owned}
+            has_default = any(row.is_default for row in owned)
+            now = _now()
+            for row in unowned:
+                row.tenant_ref = tenant_ref
+                row.is_anonymous = False
+                row.updated_at = now
+                if row.is_default and has_default:
+                    row.is_default = False
+                elif row.is_default:
+                    has_default = True
+                row.slug = _unique_slug(row.slug, taken)
+                taken.add(row.slug)
             await session.commit()
-        claimed = int(result.rowcount or 0)
-        if claimed:
-            self._default_workspace_cache = None
-            invalidate(SINGLE_TENANT_REF)
-            invalidate(tenant_ref)
+        claimed = len(unowned)
+        self._default_workspace_cache = None
+        invalidate(SINGLE_TENANT_REF)
+        invalidate(tenant_ref)
         return claimed
 
     async def touch_tenant(self, tenant_ref: str, when: str) -> None:

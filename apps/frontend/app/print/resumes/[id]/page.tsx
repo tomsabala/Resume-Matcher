@@ -86,11 +86,16 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
  * through the gateway that injects tenant identity, and a server-side `fetch` bypasses the
  * `X-Workspace-Id` injector in `lib/api/client.ts`. Unforwarded, the call below is unscoped:
  * the export renders another tenant's resume, or 404s.
+ *
+ * `x-apps-proxy-secret` travels with the tenant ref because the backend refuses identity
+ * headers that are not accompanied by it — that secret is what stops a client from asserting
+ * its own tenant and role. Forwarding it changes nothing a caller can reach: a request that
+ * arrives here without the secret cannot produce one.
  */
 async function forwardedTenantHeaders(): Promise<Record<string, string>> {
   const incoming = await headers();
   const forwarded: Record<string, string> = {};
-  for (const name of ['x-apps-tenant', 'x-workspace-id']) {
+  for (const name of ['x-apps-tenant', 'x-apps-proxy-secret', 'x-workspace-id']) {
     const value = incoming.get(name);
     if (value) forwarded[name] = value;
   }
