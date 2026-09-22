@@ -1,31 +1,29 @@
 # Local git hooks (`.githooks/`)
 
-Version-controlled git hooks for Resume-Matcher. We **do not** run a
-PR-triggered GitHub Actions test workflow (the repo gets a high volume of
-external contributor PRs, and CI would run on every one of them). Instead, the
-maintainer's local clone gates pushes with a `pre-push` hook — a "local CI" that
-keeps `main`/`dev` green without touching contributor PRs.
+Version-controlled git hooks for Resume-Matcher.
 
-## What runs
+We **do not** run a `pull_request`-triggered workflow: the repo gets a high
+volume of external contributor PRs and CI would run on every one of them. What
+we do run is [`tests.yml`](../.github/workflows/tests.yml), triggered on pushes
+to `main`/`dev` only — the same set the pre-push hook used to protect, without
+costing a developer their terminal.
 
-`pre-push` runs before every `git push` and **blocks the push if anything is red**:
+## What runs where
 
-1. **Backend test suite** — `uv run pytest` in `apps/backend`. Deterministic;
-   the LLM-as-judge evals are excluded by default (`addopts -m "not eval"`), so
-   it makes **no network/LLM calls**. It is also **9–14 minutes** and is the
-   entire cost of a push — see
-   [the backlog item](../docs/agent/backlog.md#move-the-test-suites-off-the-pre-push-hook-and-into-ci)
-   for moving it to a runner.
-2. **Frontend locale parity** — `scripts/check_locale_parity.py` verifies every
-   `apps/frontend/messages/*.json` has the same key structure as `en.json`.
-   Pure Python (no Node/npm/nvm). This guards the exact i18n mismatch that once
-   broke `next build` and only surfaced post-merge in the Docker job.
-3. **Frontend test suite** — `vitest run` in `apps/frontend`, but only when Node
-   and the local vitest binary are present (git hooks may run without nvm's
-   `node` on `PATH`); otherwise skipped with a warning. A full `tsc`/`next build`
-   is intentionally not run here.
+| Check | Where | Cost |
+| --- | --- | --- |
+| Locale parity | `pre-push` **and** CI | instant |
+| `tsc --noEmit` | `pre-push` **and** CI | ~15 s |
+| Backend suite (1543 tests) | CI only | ~9–14 min, on a runner |
+| Frontend suite (548 tests) | CI only | ~30 s, on a runner |
+| `eslint` | CI only | ~18 s, on a runner |
 
-All checks always run, so you see **all** failures at once.
+`pre-push` blocks the push if either of its two checks is red. It takes about
+**3 seconds**. It previously ran both test suites, which made a push cost 12–15
+minutes of local, serial, terminal-blocking wall time — paid again for every
+one-line fixup. The two checks that stayed are the ones fast enough to be free.
+
+Both always run, so you see **all** failures at once.
 
 ## Activate (once per clone)
 
@@ -40,6 +38,8 @@ does not affect anyone else who clones the repo, by design.)
 
 - Commit freely — the gate runs at **push**, not on every commit.
 - If the gate fails, the push is aborted and the failures are printed. Fix them and push again.
+- A push is not the last word any more: the suites run on the runner afterwards.
+  Watch them with `gh run watch`, or `gh run list --workflow=tests.yml`.
 
 ## Escape hatches
 
@@ -56,8 +56,8 @@ python3 scripts/check_locale_parity.py               # locale parity (from repo 
 cd apps/frontend && npm run test                     # frontend suite (vitest)
 ```
 
-`env -u PYTHONPATH` matches what the hook does, and matters only if your shell
-has sourced something that exports one — ROS (`/opt/ros/*/setup.bash`), conda, a
+`env -u PYTHONPATH` matters only if your shell has sourced something that exports
+one — ROS (`/opt/ros/*/setup.bash`), conda, a
 system Python. pytest autoloads every `pytest11` entry point it can see, so those
 foreign site-packages get loaded into this venv's run; on a ROS box that pulls in
 `launch_testing`, which imports `lark`, which is not installed here, and

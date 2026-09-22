@@ -5,13 +5,24 @@ so this file is the tracker. One heading per item; delete the item when it lands
 
 ---
 
-## Move the test suites off the pre-push hook and into CI
+## ~~Move the test suites off the pre-push hook and into CI~~ — done
 
-**Status:** open · **Raised:** 2026-09-22 · **Area:** `.githooks/`, `.github/workflows/`
+**Status:** done 2026-09-22 · **Area:** `.githooks/`, `.github/workflows/`
+
+Kept for the reasoning, not as open work. `.github/workflows/tests.yml` now runs
+both suites plus eslint on pushes to `main`/`dev` — and deliberately **not** on
+`pull_request`, so external contributor PRs still trigger nothing. The pre-push
+hook keeps only locale parity and `tsc --noEmit`: **3 seconds**, down from 12–15
+minutes. The release image build moved to `v*.*.*` tags in the same pass, so a
+commit no longer costs ~17 minutes of QEMU-emulated arm64 either.
+
+What is left, if it ever hurts again: `pytest-xdist` is not a dependency and a
+large part of the backend suite writes to SQLite, so parallelising it needs
+per-worker database isolation and a pass-count comparison first.
 
 ### Problem
 
-`git push` takes 12–15 minutes. Almost all of it is one step:
+`git push` took 12–15 minutes. Almost all of it was one step:
 
 | step | time |
 | --- | --- |

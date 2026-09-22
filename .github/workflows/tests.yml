@@ -1,0 +1,84 @@
+# The test gate.
+#
+# Runs on pushes to our own long-lived branches and on manual dispatch — NOT on
+# `pull_request`. That is deliberate and is the whole reason this used to live in
+# a pre-push hook: the repo takes a high volume of external contributor PRs, and a
+# PR-triggered workflow would run on every one of them.
+#
+# What changed is where it runs, not what it checks. The hook was costing 12-15
+# minutes of a developer's own machine per push, serially, blocking their
+# terminal, and paid again for every one-line fixup. The hook now runs only the
+# checks that are fast enough to be free (see .githooks/pre-push); everything
+# expensive runs here, in parallel, on a runner.
+name: Tests
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run per branch. A push that supersedes an in-flight run cancels it —
+  # the older commit's result is not interesting once a newer one exists.
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/backend/uv.lock
+
+      - name: Install dependencies
+        working-directory: apps/backend
+        run: uv sync --extra dev
+
+      - name: pytest
+        working-directory: apps/backend
+        # The LLM-as-judge evals are excluded by the project's own addopts
+        # (-m "not eval"), so this makes no network or LLM calls.
+        run: uv run pytest -q -p no:cacheprovider
+
+  frontend:
+    name: Frontend (vitest + tsc + lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/frontend
+        run: npm ci
+
+      # Guards the i18n mismatch that once broke `next build` and only surfaced
+      # post-merge in the Docker job. Pure Python, no Node needed.
+      - name: Locale parity
+        run: python3 scripts/check_locale_parity.py
+
+      - name: vitest
+        working-directory: apps/frontend
+        run: npm run test
+
+      # tsconfig includes tests/, which `next build` never typechecks, so this is
+      # the only thing that catches a broken test fixture.
+      - name: tsc --noEmit
+        working-directory: apps/frontend
+        run: npx tsc --noEmit
+
+      - name: eslint
+        working-directory: apps/frontend
+        run: npm run lint
