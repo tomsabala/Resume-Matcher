@@ -10,9 +10,12 @@ keeps `main`/`dev` green without touching contributor PRs.
 
 `pre-push` runs before every `git push` and **blocks the push if anything is red**:
 
-1. **Backend test suite** — `uv run pytest` in `apps/backend` (~8s). Deterministic;
+1. **Backend test suite** — `uv run pytest` in `apps/backend`. Deterministic;
    the LLM-as-judge evals are excluded by default (`addopts -m "not eval"`), so
-   it makes **no network/LLM calls**.
+   it makes **no network/LLM calls**. It is also **9–14 minutes** and is the
+   entire cost of a push — see
+   [the backlog item](../docs/agent/backlog.md#move-the-test-suites-off-the-pre-push-hook-and-into-ci)
+   for moving it to a runner.
 2. **Frontend locale parity** — `scripts/check_locale_parity.py` verifies every
    `apps/frontend/messages/*.json` has the same key structure as `en.json`.
    Pure Python (no Node/npm/nvm). This guards the exact i18n mismatch that once

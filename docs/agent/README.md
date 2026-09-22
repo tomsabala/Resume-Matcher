@@ -14,6 +14,7 @@ Generic, reusable guides (Swiss design system, Next.js performance) live in [`..
 | [quickstart](quickstart.md)                     | Install, run, test commands   |
 | [workflow](workflow.md)                         | Git, PRs, testing             |
 | [coding-standards](coding-standards.md)         | Frontend/backend conventions  |
+| [backlog](backlog.md)                           | Deferred work (issues are off) |
 
 ### Architecture
 
