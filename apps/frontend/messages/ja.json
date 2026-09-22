@@ -32,7 +32,8 @@
     "databaseReset": "データベースが正常にリセットされました",
     "popupBlocked": "ポップアップがブロックされました。ポップアップを許可するか、次のURLを手動で開いてください: {url}",
     "resumeDeleted": "この履歴書は削除されました。別の履歴書をアップロードするか選択してください。",
-    "dragToReorder": "ドラッグして並べ替え"
+    "dragToReorder": "ドラッグして並べ替え",
+    "more": "その他の操作"
   },
   "home": {
     "brandLine1": "履歴書",
@@ -47,7 +48,13 @@
     "settings": "設定",
     "backToDashboard": "ダッシュボードに戻る",
     "goToSettings": "設定へ",
-    "applicationTracker": "応募トラッカー"
+    "applicationTracker": "応募トラッカー",
+    "tabs": {
+      "resumes": "履歴書",
+      "tracker": "追跡",
+      "create": "作成",
+      "settings": "設定"
+    }
   },
   "dashboard": {
     "title": "ダッシュボード",
@@ -146,6 +153,9 @@
         "invalid": "回答が拒否されました",
         "provider": "プロバイダーエラー"
       }
+    },
+    "compare": {
+      "pickSecond": "「{title}」と比較する 2 つ目の履歴書を選択"
     }
   },
   "builder": {
@@ -546,6 +556,15 @@
     "pane": {
       "edit": "編集",
       "preview": "プレビュー"
+    },
+    "sections": {
+      "title": "セクション",
+      "itemCount": "{count} 件",
+      "reorder": "並べ替え"
+    },
+    "preview": {
+      "readView": "読む",
+      "pageView": "ページ"
     }
   },
   "enrichment": {
@@ -1113,7 +1132,8 @@
       "loadFailed": "応募を読み込めませんでした。",
       "moveFailed": "応募を移動できませんでした。",
       "deleteFailed": "応募を削除できませんでした。"
-    }
+    },
+    "stageFilter": "ステージで絞り込み"
   },
   "interviewPrep": {
     "title": "面接準備",

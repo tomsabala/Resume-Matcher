@@ -123,6 +123,10 @@
   --sidebar-accent-foreground: #000000;
   --sidebar-border: #000000;
   --sidebar-ring: #1d4ed8;
+
+  /* Height of the mobile bottom tab bar, including the device safe area. Anything
+     that must float above it uses `sticky bottom-[var(--mobile-nav-h)]`. */
+  --mobile-nav-h: calc(3.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* Light theme only — Swiss/Brutalist works on the warm Canvas background.

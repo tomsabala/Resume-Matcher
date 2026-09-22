@@ -18,12 +18,16 @@ import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import ChevronLeft from 'lucide-react/dist/esm/icons/chevron-left';
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
 import { Button } from '@/components/ui/button';
+import { ActionSheet, type ActionSheetItem } from '@/components/ui/action-sheet';
+import { MobileActionBar } from '@/components/common/mobile-action-bar';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useTranslations } from '@/lib/i18n';
 import {
   listApplications,
   updateApplication,
   bulkUpdateStatus,
   bulkDeleteApplications,
+  deleteApplication,
   APPLICATION_STATUS_ORDER,
   type Application,
   type ApplicationColumns,
@@ -68,6 +72,13 @@ export function KanbanBoard() {
   const [hiddenStatuses, setHiddenStatuses] = useState<Set<ApplicationStatus>>(() =>
     readHiddenStatuses()
   );
+
+  // Mobile shows ONE stage at a time (the seven-column horizontal board is not
+  // usable at 375px). The stage rail becomes the filter that picks it.
+  const isMobile = useIsMobile();
+  const [activeStage, setActiveStage] = useState<ApplicationStatus>('saved');
+  const [cardActionsFor, setCardActionsFor] = useState<Application | null>(null);
+  const [moveTargetFor, setMoveTargetFor] = useState<Application | null>(null);
 
   // Persist on an actual change only — an effect keyed on the state would also
   // write the just-read value straight back on mount.
@@ -114,6 +125,12 @@ export function KanbanBoard() {
     () => APPLICATION_STATUS_ORDER.filter((status) => !hiddenStatuses.has(status)),
     [hiddenStatuses]
   );
+
+  // Hiding the active stage in "manage columns" must not leave the phone board
+  // pointing at a column that no longer exists.
+  const mobileStage: ApplicationStatus = visibleStatuses.includes(activeStage)
+    ? activeStage
+    : (visibleStatuses[0] ?? activeStage);
 
   // Master resume ids that back more than one card → "shared resume" badge.
   const sharedResumeIds = useMemo(() => {
@@ -215,6 +232,60 @@ export function KanbanBoard() {
     }
   };
 
+  // Mobile replacement for cross-stage drag. Mirrors handleDragEnd's ordering:
+  // load() FIRST, then setError — load() clears `error` on success, so setting
+  // it before the reload would wipe the message the user needs to see.
+  const handleMoveCard = async (application: Application, status: ApplicationStatus) => {
+    try {
+      await updateApplication(application.application_id, { status, position: 0 });
+      await load();
+    } catch {
+      await load();
+      setError(t('tracker.errors.moveFailed'));
+    }
+  };
+
+  const handleDeleteCard = async (application: Application) => {
+    try {
+      await deleteApplication(application.application_id);
+      await load();
+    } catch {
+      await load();
+      setError(t('tracker.errors.deleteFailed'));
+    }
+  };
+
+  const cardActionItems: ActionSheetItem[] = cardActionsFor
+    ? [
+        {
+          id: 'open',
+          label: t('common.edit'),
+          onSelect: () => setOpenCardId(cardActionsFor.application_id),
+        },
+        {
+          id: 'move',
+          label: t('tracker.bulk.moveTo'),
+          // Runs before the sheet closes, so sheet 2 opens on top of the close.
+          onSelect: () => setMoveTargetFor(cardActionsFor),
+        },
+        {
+          id: 'delete',
+          label: t('common.delete'),
+          destructive: true,
+          onSelect: () => void handleDeleteCard(cardActionsFor),
+        },
+      ]
+    : [];
+
+  const moveTargetItems: ActionSheetItem[] = moveTargetFor
+    ? APPLICATION_STATUS_ORDER.map((status) => ({
+        id: status,
+        label: t(`tracker.columns.${status}`),
+        disabled: status === moveTargetFor.status,
+        onSelect: () => void handleMoveCard(moveTargetFor, status),
+      }))
+    : [];
+
   const showScrollControls = !isEmpty && (canScrollLeft || canScrollRight);
 
   return (
@@ -235,7 +306,7 @@ export function KanbanBoard() {
             {t('tracker.manage')}
           </Button>
           {showScrollControls && (
-            <div className="flex items-center">
+            <div className="hidden items-center lg:flex">
               <button
                 type="button"
                 aria-label={t('tracker.scroll.prev')}
@@ -270,13 +341,49 @@ export function KanbanBoard() {
       )}
 
       {selectedIds.size > 0 && (
-        <div className="shrink-0 border-b border-black px-6 py-3 md:px-8">
+        <div className="hidden shrink-0 border-b border-black px-6 py-3 md:px-8 lg:block">
           <BulkActionBar
             selectedCount={selectedIds.size}
             onMove={handleBulkMove}
             onDelete={handleBulkDelete}
             onClear={clearSelection}
           />
+        </div>
+      )}
+
+      {/* Stage rail — on mobile this is the stage FILTER (one column at a time),
+          on desktop it stays the scroll-jump map of the horizontal board. It sits
+          under the header on a phone and `lg:order-1` returns it to the board
+          footer at desktop, where every other child keeps the default order 0. */}
+      {!isEmpty && (
+        <div
+          role="tablist"
+          aria-label={t('tracker.stageFilter')}
+          className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-black bg-paper-tint px-4 py-2 md:px-8 lg:order-1 lg:gap-3 lg:border-b-0 lg:border-t"
+        >
+          {canScrollRight && (
+            <span className="hidden shrink-0 items-center gap-1 font-mono text-[11px] font-bold uppercase tracking-wide text-primary lg:flex">
+              {t('tracker.scroll.hint')}
+              <ChevronRight className="h-3.5 w-3.5" />
+            </span>
+          )}
+          {visibleStatuses.map((status) => (
+            <button
+              key={status}
+              type="button"
+              role="tab"
+              aria-selected={isMobile && status === mobileStage}
+              onClick={() => (isMobile ? setActiveStage(status) : scrollToColumn(status))}
+              className={`relative flex shrink-0 items-center gap-1.5 border border-black px-2 py-1 font-mono text-[11px] uppercase tracking-wide shadow-sw-xs transition-all before:absolute before:-inset-[9px] before:content-[''] hover:translate-x-[1px] hover:translate-y-[1px] hover:text-primary hover:shadow-none ${
+                isMobile && status === mobileStage
+                  ? 'bg-black text-white'
+                  : 'bg-background text-ink-soft'
+              }`}
+            >
+              {t(`tracker.columns.${status}`)}
+              <span className="text-steel-grey">{columns[status].length}</span>
+            </button>
+          ))}
         </div>
       )}
 
@@ -298,58 +405,81 @@ export function KanbanBoard() {
             collisionDetection={closestCorners}
             onDragEnd={handleDragEnd}
           >
-            <div
-              ref={scrollRef}
-              className="flex min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overscroll-x-contain"
-            >
-              {visibleStatuses.map((status, index) => (
-                <div
-                  key={status}
-                  data-column={status}
-                  className={`flex ${
-                    index < visibleStatuses.length - 1 ? 'border-r border-black' : ''
-                  }`}
-                >
+            {isMobile ? (
+              // One stage at a time. `data-column` survives here: it is the
+              // contract tests/manage-columns-dialog.test.tsx enumerates.
+              <div className="flex min-h-0 flex-1 flex-col lg:hidden">
+                <div data-column={mobileStage} className="flex min-h-0 flex-1">
                   <KanbanColumn
-                    status={status}
-                    applications={columns[status]}
+                    fullWidth
+                    status={mobileStage}
+                    applications={columns[mobileStage]}
                     selectedIds={selectedIds}
                     sharedResumeIds={sharedResumeIds}
                     onToggleSelect={toggleSelect}
                     onOpen={setOpenCardId}
+                    onRequestActions={setCardActionsFor}
                   />
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <div
+                ref={scrollRef}
+                className="hidden min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overscroll-x-contain lg:flex"
+              >
+                {visibleStatuses.map((status, index) => (
+                  <div
+                    key={status}
+                    data-column={status}
+                    className={`flex ${
+                      index < visibleStatuses.length - 1 ? 'border-r border-black' : ''
+                    }`}
+                  >
+                    <KanbanColumn
+                      status={status}
+                      applications={columns[status]}
+                      selectedIds={selectedIds}
+                      sharedResumeIds={sharedResumeIds}
+                      onToggleSelect={toggleSelect}
+                      onOpen={setOpenCardId}
+                      onRequestActions={setCardActionsFor}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </DndContext>
         )}
       </div>
 
-      {/* Stage rail — an always-visible map of every stage (with counts) so
-          off-screen sections are never lost; click a stage to jump to it. */}
-      {!isEmpty && (
-        <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-t border-black bg-paper-tint px-4 py-2 md:px-8">
-          {canScrollRight && (
-            <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] font-bold uppercase tracking-wide text-primary">
-              {t('tracker.scroll.hint')}
-              <ChevronRight className="h-3.5 w-3.5" />
-            </span>
-          )}
-          <div className="flex items-center gap-2">
-            {visibleStatuses.map((status) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => scrollToColumn(status)}
-                className="relative flex shrink-0 items-center gap-1.5 border border-black bg-background px-2 py-1 font-mono text-[11px] uppercase tracking-wide text-ink-soft shadow-sw-xs transition-all before:absolute before:-inset-[9px] before:content-[''] hover:translate-x-[1px] hover:translate-y-[1px] hover:text-primary hover:shadow-none"
-              >
-                {t(`tracker.columns.${status}`)}
-                <span className="text-steel-grey">{columns[status].length}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+      {isMobile && selectedIds.size > 0 && (
+        <MobileActionBar aboveNav className="block">
+          <BulkActionBar
+            selectedCount={selectedIds.size}
+            onMove={handleBulkMove}
+            onDelete={handleBulkDelete}
+            onClear={clearSelection}
+          />
+        </MobileActionBar>
       )}
+
+      <ActionSheet
+        open={cardActionsFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setCardActionsFor(null);
+        }}
+        title={cardActionsFor?.company?.trim() || t('tracker.card.companyUnknown')}
+        items={cardActionItems}
+      />
+
+      <ActionSheet
+        open={moveTargetFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setMoveTargetFor(null);
+        }}
+        title={t('tracker.bulk.moveTo')}
+        items={moveTargetItems}
+      />
 
       <CardDetailModal
         applicationId={openCardId}

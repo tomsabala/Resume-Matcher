@@ -138,7 +138,7 @@ export const GenericItemForm: React.FC<SectionFormProps> = ({ section, onChange 
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute top-2 right-2 opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100"
+                    className="ml-auto flex opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10 md:absolute md:top-2 md:right-2 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100"
                     onClick={() => replaceEntries(entries.filter((item) => item.id !== entry.id))}
                     aria-label={t('builder.sectionForms.entries.removeEntry')}
                     title={t('builder.sectionForms.entries.removeEntry')}
@@ -146,7 +146,7 @@ export const GenericItemForm: React.FC<SectionFormProps> = ({ section, onChange 
                     <Trash2 className="w-4 h-4" />
                   </Button>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 pr-10 lg:pr-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 md:pr-10 lg:pr-8">
                     {textField('title', entry.title, (title) => updateEntry(entry.id, { title }))}
                     {textField('subtitle', entry.subtitle, (subtitle) =>
                       updateEntry(entry.id, { subtitle })
@@ -264,8 +264,11 @@ export const GenericItemForm: React.FC<SectionFormProps> = ({ section, onChange 
                       </Button>
                     </div>
                     {entry.bullets.map((bullet, bulletIndex) => (
-                      <div key={bulletIndex} className="flex gap-2">
-                        <div className="flex-1">
+                      <div
+                        key={bulletIndex}
+                        className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-2"
+                      >
+                        <div className="min-w-0 flex-1">
                           <RichTextEditor
                             value={bullet.text}
                             onChange={(html) =>
@@ -279,45 +282,52 @@ export const GenericItemForm: React.FC<SectionFormProps> = ({ section, onChange 
                             minHeight="60px"
                           />
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          // The style travels with the row, so removing a
-                          // neighbour can no longer shift it onto another line.
-                          onClick={() =>
-                            updateEntry(entry.id, {
-                              bullets: entry.bullets.map((item, i) =>
-                                i === bulletIndex
-                                  ? { ...item, style: item.style === 'plain' ? 'bullet' : 'plain' }
-                                  : item
-                              ),
-                            })
-                          }
-                          className="h-[60px] w-8 text-muted-foreground hover:text-primary self-end"
-                          aria-label={t('builder.sectionForms.entries.actions.toggleBulletStyle')}
-                          title={t('builder.sectionForms.entries.actions.toggleBulletStyle')}
-                          aria-pressed={bullet.style === 'plain'}
-                        >
-                          {bullet.style === 'plain' ? (
-                            <AlignLeft className="w-3 h-3" />
-                          ) : (
-                            <List className="w-3 h-3" />
-                          )}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() =>
-                            updateEntry(entry.id, {
-                              bullets: entry.bullets.filter((_, i) => i !== bulletIndex),
-                            })
-                          }
-                          className="h-[60px] w-8 text-muted-foreground hover:text-destructive self-end"
-                          aria-label={t('builder.sectionForms.entries.actions.removeBullet')}
-                          title={t('builder.sectionForms.entries.actions.removeBullet')}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
+                        {/* `sm:contents` hands both controls back to the row at
+                            sm and up, so the desktop layout is untouched. */}
+                        <div className="flex shrink-0 gap-1 sm:contents">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            // The style travels with the row, so removing a
+                            // neighbour can no longer shift it onto another line.
+                            onClick={() =>
+                              updateEntry(entry.id, {
+                                bullets: entry.bullets.map((item, i) =>
+                                  i === bulletIndex
+                                    ? {
+                                        ...item,
+                                        style: item.style === 'plain' ? 'bullet' : 'plain',
+                                      }
+                                    : item
+                                ),
+                              })
+                            }
+                            className="h-11 w-11 text-muted-foreground hover:text-primary self-end"
+                            aria-label={t('builder.sectionForms.entries.actions.toggleBulletStyle')}
+                            title={t('builder.sectionForms.entries.actions.toggleBulletStyle')}
+                            aria-pressed={bullet.style === 'plain'}
+                          >
+                            {bullet.style === 'plain' ? (
+                              <AlignLeft className="w-3 h-3" />
+                            ) : (
+                              <List className="w-3 h-3" />
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() =>
+                              updateEntry(entry.id, {
+                                bullets: entry.bullets.filter((_, i) => i !== bulletIndex),
+                              })
+                            }
+                            className="h-11 w-11 text-muted-foreground hover:text-destructive self-end"
+                            aria-label={t('builder.sectionForms.entries.actions.removeBullet')}
+                            title={t('builder.sectionForms.entries.actions.removeBullet')}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>

@@ -95,6 +95,32 @@ Dashboard → Upload Master Resume → Tailor for Job → View/Edit → Download
 - Pages ≥50% full before break
 - Headers never orphaned
 
+## Phone Layout (below `lg`)
+
+Below Tailwind's `lg` (1024 px) the app is a different information architecture,
+not a narrowed desktop. Desktop at `lg` and above is unchanged.
+
+| Piece | File | Notes |
+| --- | --- | --- |
+| Breakpoint check | `hooks/use-is-mobile.ts` | `useIsMobile()` over `matchMedia('(max-width: 1023.98px)')`. `false` during SSR and the first hydration frame, so **every runtime branch is also CSS-gated** (`lg:hidden` / `hidden lg:block`) — that frame paints nothing rather than the desktop tree |
+| Tab bar | `components/common/bottom-nav.tsx` | Four slots (Resumes / Tracker / ⊕ Create / Settings), `sticky bottom-0` flex sibling of `<main>`. Shown on `/dashboard`, `/tracker`, `/settings`; absent on the detail routes and `/print*`. Never `fixed` — sticky occupies flow space, so no page needs bottom padding |
+| Top bar | `components/common/app-header.tsx` | Back chevron on detail routes, route title, workspace switcher |
+| Thumb-zone actions | `components/common/mobile-action-bar.tsx` | `aboveNav` on tab routes (`bottom-[var(--mobile-nav-h)]`), plain `bottom-0` + safe-area padding on detail routes |
+| Sheets | `components/ui/dialog.tsx`, `components/ui/action-sheet.tsx` | Below `sm` every `DialogContent` is a bottom sheet (grab handle, `max-h-[92dvh]`). `ActionSheet` replaces crowded icon clusters |
+| Rows | `components/ui/list-row.tsx` | Replaces aspect-square cards. `trailing` is a **sibling** of the tappable area, never a child — a button inside a button is a hydration error |
+| Switches | `components/ui/segmented.tsx` | Equal-width 2–3 way switch (builder EDIT/PREVIEW, READ/PAGE, diff unified/split) |
+
+Per-surface shape: the dashboard is a list with a per-row `⋯` sheet (and a
+pick-a-second-row compare mode instead of checkboxes); the tracker shows one
+stage at a time with the stage chips as a filter and a "Move to…" sheet instead
+of cross-stage drag; the builder is a two-level drill-down (section index →
+one section's fields, no drag gutter) with formatting in a sheet; settings is an
+index of five rows that drills into one section. The builder preview defaults to
+`components/preview/reading-preview.tsx` (a reflowed reading view that reuses the
+`@media screen and (max-width: 639px)` rules scoped to `:global(.resume-print)`),
+with the exact scaled A4 page one tap away. `--mobile-nav-h` in `globals.css`
+is the bar height including the device safe area.
+
 ## State Management
 
 ### localStorage

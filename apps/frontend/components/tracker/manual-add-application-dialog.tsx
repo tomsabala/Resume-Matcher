@@ -17,7 +17,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dropdown } from '@/components/ui/dropdown';
 import { useTranslations } from '@/lib/i18n';
 import { fetchResumeList, type ResumeListItem } from '@/lib/api/resume';
-import { createApplication, type ApplicationStatus } from '@/lib/api/tracker';
+import {
+  createApplication,
+  APPLICATION_STATUS_ORDER,
+  type ApplicationStatus,
+} from '@/lib/api/tracker';
 
 interface ManualAddApplicationDialogProps {
   open: boolean;
@@ -117,7 +121,7 @@ export function ManualAddApplicationDialog({
               onChange={(e) => setJobDescription(e.target.value)}
               onKeyDown={handleNotesKeyDown}
               placeholder={t('tracker.manualAdd.jobDescriptionPlaceholder')}
-              rows={5}
+              className="min-h-[6rem] sm:min-h-[10rem]"
             />
           </div>
 
@@ -145,10 +149,10 @@ export function ManualAddApplicationDialog({
           <div className="space-y-1">
             <Label>{t('tracker.manualAdd.status')}</Label>
             <Dropdown
-              options={[
-                { id: 'applied', label: t('tracker.columns.applied') },
-                { id: 'saved', label: t('tracker.columns.saved') },
-              ]}
+              options={APPLICATION_STATUS_ORDER.map((value) => ({
+                id: value,
+                label: t(`tracker.columns.${value}`),
+              }))}
               value={status}
               onChange={(value) => setStatus(value as ApplicationStatus)}
             />

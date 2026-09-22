@@ -159,11 +159,26 @@ export function WorkspaceManageDialog({ workspace, onClose }: WorkspaceManageDia
             )}
           </div>
 
+          {/* Below `sm` the destructive action must not sit in a thumb-height row next to
+              Cancel, so it gets its own block above the footer. */}
+          <div className="border-t border-black pt-4 sm:hidden">
+            <Button
+              variant="destructive"
+              onClick={() => setConfirmDelete(true)}
+              disabled={isDeleting}
+              className="w-full sm:w-auto"
+            >
+              <Trash2 className="h-4 w-4" />
+              {t('common.delete')}
+            </Button>
+          </div>
+
           <DialogFooter>
             <Button
               variant="destructive"
               onClick={() => setConfirmDelete(true)}
               disabled={isDeleting}
+              className="hidden sm:inline-flex"
             >
               <Trash2 className="h-4 w-4" />
               {t('common.delete')}

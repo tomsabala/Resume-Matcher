@@ -4,6 +4,7 @@ import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import GripVertical from 'lucide-react/dist/esm/icons/grip-vertical';
+import MoreVertical from 'lucide-react/dist/esm/icons/more-vertical';
 import Layers from 'lucide-react/dist/esm/icons/layers';
 import { Card } from '@/components/ui/card';
 import { useTranslations } from '@/lib/i18n';
@@ -15,6 +16,8 @@ interface ApplicationCardProps {
   sharedResume: boolean;
   onToggleSelect: (id: string) => void;
   onOpen: (id: string) => void;
+  /** Mobile replacement for cross-stage drag: opens the board-owned action sheet. */
+  onRequestActions: (application: Application) => void;
 }
 
 export function ApplicationCard({
@@ -23,6 +26,7 @@ export function ApplicationCard({
   sharedResume,
   onToggleSelect,
   onOpen,
+  onRequestActions,
 }: ApplicationCardProps) {
   const { t } = useTranslations();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -81,12 +85,24 @@ export function ApplicationCard({
 
           <button
             type="button"
-            className="touch-none -m-2 mt-0 flex h-11 w-11 shrink-0 items-center justify-center cursor-grab text-steel-grey hover:text-ink active:cursor-grabbing"
+            className="touch-none -m-2 mt-0 hidden h-11 w-11 shrink-0 cursor-grab items-center justify-center text-steel-grey hover:text-ink active:cursor-grabbing lg:flex"
             aria-label={t('tracker.card.dragAria')}
             {...attributes}
             {...listeners}
           >
             <GripVertical className="h-4 w-4" />
+          </button>
+
+          <button
+            type="button"
+            className="-m-2 mt-0 flex h-11 w-11 shrink-0 items-center justify-center text-steel-grey lg:hidden"
+            aria-label={t('common.more')}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRequestActions(application);
+            }}
+          >
+            <MoreVertical className="h-4 w-4" />
           </button>
         </div>
       </Card>

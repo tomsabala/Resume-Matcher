@@ -80,7 +80,7 @@ export function WorkspaceSwitcher() {
         aria-haspopup="menu"
         aria-expanded={isOpen}
         aria-label={t('workspaces.switcherLabel')}
-        className="flex items-center gap-2 border border-black bg-white px-3 py-2 font-mono text-xs uppercase tracking-wider text-black shadow-sw-sm rounded-none"
+        className="flex min-h-11 items-center gap-2 border border-black bg-white px-3 py-2 font-mono text-xs uppercase tracking-wider text-black shadow-sw-sm rounded-none"
       >
         <span className="max-w-[14rem] truncate font-bold">
           {activeWorkspace?.name ?? t('workspaces.loading')}
@@ -124,7 +124,7 @@ export function WorkspaceSwitcher() {
                   setIsOpen(false);
                   setManaged(workspace);
                 }}
-                className="-ml-[1px] flex shrink-0 items-center justify-center border border-black bg-white px-3 text-black hover:bg-paper-tint"
+                className="-ml-[1px] flex h-11 w-11 shrink-0 items-center justify-center border border-black bg-white text-black hover:bg-paper-tint"
               >
                 <Pencil className="h-3 w-3" />
               </button>

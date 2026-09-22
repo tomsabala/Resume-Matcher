@@ -14,6 +14,9 @@ interface KanbanColumnProps {
   sharedResumeIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onOpen: (id: string) => void;
+  onRequestActions: (application: Application) => void;
+  /** Mobile single-stage view: the column owns the whole board area instead of one snap page. */
+  fullWidth?: boolean;
 }
 
 export function KanbanColumn({
@@ -23,6 +26,8 @@ export function KanbanColumn({
   sharedResumeIds,
   onToggleSelect,
   onOpen,
+  onRequestActions,
+  fullWidth = false,
 }: KanbanColumnProps) {
   const { t } = useTranslations();
   // Droppable wrapper so EMPTY columns still accept a dropped card. The id is
@@ -30,7 +35,13 @@ export function KanbanColumn({
   const { setNodeRef, isOver } = useDroppable({ id: `column:${status}` });
 
   return (
-    <div className="flex h-full w-[86vw] max-w-80 shrink-0 snap-start flex-col p-3 sm:w-80">
+    <div
+      className={
+        fullWidth
+          ? 'flex h-full w-full min-w-0 shrink flex-col p-3'
+          : 'flex h-full w-[86vw] max-w-80 shrink-0 snap-start flex-col p-3 sm:w-80'
+      }
+    >
       <div className="mb-2 flex items-center justify-between border-b-2 border-black pb-1">
         <h2 className="font-mono text-xs font-bold uppercase tracking-wide text-ink">
           {t(`tracker.columns.${status}`)}
@@ -62,6 +73,7 @@ export function KanbanColumn({
                 }
                 onToggleSelect={onToggleSelect}
                 onOpen={onOpen}
+                onRequestActions={onRequestActions}
               />
             ))
           )}

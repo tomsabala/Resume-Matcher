@@ -1,4 +1,5 @@
 import { AppHeader } from '@/components/common/app-header';
+import { BottomNav } from '@/components/common/bottom-nav';
 import { ResumePreviewProvider } from '@/components/common/resume_previewer_context';
 import { StatusCacheProvider } from '@/lib/context/status-cache';
 import { LanguageProvider } from '@/lib/context/language-context';
@@ -17,6 +18,7 @@ export default function DefaultLayout({ children }: { children: React.ReactNode 
               <div className="flex min-h-[100dvh] flex-col">
                 <AppHeader />
                 <main className="flex min-h-0 flex-1 flex-col">{children}</main>
+                <BottomNav />
               </div>
             </LocalizedErrorBoundary>
           </ResumePreviewProvider>

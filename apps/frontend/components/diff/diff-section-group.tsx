@@ -56,7 +56,7 @@ export function DiffSectionGroup({
         type="button"
         onClick={onToggle}
         aria-expanded={isExpanded}
-        className="sticky top-0 z-10 flex w-full items-center gap-2 border-b-2 border-black bg-white px-3 py-2 text-left"
+        className="sticky top-14 z-10 lg:top-0 flex w-full flex-wrap items-center gap-2 border-b-2 border-black bg-white px-3 py-2 text-left"
       >
         {isExpanded ? (
           <ChevronDown className="h-4 w-4 shrink-0" />
@@ -67,11 +67,13 @@ export function DiffSectionGroup({
         <span className="min-w-0 flex-1 truncate font-mono text-xs font-bold tracking-wider uppercase">
           {heading}
         </span>
-        <span className="shrink-0 font-mono text-xs tracking-wider text-steel-grey uppercase">
-          {t(`diff.sectionStatus.${status}`)}
-        </span>
-        <span className="shrink-0 font-mono text-xs text-steel-grey">
-          {t('diff.rowCount', { count: rowCount })}
+        <span className="flex w-full items-center gap-2 sm:w-auto">
+          <span className="shrink-0 font-mono text-xs tracking-wider text-steel-grey uppercase">
+            {t(`diff.sectionStatus.${status}`)}
+          </span>
+          <span className="shrink-0 font-mono text-xs text-steel-grey">
+            {t('diff.rowCount', { count: rowCount })}
+          </span>
         </span>
       </button>
 

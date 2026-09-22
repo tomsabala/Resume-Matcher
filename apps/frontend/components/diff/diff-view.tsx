@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Segmented } from '@/components/ui/segmented';
 import { useTranslations } from '@/lib/i18n';
 import type { DiffRow, DocumentDiff } from '@/lib/api/diff';
 import { DiffRowLine } from './diff-row';
@@ -115,29 +116,19 @@ export interface DiffModeToggleProps {
 /** Unified/split switch. Snaps between states — no transition. */
 export function DiffModeToggle({ view, onChange }: DiffModeToggleProps) {
   const { t } = useTranslations();
+  const unified = t('diff.view.unified');
+  const split = t('diff.view.split');
   return (
-    <div className="flex border-2 border-black">
-      <button
-        type="button"
-        aria-pressed={view === 'unified'}
-        onClick={() => onChange('unified')}
-        className={`border-r-2 border-black px-3 py-2 font-mono text-xs tracking-wider uppercase ${
-          view === 'unified' ? 'bg-black text-white' : 'bg-white text-ink'
-        }`}
-      >
-        {t('diff.view.unified')}
-      </button>
-      <button
-        type="button"
-        aria-pressed={view === 'split'}
-        onClick={() => onChange('split')}
-        className={`px-3 py-2 font-mono text-xs tracking-wider uppercase ${
-          view === 'split' ? 'bg-black text-white' : 'bg-white text-ink'
-        }`}
-      >
-        {t('diff.view.split')}
-      </button>
-    </div>
+    <Segmented
+      className="w-auto shrink-0 border-black"
+      ariaLabel={`${unified} / ${split}`}
+      value={view}
+      onChange={(id) => onChange(id as DiffViewMode)}
+      options={[
+        { id: 'unified', label: unified },
+        { id: 'split', label: split },
+      ]}
+    />
   );
 }
 

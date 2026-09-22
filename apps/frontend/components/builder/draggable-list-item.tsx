@@ -35,19 +35,21 @@ export const DraggableListItem: React.FC<DraggableListItemProps> = ({ id, childr
 
   return (
     <div ref={setNodeRef} style={style} className="relative">
-      {/* Drag Handle */}
+      {/* Below `lg` the handle is a 44px strip ABOVE the item, not a left
+          gutter: a gutter would cost 44px of a 343px pane and leave a bullet
+          field unusable. At `lg` it is the same 16px left rail as before. */}
       <div
         {...attributes}
         {...listeners}
-        className="touch-none absolute left-0 top-0 h-full w-11 flex items-start justify-center pt-2 cursor-grab active:cursor-grabbing z-10 lg:w-4 lg:pt-0"
+        className="touch-none absolute left-0 top-0 h-11 w-11 flex items-center justify-center cursor-grab active:cursor-grabbing z-10 lg:h-full lg:w-4 lg:items-start lg:pt-0"
         aria-label={t('common.dragToReorder')}
         title={t('common.dragToReorder')}
       >
         <GripVertical className="w-4 h-4 text-steel-grey hover:text-ink-soft transition-colors" />
       </div>
 
-      {/* List Item Content - add left padding to make room for drag handle */}
-      <div className="pl-11 lg:pl-4">{children}</div>
+      {/* List Item Content - offset to clear the drag handle */}
+      <div className="pt-11 lg:pt-0 lg:pl-4">{children}</div>
     </div>
   );
 };

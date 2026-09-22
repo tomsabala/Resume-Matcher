@@ -32,7 +32,8 @@
     "databaseReset": "Base de données réinitialisée avec succès",
     "popupBlocked": "Fenêtre contextuelle bloquée. Veuillez autoriser les fenêtres contextuelles ou ouvrir cette URL manuellement : {url}",
     "resumeDeleted": "Ce CV a été supprimé. Importez ou sélectionnez un autre CV.",
-    "dragToReorder": "Glisser pour réorganiser"
+    "dragToReorder": "Glisser pour réorganiser",
+    "more": "Plus d'actions"
   },
   "home": {
     "brandLine1": "Resume",
@@ -47,7 +48,13 @@
     "settings": "Paramètres",
     "backToDashboard": "Retour au tableau de bord",
     "goToSettings": "Accéder aux paramètres",
-    "applicationTracker": "Suivi des candidatures"
+    "applicationTracker": "Suivi des candidatures",
+    "tabs": {
+      "resumes": "CV",
+      "tracker": "Suivi",
+      "create": "Créer",
+      "settings": "Réglages"
+    }
   },
   "dashboard": {
     "title": "Tableau de bord",
@@ -146,6 +153,9 @@
         "invalid": "Réponse rejetée",
         "provider": "Erreur du fournisseur"
       }
+    },
+    "compare": {
+      "pickSecond": "Choisissez un second CV à comparer avec « {title} »"
     }
   },
   "builder": {
@@ -546,6 +556,15 @@
     "pane": {
       "edit": "MODIFIER",
       "preview": "APERÇU"
+    },
+    "sections": {
+      "title": "Sections",
+      "itemCount": "{count} éléments",
+      "reorder": "Réorganiser"
+    },
+    "preview": {
+      "readView": "Lecture",
+      "pageView": "Page"
     }
   },
   "enrichment": {
@@ -1113,7 +1132,8 @@
       "loadFailed": "Impossible de charger les candidatures.",
       "moveFailed": "Impossible de déplacer la candidature.",
       "deleteFailed": "Impossible de supprimer la ou les candidatures."
-    }
+    },
+    "stageFilter": "Filtrer par étape"
   },
   "interviewPrep": {
     "title": "Préparation à l'entretien",

@@ -38,43 +38,49 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   };
 
   return (
-    <div
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      // The label alone is the accessible name; the state description below it
+      // is supplementary and must not be appended to it.
+      aria-labelledby={labelId}
+      disabled={disabled}
+      onClick={handleToggle}
       className={cn(
-        'flex items-center justify-between p-4 border border-black bg-white',
+        // The whole row is the hit target — a 28px switch alone is under the
+        // 44px touch floor.
+        'flex w-full items-center justify-between p-4 border border-black bg-white text-left',
         'shadow-sw-sm',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2',
         disabled && 'opacity-50 cursor-not-allowed',
         className
       )}
     >
-      <div className="flex-1 mr-4">
-        <div id={labelId} className="font-mono text-sm font-bold uppercase tracking-wider">
+      <span className="flex-1 mr-4">
+        <span id={labelId} className="block font-mono text-sm font-bold uppercase tracking-wider">
           {label}
-        </div>
-        {description && <div className="font-sans text-xs text-steel-grey mt-1">{description}</div>}
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-labelledby={labelId}
-        disabled={disabled}
-        onClick={handleToggle}
+        </span>
+        {description && (
+          <span className="block font-sans text-xs text-steel-grey mt-1">{description}</span>
+        )}
+      </span>
+      <span
+        aria-hidden="true"
         className={cn(
-          'relative inline-flex h-6 w-12 shrink-0 cursor-pointer items-center',
+          'relative inline-flex h-7 w-14 shrink-0 items-center',
           'border-2 border-black transition-colors',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2',
-          'disabled:cursor-not-allowed',
           checked ? 'bg-blue-700' : 'bg-paper-tint'
         )}
       >
         <span
           className={cn(
-            'pointer-events-none block h-4 w-4 bg-white border border-black',
+            'pointer-events-none block h-5 w-5 bg-white border border-black',
             'transition-transform duration-200',
-            checked ? 'translate-x-6' : 'translate-x-1'
+            checked ? 'translate-x-7' : 'translate-x-1'
           )}
         />
-      </button>
-    </div>
+      </span>
+    </button>
   );
 };

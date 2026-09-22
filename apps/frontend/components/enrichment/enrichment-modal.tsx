@@ -23,6 +23,16 @@ interface EnrichmentModalProps {
   onComplete: () => Promise<boolean>;
 }
 
+/**
+ * `ui/dialog.tsx` locks body scroll the same way, and the resume viewer can mount both.
+ * Only the last overlay out unlocks — otherwise closing enrichment over an open
+ * ConfirmDialog silently unlocks the page underneath it.
+ */
+function releaseBodyScroll(): void {
+  if (document.querySelector('[role="dialog"]')) return;
+  document.body.style.overflow = '';
+}
+
 export function EnrichmentModal({ resumeId, isOpen, onClose, onComplete }: EnrichmentModalProps) {
   const { t } = useTranslations();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -58,12 +68,12 @@ export function EnrichmentModal({ resumeId, isOpen, onClose, onComplete }: Enric
       }
     } else {
       dialogRef.current?.close();
-      document.body.style.overflow = 'auto';
+      releaseBodyScroll();
     }
 
     const dialog = dialogRef.current;
     return () => {
-      document.body.style.overflow = 'auto';
+      releaseBodyScroll();
       if (dialog?.open) {
         dialog.close();
       }
@@ -155,21 +165,19 @@ export function EnrichmentModal({ resumeId, isOpen, onClose, onComplete }: Enric
                 {t('enrichment.title')}
               </h1>
             </div>
-            {/* Only show close button in non-loading states */}
-            {!['analyzing', 'generating', 'applying'].includes(state.step) && (
-              <button
-                onClick={handleClose}
-                disabled={isRefreshing}
-                className="p-1 hover:bg-paper-tint transition-colors disabled:opacity-50"
-              >
-                <XIcon className="w-5 h-5" />
-                <span className="sr-only">{t('common.close')}</span>
-              </button>
-            )}
+            {/* Always reachable: ESC and the backdrop are blocked while loading. */}
+            <button
+              onClick={handleClose}
+              disabled={isRefreshing}
+              className="flex h-11 w-11 items-center justify-center hover:bg-paper-tint transition-colors disabled:opacity-50"
+            >
+              <XIcon className="w-5 h-5" />
+              <span className="sr-only">{t('common.close')}</span>
+            </button>
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-hidden p-6">{renderStep()}</div>
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6">{renderStep()}</div>
         </div>
       </div>
     </dialog>

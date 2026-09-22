@@ -2,17 +2,17 @@
 
 import React from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
-import LayoutGrid from 'lucide-react/dist/esm/icons/layout-grid';
 import { useTranslations } from '@/lib/i18n';
 
 export const SwissGrid = ({ children }: { children: React.ReactNode }) => {
   const { t } = useTranslations();
 
   return (
-    // 1. Outer Wrapper: Fixed height with grid background
+    // 1. Outer Wrapper: Fixed height with grid background.
+    // Desktop-only: below `lg` the dashboard renders a list and the bottom tab bar
+    // carries the navigation this frame's header and footer used to provide.
     <div
-      className="min-h-0 flex-1 w-full flex justify-center items-start py-6 px-4 md:py-12 md:px-8 overflow-hidden bg-background"
+      className="min-h-0 flex-1 w-full hidden lg:flex justify-center items-start py-6 px-4 md:py-12 md:px-8 overflow-hidden bg-background"
       style={{
         backgroundImage:
           'linear-gradient(rgba(29, 78, 216, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(29, 78, 216, 0.1) 1px, transparent 1px)',
@@ -55,21 +55,6 @@ export const SwissGrid = ({ children }: { children: React.ReactNode }) => {
               className="w-5 h-5"
             />
             <span className="uppercase font-bold">Resume Matcher</span>
-          </div>
-          <div className="flex w-full items-center gap-2 sm:w-auto sm:gap-4">
-            <Link
-              href="/tracker"
-              className="inline-flex min-h-11 items-center justify-center gap-2 bg-background text-black border border-black px-6 py-2 uppercase font-bold tracking-wide shadow-sw-sm hover:translate-y-[1px] hover:translate-x-[1px] hover:shadow-none active:translate-y-[1px] active:translate-x-[1px] active:shadow-none transition-all flex-1 sm:flex-none sm:min-h-0 sm:min-w-[140px] text-center"
-            >
-              <LayoutGrid className="w-4 h-4" />
-              {t('nav.applicationTracker')}
-            </Link>
-            <Link
-              href="/settings"
-              className="inline-flex min-h-11 items-center justify-center bg-warning text-black border border-black px-6 py-2 uppercase font-bold tracking-wide shadow-sw-sm hover:translate-y-[1px] hover:translate-x-[1px] hover:shadow-none active:translate-y-[1px] active:translate-x-[1px] active:shadow-none transition-all flex-1 sm:flex-none sm:min-h-0 sm:min-w-[140px] text-center"
-            >
-              {t('nav.settings')}
-            </Link>
           </div>
         </div>
       </div>

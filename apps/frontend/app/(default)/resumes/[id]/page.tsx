@@ -24,8 +24,12 @@ import {
   Sparkles,
   Pencil,
   MessagesSquare,
+  MoreVertical,
   Star,
 } from 'lucide-react';
+import { ActionSheet, type ActionSheetItem } from '@/components/ui/action-sheet';
+import { MobileActionBar } from '@/components/common/mobile-action-bar';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { EnrichmentModal } from '@/components/enrichment/enrichment-modal';
 import { TexPdfPreview } from '@/components/latex/tex-pdf-preview';
 import type { TexTemplateId } from '@/lib/api/tex';
@@ -53,6 +57,8 @@ export default function ResumeViewerPage() {
   const params = useParams();
   const router = useRouter();
   const { decrementResumes, setHasMasterResume } = useStatusCache();
+  const [showActionsSheet, setShowActionsSheet] = useState(false);
+  const isMobile = useIsMobile();
   const [doc, setDoc] = useState<ResumeDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -500,117 +506,210 @@ export default function ResumeViewerPage() {
     );
   }
 
-  return (
-    <div className="flex-1 bg-background py-6 px-4 md:py-12 md:px-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header Actions */}
-        <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
-          <Button variant="outline" onClick={() => router.push('/dashboard')}>
-            <ArrowLeft className="w-4 h-4" />
-            {t('nav.backToDashboard')}
-          </Button>
+  const mobileActionItems: ActionSheetItem[] = [
+    ...(isMasterResume
+      ? [
+          {
+            id: 'enhance',
+            label: t('resumeViewer.enhanceResume'),
+            onSelect: () => setShowEnrichmentModal(true),
+          },
+        ]
+      : []),
+    ...(!isMasterResume && processingStatus === 'ready'
+      ? [
+          {
+            id: 'set-master',
+            label: t('resumeViewer.setMaster'),
+            disabled: isSettingMaster,
+            onSelect: () => setShowSetMasterDialog(true),
+          },
+        ]
+      : []),
+    { id: 'edit', label: t('dashboard.editResume'), onSelect: handleEdit },
+    ...(isTailoredResume
+      ? [
+          {
+            id: 'interview-prep',
+            label: t('interviewPrep.title'),
+            onSelect: handleInterviewPrep,
+          },
+        ]
+      : []),
+    ...(!isMasterResume
+      ? [
+          {
+            id: 'rename',
+            label: t('dashboard.manage.rename'),
+            onSelect: () => {
+              setEditingTitleValue(resumeTitle || '');
+              setIsEditingTitle(true);
+            },
+          },
+        ]
+      : []),
+    {
+      id: 'delete',
+      label: isMasterResume
+        ? t('confirmations.deleteMasterResumeTitle')
+        : t('dashboard.deleteResume'),
+      destructive: true,
+      onSelect: () => setShowDeleteDialog(true),
+    },
+  ];
 
-          <div className="flex flex-wrap gap-2 w-full md:w-auto md:gap-3">
-            {isMasterResume && (
-              <Button onClick={() => setShowEnrichmentModal(true)} className="gap-2">
-                <Sparkles className="w-4 h-4" />
-                {t('resumeViewer.enhanceResume')}
-              </Button>
-            )}
-            {!isMasterResume && processingStatus === 'ready' && (
-              <Button
-                variant="outline"
-                onClick={() => setShowSetMasterDialog(true)}
-                disabled={isSettingMaster}
-              >
-                <Star className="w-4 h-4" />
-                {t('resumeViewer.setMaster')}
-              </Button>
-            )}
-            <Button variant="outline" onClick={handleEdit}>
-              <Edit className="w-4 h-4" />
-              {t('dashboard.editResume')}
+  return (
+    <div className="flex flex-1 flex-col bg-background">
+      <div className="flex-1 py-6 px-4 md:py-12 md:px-8">
+        <div className="max-w-7xl mx-auto">
+          {/* Header Actions — every one of these lives in the mobile action sheet below. */}
+          <div className="mb-8 hidden lg:flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
+            <Button variant="outline" onClick={() => router.push('/dashboard')}>
+              <ArrowLeft className="w-4 h-4" />
+              {t('nav.backToDashboard')}
             </Button>
-            {isTailoredResume && (
-              <Button variant="outline" onClick={handleInterviewPrep}>
-                <MessagesSquare className="w-4 h-4" />
-                {t('interviewPrep.title')}
+
+            <div className="flex flex-wrap gap-2 w-full md:w-auto md:gap-3">
+              {isMasterResume && (
+                <Button onClick={() => setShowEnrichmentModal(true)} className="gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  {t('resumeViewer.enhanceResume')}
+                </Button>
+              )}
+              {!isMasterResume && processingStatus === 'ready' && (
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSetMasterDialog(true)}
+                  disabled={isSettingMaster}
+                >
+                  <Star className="w-4 h-4" />
+                  {t('resumeViewer.setMaster')}
+                </Button>
+              )}
+              <Button variant="outline" onClick={handleEdit}>
+                <Edit className="w-4 h-4" />
+                {t('dashboard.editResume')}
               </Button>
+              {isTailoredResume && (
+                <Button variant="outline" onClick={handleInterviewPrep}>
+                  <MessagesSquare className="w-4 h-4" />
+                  {t('interviewPrep.title')}
+                </Button>
+              )}
+              <Button variant="success" onClick={handleDownload} disabled={isDownloading}>
+                <Download className="w-4 h-4" />
+                {isDownloading ? t('common.generating') : t('resumeViewer.downloadResume')}
+              </Button>
+            </div>
+          </div>
+
+          {/* Mobile: one ⋯ trigger stands in for the whole desktop action row. */}
+          {isMobile && (
+            <div className="mb-4 flex justify-end lg:hidden no-print">
+              <button
+                type="button"
+                onClick={() => setShowActionsSheet(true)}
+                aria-label={t('common.more')}
+                className="flex h-11 w-11 items-center justify-center border border-black bg-background active:bg-secondary"
+              >
+                <MoreVertical className="h-5 w-5" />
+              </button>
+            </div>
+          )}
+
+          {/* Editable Title (tailored resumes only) */}
+          {!isMasterResume && (
+            <div className="mb-6 no-print">
+              {isEditingTitle ? (
+                <input
+                  type="text"
+                  value={editingTitleValue}
+                  onChange={(e) => setEditingTitleValue(e.target.value)}
+                  onBlur={handleTitleSave}
+                  onKeyDown={handleTitleKeyDown}
+                  autoFocus
+                  maxLength={80}
+                  placeholder={t('resumeViewer.titlePlaceholder')}
+                  className="font-serif text-2xl font-bold border-b-2 border-black bg-transparent outline-none w-full max-w-xl px-0 py-1"
+                />
+              ) : (
+                <button
+                  onClick={() => {
+                    setEditingTitleValue(resumeTitle || '');
+                    setIsEditingTitle(true);
+                  }}
+                  className="group flex items-center gap-2 cursor-pointer bg-transparent border-none p-0"
+                >
+                  <h2
+                    className={`font-serif text-2xl font-bold border-b-2 border-transparent group-hover:border-black transition-colors ${!resumeTitle ? 'text-steel-grey' : ''}`}
+                  >
+                    {resumeTitle || t('resumeViewer.titlePlaceholder')}
+                  </h2>
+                  <Pencil
+                    className={`w-4 h-4 transition-opacity ${resumeTitle ? 'opacity-60 lg:opacity-0 lg:group-hover:opacity-60' : 'opacity-40 group-hover:opacity-60'}`}
+                  />
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Resume Viewer — the renderer the selected template belongs to. */}
+          <div className="flex justify-center pb-4">
+            {usesTexEngine ? (
+              <div className="w-full max-w-[250mm] h-[70dvh] sm:h-[297mm] border-2 border-black bg-white shadow-sw-lg">
+                <TexPdfPreview
+                  resumeId={resumeId}
+                  template={templateSettings.template as TexTemplateId}
+                  settings={templateSettings}
+                  revision={0}
+                />
+              </div>
+            ) : (
+              <div className="resume-print w-full max-w-[250mm] shadow-sw-lg border-2 border-black bg-white">
+                <Resume
+                  doc={doc}
+                  settings={templateSettings}
+                  translate={t}
+                  fallbackName={t('resume.defaults.name')}
+                />
+              </div>
             )}
-            <Button variant="success" onClick={handleDownload} disabled={isDownloading}>
+          </div>
+
+          <div className="hidden lg:flex justify-end pt-4 no-print">
+            <Button variant="destructive" onClick={() => setShowDeleteDialog(true)}>
+              {isMasterResume
+                ? t('confirmations.deleteMasterResumeTitle')
+                : t('dashboard.deleteResume')}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {isMobile && (
+        <>
+          <MobileActionBar className="no-print">
+            <Button
+              variant="success"
+              onClick={handleDownload}
+              disabled={isDownloading}
+              className="w-full"
+            >
               <Download className="w-4 h-4" />
               {isDownloading ? t('common.generating') : t('resumeViewer.downloadResume')}
             </Button>
-          </div>
-        </div>
+          </MobileActionBar>
 
-        {/* Editable Title (tailored resumes only) */}
-        {!isMasterResume && (
-          <div className="mb-6 no-print">
-            {isEditingTitle ? (
-              <input
-                type="text"
-                value={editingTitleValue}
-                onChange={(e) => setEditingTitleValue(e.target.value)}
-                onBlur={handleTitleSave}
-                onKeyDown={handleTitleKeyDown}
-                autoFocus
-                maxLength={80}
-                placeholder={t('resumeViewer.titlePlaceholder')}
-                className="font-serif text-2xl font-bold border-b-2 border-black bg-transparent outline-none w-full max-w-xl px-0 py-1"
-              />
-            ) : (
-              <button
-                onClick={() => {
-                  setEditingTitleValue(resumeTitle || '');
-                  setIsEditingTitle(true);
-                }}
-                className="group flex items-center gap-2 cursor-pointer bg-transparent border-none p-0"
-              >
-                <h2
-                  className={`font-serif text-2xl font-bold border-b-2 border-transparent group-hover:border-black transition-colors ${!resumeTitle ? 'text-steel-grey' : ''}`}
-                >
-                  {resumeTitle || t('resumeViewer.titlePlaceholder')}
-                </h2>
-                <Pencil
-                  className={`w-4 h-4 transition-opacity ${resumeTitle ? 'opacity-60 lg:opacity-0 lg:group-hover:opacity-60' : 'opacity-40 group-hover:opacity-60'}`}
-                />
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Resume Viewer — the renderer the selected template belongs to. */}
-        <div className="flex justify-center pb-4">
-          {usesTexEngine ? (
-            <div className="w-full max-w-[250mm] h-[70vh] sm:h-[297mm] border-2 border-black bg-white shadow-sw-lg">
-              <TexPdfPreview
-                resumeId={resumeId}
-                template={templateSettings.template as TexTemplateId}
-                settings={templateSettings}
-                revision={0}
-              />
-            </div>
-          ) : (
-            <div className="resume-print w-full max-w-[250mm] shadow-sw-lg border-2 border-black bg-white">
-              <Resume
-                doc={doc}
-                settings={templateSettings}
-                translate={t}
-                fallbackName={t('resume.defaults.name')}
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-end pt-4 no-print">
-          <Button variant="destructive" onClick={() => setShowDeleteDialog(true)}>
-            {isMasterResume
-              ? t('confirmations.deleteMasterResumeTitle')
-              : t('dashboard.deleteResume')}
-          </Button>
-        </div>
-      </div>
+          <ActionSheet
+            open={showActionsSheet}
+            onOpenChange={setShowActionsSheet}
+            title={
+              resumeTitle || t(isMasterResume ? 'dashboard.masterResume' : 'dashboard.baseResume')
+            }
+            items={mobileActionItems}
+          />
+        </>
+      )}
 
       {deleteDialogs}
 

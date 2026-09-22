@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useStatusCache } from '@/lib/context/status-cache';
 import { useTranslations } from '@/lib/i18n';
 import {
@@ -61,6 +62,7 @@ export function ResumeWizardPage() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [createdResumeId, setCreatedResumeId] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [draftStorageUnavailable, setDraftStorageUnavailable] = useState(false);
   const [showLeaveWithoutDraftDialog, setShowLeaveWithoutDraftDialog] = useState(false);
 
@@ -214,7 +216,12 @@ export function ResumeWizardPage() {
             <h1 className="font-mono text-xs font-bold uppercase tracking-wider text-steel-grey">
               {t('resumeWizard.title')}
             </h1>
-            <Button type="button" variant="ghost" onClick={handleBackToDashboard}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleBackToDashboard}
+              className="hidden lg:inline-flex"
+            >
               {t('resumeWizard.actions.backToDashboard')}
             </Button>
           </div>
@@ -276,12 +283,29 @@ export function ResumeWizardPage() {
               warnings={state.warnings}
               isComplete={state.is_complete}
               canFinalize={Boolean(state.resume_data.header.name.trim())}
+              onPreview={() => setPreviewOpen(true)}
             />
           )}
         </div>
 
-        <LivePreview doc={state.resume_data} inferredSkills={state.inferred_skills} />
+        <div className="hidden lg:block">
+          <LivePreview doc={state.resume_data} inferredSkills={state.inferred_skills} />
+        </div>
       </div>
+
+      {/* The inline preview is desktop-only; on a phone it is one sheet away. */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="p-0 gap-0">
+          <DialogHeader className="border-b border-black px-4 py-3">
+            <DialogTitle className="font-serif text-base font-bold">
+              {t('resumeWizard.preview.label')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="p-4">
+            <LivePreview doc={state.resume_data} inferredSkills={state.inferred_skills} />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={showLeaveWithoutDraftDialog}

@@ -31,6 +31,8 @@ import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
 import Pencil from 'lucide-react/dist/esm/icons/pencil';
 import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
 import Star from 'lucide-react/dist/esm/icons/star';
+import MoreVertical from 'lucide-react/dist/esm/icons/more-vertical';
+import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
 
 import {
   fetchResume,
@@ -45,6 +47,10 @@ import {
 import { useStatusCache } from '@/lib/context/status-cache';
 import { useWorkspace } from '@/lib/context/workspace-context';
 import { hasMeaningfulResumeContent } from '@/lib/utils/resume-content';
+import { useIsMobile } from '@/hooks/use-is-mobile';
+import { ListRow } from '@/components/ui/list-row';
+import { ActionSheet, type ActionSheetItem } from '@/components/ui/action-sheet';
+import { MobileActionBar } from '@/components/common/mobile-action-bar';
 
 type ProcessingStatus = 'pending' | 'processing' | 'ready' | 'failed' | 'loading';
 
@@ -80,6 +86,12 @@ export default function DashboardPage() {
   const [isManaging, setIsManaging] = useState(false);
   const [masterTitle, setMasterTitle] = useState<string | null>(null);
   const router = useRouter();
+  const isMobile = useIsMobile();
+  // Both are mobile-only: the desktop tree keeps its per-card icon cluster and
+  // its checkbox selection. `sheet` is the open `⋯` action sheet; `compareBase`
+  // is the first resume of a compare pair, waiting for a second.
+  const [sheet, setSheet] = useState<{ title: string; items: ActionSheetItem[] } | null>(null);
+  const [compareBase, setCompareBase] = useState<{ id: string; title: string } | null>(null);
 
   // Status cache for optimistic counter updates and LLM status check
   const {
@@ -304,6 +316,7 @@ export default function DashboardPage() {
       const kept = current.filter((id) => available.has(id));
       return kept.length === current.length ? current : kept;
     });
+    setCompareBase((current) => (current && !available.has(current.id) ? null : current));
   }, [masterResumeId, tailoredResumes]);
 
   const toggleSelected = (resumeId: string) => {
@@ -341,8 +354,8 @@ export default function DashboardPage() {
     }
   };
 
-  const handleRetryProcessing = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleRetryProcessing = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (!masterResumeId || retryMasterRef.current === masterResumeId) return;
     const resumeId = masterResumeId;
     retryMasterRef.current = resumeId;
@@ -385,8 +398,8 @@ export default function DashboardPage() {
     }
   };
 
-  const handleDeleteAndReupload = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDeleteAndReupload = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setShowDeleteDialog(true);
   };
 
@@ -417,21 +430,18 @@ export default function DashboardPage() {
   // Renaming writes `title`, the same field the viewer edits; deleting is the
   // ordinary delete, including for the master (the dashboard then falls back
   // to its upload card).
-  const openRename = (event: React.MouseEvent, resume: ManagedResume) => {
-    event.stopPropagation();
+  const openRename = (resume: ManagedResume) => {
     setRenameTarget(resume);
     setRenameValue(resume.title);
     setManageError(null);
   };
 
-  const openDelete = (event: React.MouseEvent, resume: ManagedResume) => {
-    event.stopPropagation();
+  const openDelete = (resume: ManagedResume) => {
     setDeleteTarget(resume);
     setManageError(null);
   };
 
-  const openSetMaster = (event: React.MouseEvent, resume: ManagedResume) => {
-    event.stopPropagation();
+  const openSetMaster = (resume: ManagedResume) => {
     setMasterTarget(resume);
     setManageError(null);
   };
@@ -510,7 +520,10 @@ export default function DashboardPage() {
           variant="ghost"
           size="icon"
           className="relative z-10 h-8 w-8 before:-inset-[6px] rounded-none hover:bg-blue-100 hover:text-blue-700"
-          onClick={(event) => openSetMaster(event, resume)}
+          onClick={(event) => {
+            event.stopPropagation();
+            openSetMaster(resume);
+          }}
           aria-label={t('dashboard.manage.setMasterResume', { title: resume.title })}
           title={t('dashboard.manage.setMaster')}
         >
@@ -521,7 +534,10 @@ export default function DashboardPage() {
         variant="ghost"
         size="icon"
         className="relative z-10 h-8 w-8 before:-inset-[6px] rounded-none hover:bg-blue-100 hover:text-blue-700"
-        onClick={(event) => openRename(event, resume)}
+        onClick={(event) => {
+          event.stopPropagation();
+          openRename(resume);
+        }}
         aria-label={t('dashboard.manage.renameResume', { title: resume.title })}
         title={t('dashboard.manage.rename')}
       >
@@ -531,7 +547,10 @@ export default function DashboardPage() {
         variant="ghost"
         size="icon"
         className="relative z-10 h-8 w-8 before:-inset-[6px] rounded-none hover:bg-red-100 hover:text-red-600"
-        onClick={(event) => openDelete(event, resume)}
+        onClick={(event) => {
+          event.stopPropagation();
+          openDelete(resume);
+        }}
         aria-label={t('dashboard.manage.deleteResume', { title: resume.title })}
         title={t('common.delete')}
       >
@@ -539,6 +558,69 @@ export default function DashboardPage() {
       </Button>
     </>
   );
+
+  /** The mobile equivalent of `cardActions`, plus the master recovery actions. */
+  const rowActionItems = (resume: ManagedResume): ActionSheetItem[] => {
+    const items: ActionSheetItem[] = [];
+    if (resume.isMaster && (processingStatus === 'failed' || processingStatus === 'processing')) {
+      items.push({
+        id: 'retry',
+        label: isRetrying ? t('dashboard.retryingProcessing') : t('dashboard.retryProcessing'),
+        disabled: isRetrying,
+        onSelect: handleRetryProcessing,
+      });
+      items.push({
+        id: 'reupload',
+        label: t('dashboard.deleteAndReupload'),
+        onSelect: handleDeleteAndReupload,
+      });
+    }
+    if (!resume.isMaster && resume.isReady) {
+      items.push({
+        id: 'set-master',
+        label: t('dashboard.manage.setMaster'),
+        onSelect: () => openSetMaster(resume),
+      });
+    }
+    items.push({
+      id: 'rename',
+      label: t('dashboard.manage.rename'),
+      onSelect: () => openRename(resume),
+    });
+    if (tailoredResumes.length + 1 >= 2) {
+      items.push({
+        id: 'compare',
+        label: t('dashboard.selection.compare'),
+        onSelect: () => setCompareBase({ id: resume.resumeId, title: resume.title }),
+      });
+    }
+    items.push({
+      id: 'delete',
+      label: t('common.delete'),
+      destructive: true,
+      onSelect: () => openDelete(resume),
+    });
+    return items;
+  };
+
+  /** While a compare base is picked, every other row is the "second resume" target. */
+  const openRow = (resumeId: string) => {
+    if (compareBase && compareBase.id !== resumeId) {
+      router.push(`/compare?base=resume:${compareBase.id}&head=resume:${resumeId}`);
+      return;
+    }
+    router.push(`/resumes/${resumeId}`);
+  };
+
+  /** The master resume as a manageable identity, for the mobile row and its sheet. */
+  const masterRow: ManagedResume | null = masterResumeId
+    ? {
+        resumeId: masterResumeId,
+        title: masterTitle ?? t('dashboard.masterResume'),
+        isMaster: true,
+        isReady: processingStatus === 'ready',
+      }
+    : null;
 
   const getStatusDisplay = () => {
     switch (processingStatus) {
@@ -653,7 +735,7 @@ export default function DashboardPage() {
       )}
 
       {selectedIds.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-4 border-2 border-black bg-white px-4 py-3 shadow-sw-default">
+        <div className="hidden flex-wrap items-center justify-between gap-4 border-2 border-black bg-white px-4 py-3 shadow-sw-default lg:flex">
           <div className="flex items-center gap-4">
             <span className="font-mono text-xs font-bold uppercase tracking-wider">
               {t('dashboard.selection.count', { count: selectedIds.length })}
@@ -681,358 +763,507 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <SwissGrid>
-        {/* 1. Master Resume Logic */}
-        {!masterResumeId ? (
-          // LLM Not Configured or Upload State
-          !isLlmConfigured && !statusLoading ? (
-            <Link href="/settings" className="block h-full">
-              <Card
-                variant="interactive"
-                className="aspect-square h-full border-dashed border-warning bg-amber-50"
-              >
-                <div className="flex-1 flex flex-col justify-between">
-                  <div className="w-14 h-14 border-2 border-warning bg-white flex items-center justify-center mb-4">
-                    <AlertTriangle className="w-7 h-7 text-warning" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg uppercase text-amber-800 mb-2">
-                      {t('dashboard.setupRequiredTitle')}
-                    </CardTitle>
-                    <CardDescription className="text-amber-700 text-xs">
-                      {t('dashboard.setupRequiredMessage')}
-                    </CardDescription>
-                    <div className="flex items-center gap-2 mt-4 text-amber-700 group-hover:text-amber-900">
-                      <Settings className="w-4 h-4" />
-                      <span className="font-mono text-xs font-bold uppercase">
-                        {t('nav.goToSettings')}
+      {/* Mobile: a list of ~72px rows. Gated by CSS *and* `isMobile`, so the
+          one hydration frame that reports desktop paints nothing here rather
+          than the card grid. */}
+      <div className="flex flex-1 flex-col lg:hidden">
+        {isMobile && (
+          <>
+            {!masterRow ? (
+              !isLlmConfigured && !statusLoading ? (
+                <ListRow
+                  className="border border-dashed border-warning bg-amber-50"
+                  leading={
+                    <span className="flex h-10 w-10 items-center justify-center border-2 border-warning bg-white">
+                      <AlertTriangle className="h-5 w-5 text-warning" />
+                    </span>
+                  }
+                  title={t('dashboard.setupRequiredTitle')}
+                  subtitle={t('dashboard.setupRequiredMessage')}
+                  trailing={<ChevronRight className="h-5 w-5" />}
+                  onClick={() => router.push('/settings')}
+                />
+              ) : (
+                <ListRow
+                  className="border border-dashed"
+                  leading={
+                    <span className="flex h-10 w-10 items-center justify-center border-2 border-black font-mono text-xl leading-none">
+                      +
+                    </span>
+                  }
+                  title={t('dashboard.initializeMasterResume')}
+                  subtitle={t('dashboard.initializeSequence')}
+                  trailing={<ChevronRight className="h-5 w-5" />}
+                  onClick={() => setIsMasterChoiceDialogOpen(true)}
+                />
+              )
+            ) : (
+              <ListRow
+                leading={
+                  <span className="flex h-10 w-10 items-center justify-center border-2 border-black bg-blue-700 font-mono text-sm font-bold text-white">
+                    M
+                  </span>
+                }
+                title={masterRow.title}
+                subtitle={t('dashboard.statusLine', { status: getStatusDisplay().text })}
+                meta={
+                  <span className="inline-flex items-center border border-black bg-paper-tint px-1 font-mono text-[10px] uppercase text-ink-soft">
+                    {t('dashboard.masterResume')}
+                  </span>
+                }
+                selected={compareBase?.id === masterRow.resumeId}
+                trailing={
+                  <button
+                    type="button"
+                    aria-label={t('common.more')}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSheet({ title: masterRow.title, items: rowActionItems(masterRow) });
+                    }}
+                    className="flex h-11 w-11 items-center justify-center active:bg-secondary"
+                  >
+                    <MoreVertical className="h-5 w-5" />
+                  </button>
+                }
+                onClick={() => openRow(masterRow.resumeId)}
+              />
+            )}
+
+            {tailoredResumes.map((resume) => {
+              const title =
+                resume.title ||
+                resume.jobSnippet ||
+                resume.filename ||
+                t(resume.parent_id ? 'dashboard.tailoredResume' : 'dashboard.baseResume');
+              const color = cardPalette[hashTitle(title) % cardPalette.length];
+              const managed: ManagedResume = {
+                resumeId: resume.resume_id,
+                title: resume.title?.trim() || title,
+                isMaster: false,
+                isReady: resume.processing_status === 'ready',
+              };
+              return (
+                <ListRow
+                  key={resume.resume_id}
+                  leading={
+                    <span
+                      className="flex h-10 w-10 items-center justify-center border-2 border-black font-mono text-sm font-bold"
+                      style={{ backgroundColor: color.bg, color: color.fg }}
+                    >
+                      {getMonogram(title)}
+                    </span>
+                  }
+                  title={title}
+                  subtitle={t('dashboard.edited', {
+                    date: formatDate(resume.updated_at || resume.created_at),
+                  })}
+                  meta={
+                    resume.processing_status !== 'ready' ? (
+                      <span className="inline-flex items-center border border-black bg-paper-tint px-1 font-mono text-[10px] uppercase text-ink-soft">
+                        {resume.processing_status}
                       </span>
+                    ) : undefined
+                  }
+                  selected={compareBase?.id === resume.resume_id}
+                  trailing={
+                    <button
+                      type="button"
+                      aria-label={t('common.more')}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSheet({ title: managed.title, items: rowActionItems(managed) });
+                      }}
+                      className="flex h-11 w-11 items-center justify-center active:bg-secondary"
+                    >
+                      <MoreVertical className="h-5 w-5" />
+                    </button>
+                  }
+                  onClick={() => openRow(resume.resume_id)}
+                />
+              );
+            })}
+          </>
+        )}
+      </div>
+
+      {!isMobile && (
+        <div className="hidden lg:contents">
+          <SwissGrid>
+            {/* 1. Master Resume Logic */}
+            {!masterResumeId ? (
+              // LLM Not Configured or Upload State
+              !isLlmConfigured && !statusLoading ? (
+                <Link href="/settings" className="block h-full">
+                  <Card
+                    variant="interactive"
+                    className="aspect-square h-full border-dashed border-warning bg-amber-50"
+                  >
+                    <div className="flex-1 flex flex-col justify-between">
+                      <div className="w-14 h-14 border-2 border-warning bg-white flex items-center justify-center mb-4">
+                        <AlertTriangle className="w-7 h-7 text-warning" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg uppercase text-amber-800 mb-2">
+                          {t('dashboard.setupRequiredTitle')}
+                        </CardTitle>
+                        <CardDescription className="text-amber-700 text-xs">
+                          {t('dashboard.setupRequiredMessage')}
+                        </CardDescription>
+                        <div className="flex items-center gap-2 mt-4 text-amber-700 group-hover:text-amber-900">
+                          <Settings className="w-4 h-4" />
+                          <span className="font-mono text-xs font-bold uppercase">
+                            {t('nav.goToSettings')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                </Link>
+              ) : (
+                <Card
+                  variant="interactive"
+                  className="aspect-square h-full hover:bg-primary hover:text-canvas"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={t('dashboard.initializeMasterResume')}
+                  onClick={() => setIsMasterChoiceDialogOpen(true)}
+                  onKeyDown={handleInitializeMasterKeyDown}
+                >
+                  <div className="flex-1 flex flex-col justify-between pointer-events-none">
+                    <div className="w-14 h-14 border-2 border-current flex items-center justify-center mb-4">
+                      <span className="text-2xl leading-none relative top-[-2px]">+</span>
+                    </div>
+                    <div>
+                      <CardTitle className="text-xl uppercase">
+                        {t('dashboard.initializeMasterResume')}
+                      </CardTitle>
+                      <CardDescription className="mt-2 opacity-60 group-hover:opacity-100 text-current">
+                        {'// '}
+                        {t('dashboard.initializeSequence')}
+                      </CardDescription>
                     </div>
                   </div>
-                </div>
-              </Card>
-            </Link>
-          ) : (
-            <>
+                </Card>
+              )
+            ) : (
+              // Master Resume Exists
               <Card
                 variant="interactive"
-                className="aspect-square h-full hover:bg-primary hover:text-canvas"
-                role="button"
-                tabIndex={0}
-                aria-label={t('dashboard.initializeMasterResume')}
-                onClick={() => setIsMasterChoiceDialogOpen(true)}
-                onKeyDown={handleInitializeMasterKeyDown}
+                className="aspect-square h-full"
+                onClick={() => router.push(`/resumes/${masterResumeId}`)}
               >
-                <div className="flex-1 flex flex-col justify-between pointer-events-none">
-                  <div className="w-14 h-14 border-2 border-current flex items-center justify-center mb-4">
-                    <span className="text-2xl leading-none relative top-[-2px]">+</span>
+                <div className="flex-1 flex flex-col h-full">
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="w-16 h-16 border-2 border-black bg-blue-700 text-white flex items-center justify-center">
+                      <span className="font-mono font-bold text-lg">M</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(masterResumeId)}
+                        aria-label={t('dashboard.selection.selectResume', {
+                          title: t('dashboard.masterResume'),
+                        })}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={() => toggleSelected(masterResumeId)}
+                        className="relative z-10 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white checked:bg-black before:absolute before:-inset-[16px] before:content-['']"
+                      />
+                      {(processingStatus === 'failed' || processingStatus === 'processing') && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 hover:bg-blue-100 hover:text-blue-700 z-10 rounded-none relative"
+                            onClick={handleRetryProcessing}
+                            disabled={isRetrying}
+                            aria-label={t('dashboard.retryProcessing')}
+                            title={t('dashboard.retryProcessing')}
+                          >
+                            {isRetrying ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-4 h-4" />
+                            )}
+                          </Button>
+                        </>
+                      )}
+                      {cardActions({
+                        resumeId: masterResumeId,
+                        title: masterTitle ?? t('dashboard.masterResume'),
+                        isMaster: true,
+                        isReady: processingStatus === 'ready',
+                      })}
+                    </div>
                   </div>
-                  <div>
-                    <CardTitle className="text-xl uppercase">
-                      {t('dashboard.initializeMasterResume')}
-                    </CardTitle>
-                    <CardDescription className="mt-2 opacity-60 group-hover:opacity-100 text-current">
-                      {'// '}
-                      {t('dashboard.initializeSequence')}
-                    </CardDescription>
+
+                  <CardTitle className="text-lg group-hover:text-primary">
+                    {masterTitle ?? t('dashboard.masterResume')}
+                  </CardTitle>
+
+                  <div
+                    className={`text-xs font-mono mt-auto pt-4 flex flex-col gap-2 uppercase ${getStatusDisplay().color}`}
+                  >
+                    <div className="flex items-center gap-1">
+                      {getStatusDisplay().icon}
+                      {t('dashboard.statusLine', { status: getStatusDisplay().text })}
+                    </div>
+                    {(processingStatus === 'failed' || processingStatus === 'processing') && (
+                      <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-7 rounded-none border-black"
+                          onClick={handleRetryProcessing}
+                          disabled={isRetrying}
+                        >
+                          {isRetrying
+                            ? t('dashboard.retryingProcessing')
+                            : t('dashboard.retryProcessing')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-7 rounded-none border-red-600 text-red-600 hover:bg-red-50"
+                          onClick={handleDeleteAndReupload}
+                        >
+                          {t('dashboard.deleteAndReupload')}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </Card>
-              <MasterResumeChoiceDialog
-                open={isMasterChoiceDialogOpen}
-                onOpenChange={setIsMasterChoiceDialogOpen}
-                onChooseUpload={handleChooseUpload}
-                onChooseWizard={handleChooseWizard}
-              />
-              <ResumeUploadDialog
-                open={isUploadDialogOpen}
-                onOpenChange={setIsUploadDialogOpen}
-                onUploadComplete={handleUploadComplete}
-                trigger={
-                  <button type="button" className="hidden" tabIndex={-1} aria-hidden="true" />
-                }
-              />
-            </>
-          )
-        ) : (
-          // Master Resume Exists
-          <Card
-            variant="interactive"
-            className="aspect-square h-full"
-            onClick={() => router.push(`/resumes/${masterResumeId}`)}
-          >
-            <div className="flex-1 flex flex-col h-full">
-              <div className="flex justify-between items-start mb-6">
-                <div className="w-16 h-16 border-2 border-black bg-blue-700 text-white flex items-center justify-center">
-                  <span className="font-mono font-bold text-lg">M</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.includes(masterResumeId)}
-                    aria-label={t('dashboard.selection.selectResume', {
-                      title: t('dashboard.masterResume'),
-                    })}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={() => toggleSelected(masterResumeId)}
-                    className="relative z-10 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white checked:bg-black before:absolute before:-inset-[16px] before:content-['']"
-                  />
-                  {(processingStatus === 'failed' || processingStatus === 'processing') && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 hover:bg-blue-100 hover:text-blue-700 z-10 rounded-none relative"
-                        onClick={handleRetryProcessing}
-                        disabled={isRetrying}
-                        aria-label={t('dashboard.retryProcessing')}
-                        title={t('dashboard.retryProcessing')}
+            )}
+
+            {/* 2. Tailored Resumes */}
+            {tailoredResumes.map((resume) => {
+              // A resume without a parent was never tailored from anything, so the
+              // generic fallback must not claim it was.
+              const title =
+                resume.title ||
+                resume.jobSnippet ||
+                resume.filename ||
+                t(resume.parent_id ? 'dashboard.tailoredResume' : 'dashboard.baseResume');
+              const color = cardPalette[hashTitle(title) % cardPalette.length];
+              return (
+                <Card
+                  key={resume.resume_id}
+                  variant="interactive"
+                  className="aspect-square h-full bg-canvas"
+                  onClick={() => router.push(`/resumes/${resume.resume_id}`)}
+                >
+                  <div className="flex-1 flex flex-col">
+                    <div className="flex justify-between items-start mb-6">
+                      <div
+                        className="w-12 h-12 border-2 border-black flex items-center justify-center"
+                        style={{ backgroundColor: color.bg, color: color.fg }}
                       >
-                        {isRetrying ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <RefreshCw className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </>
-                  )}
-                  {cardActions({
-                    resumeId: masterResumeId,
-                    title: masterTitle ?? t('dashboard.masterResume'),
-                    isMaster: true,
-                    isReady: processingStatus === 'ready',
-                  })}
-                </div>
-              </div>
-
-              <CardTitle className="text-lg group-hover:text-primary">
-                {masterTitle ?? t('dashboard.masterResume')}
-              </CardTitle>
-
-              <div
-                className={`text-xs font-mono mt-auto pt-4 flex flex-col gap-2 uppercase ${getStatusDisplay().color}`}
-              >
-                <div className="flex items-center gap-1">
-                  {getStatusDisplay().icon}
-                  {t('dashboard.statusLine', { status: getStatusDisplay().text })}
-                </div>
-                {(processingStatus === 'failed' || processingStatus === 'processing') && (
-                  <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs h-7 rounded-none border-black"
-                      onClick={handleRetryProcessing}
-                      disabled={isRetrying}
-                    >
-                      {isRetrying
-                        ? t('dashboard.retryingProcessing')
-                        : t('dashboard.retryProcessing')}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs h-7 rounded-none border-red-600 text-red-600 hover:bg-red-50"
-                      onClick={handleDeleteAndReupload}
-                    >
-                      {t('dashboard.deleteAndReupload')}
-                    </Button>
+                        <span className="font-mono font-bold">{getMonogram(title)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-steel-grey uppercase">
+                          {resume.processing_status}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(resume.resume_id)}
+                          aria-label={t('dashboard.selection.selectResume', { title })}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={() => toggleSelected(resume.resume_id)}
+                          className="relative z-10 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white checked:bg-black before:absolute before:-inset-[16px] before:content-['']"
+                        />
+                        {cardActions({
+                          resumeId: resume.resume_id,
+                          title: resume.title?.trim() || title,
+                          isMaster: false,
+                          isReady: resume.processing_status === 'ready',
+                        })}
+                      </div>
+                    </div>
+                    <CardTitle className="text-lg">
+                      <span className="block font-serif text-base font-bold leading-tight mb-1 w-full line-clamp-2">
+                        {title}
+                      </span>
+                    </CardTitle>
+                    <CardDescription className="mt-auto pt-4 uppercase">
+                      {t('dashboard.edited', {
+                        date: formatDate(resume.updated_at || resume.created_at),
+                      })}{' '}
+                    </CardDescription>
                   </div>
-                )}
-              </div>
-            </div>
-          </Card>
-        )}
+                </Card>
+              );
+            })}
 
-        {/* 2. Tailored Resumes */}
-        {tailoredResumes.map((resume) => {
-          // A resume without a parent was never tailored from anything, so the
-          // generic fallback must not claim it was.
-          const title =
-            resume.title ||
-            resume.jobSnippet ||
-            resume.filename ||
-            t(resume.parent_id ? 'dashboard.tailoredResume' : 'dashboard.baseResume');
-          const color = cardPalette[hashTitle(title) % cardPalette.length];
-          return (
-            <Card
-              key={resume.resume_id}
-              variant="interactive"
-              className="aspect-square h-full bg-canvas"
-              onClick={() => router.push(`/resumes/${resume.resume_id}`)}
-            >
-              <div className="flex-1 flex flex-col">
-                <div className="flex justify-between items-start mb-6">
-                  <div
-                    className="w-12 h-12 border-2 border-black flex items-center justify-center"
-                    style={{ backgroundColor: color.bg, color: color.fg }}
-                  >
-                    <span className="font-mono font-bold">{getMonogram(title)}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-steel-grey uppercase">
-                      {resume.processing_status}
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(resume.resume_id)}
-                      aria-label={t('dashboard.selection.selectResume', { title })}
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={() => toggleSelected(resume.resume_id)}
-                      className="relative z-10 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white checked:bg-black before:absolute before:-inset-[16px] before:content-['']"
-                    />
-                    {cardActions({
-                      resumeId: resume.resume_id,
-                      title: resume.title?.trim() || title,
-                      isMaster: false,
-                      isReady: resume.processing_status === 'ready',
-                    })}
-                  </div>
-                </div>
-                <CardTitle className="text-lg">
-                  <span className="block font-serif text-base font-bold leading-tight mb-1 w-full line-clamp-2">
-                    {title}
-                  </span>
-                </CardTitle>
-                <CardDescription className="mt-auto pt-4 uppercase">
-                  {t('dashboard.edited', {
-                    date: formatDate(resume.updated_at || resume.created_at),
-                  })}{' '}
-                </CardDescription>
+            {/* 3. Create Tailored Resume */}
+            <Card className="aspect-square h-full" variant="default">
+              <div className="flex-1 flex flex-col items-center justify-center text-center h-full">
+                <Button
+                  onClick={() => router.push('/tailor')}
+                  disabled={!isTailorEnabled}
+                  className="w-20 h-20 bg-blue-700 text-white border-2 border-black shadow-sw-default hover:bg-blue-800 hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none transition-all rounded-none"
+                >
+                  <Plus className="w-8 h-8" />
+                </Button>
+                <p className="text-xs font-mono mt-4 uppercase text-green-700">
+                  {t('dashboard.createResume')}
+                </p>
               </div>
             </Card>
-          );
-        })}
 
-        {/* 3. Create Tailored Resume */}
-        <Card className="aspect-square h-full" variant="default">
-          <div className="flex-1 flex flex-col items-center justify-center text-center h-full">
-            <Button
-              onClick={() => router.push('/tailor')}
-              disabled={!isTailorEnabled}
-              className="w-20 h-20 bg-blue-700 text-white border-2 border-black shadow-sw-default hover:bg-blue-800 hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none transition-all rounded-none"
-            >
-              <Plus className="w-8 h-8" />
-            </Button>
-            <p className="text-xs font-mono mt-4 uppercase text-green-700">
-              {t('dashboard.createResume')}
+            {/* 4. Fillers */}
+            {Array.from({ length: fillerCount }).map((_, index) => (
+              <Card
+                key={`filler-${index}`}
+                variant="ghost"
+                noPadding
+                className="hidden md:block bg-canvas aspect-square h-full opacity-50 pointer-events-none"
+              />
+            ))}
+
+            {Array.from({ length: extraFillerCount }).map((_, index) => (
+              <Card
+                key={`extra-filler-${index}`}
+                variant="ghost"
+                noPadding
+                className={`hidden md:block ${fillerPalette[index % fillerPalette.length]} aspect-square h-full opacity-70 pointer-events-none`}
+              />
+            ))}
+          </SwissGrid>
+        </div>
+      )}
+      <ConfirmDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        title={t('confirmations.deleteMasterResumeTitle')}
+        description={t('confirmations.deleteMasterResumeDescription')}
+        confirmLabel={t('dashboard.deleteAndReupload')}
+        cancelLabel={t('confirmations.keepResumeCancelLabel')}
+        onConfirm={confirmDeleteAndReupload}
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        open={deleteError}
+        onOpenChange={setDeleteError}
+        title={t('common.error')}
+        description={t('dashboard.errors.deleteFailed')}
+        confirmLabel={t('common.retry')}
+        cancelLabel={t('common.cancel')}
+        onConfirm={confirmDeleteAndReupload}
+        onCancel={() => setDeleteError(false)}
+        variant="danger"
+      />
+
+      <Dialog
+        open={renameTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRenameTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-md border-2 border-black shadow-[4px_4px_0px_0px_#000000]">
+          <DialogHeader>
+            <DialogTitle>{t('dashboard.manage.renameTitle')}</DialogTitle>
+            <DialogDescription>{t('dashboard.manage.renameDescription')}</DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            aria-label={t('dashboard.manage.nameLabel')}
+            placeholder={t('dashboard.manage.namePlaceholder')}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void submitRename();
+            }}
+          />
+          {manageError && (
+            <p role="alert" className="font-mono text-xs uppercase tracking-wider text-red-600">
+              {manageError}
             </p>
-          </div>
-        </Card>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={() => void submitRename()} disabled={isManaging}>
+              {t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        {/* 4. Fillers */}
-        {Array.from({ length: fillerCount }).map((_, index) => (
-          <Card
-            key={`filler-${index}`}
-            variant="ghost"
-            noPadding
-            className="hidden md:block bg-canvas aspect-square h-full opacity-50 pointer-events-none"
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title={t('dashboard.manage.deleteTitle')}
+        description={
+          deleteTarget?.isMaster
+            ? t('dashboard.manage.deleteMasterDescription', { title: deleteTarget.title })
+            : t('dashboard.manage.deleteDescription', { title: deleteTarget?.title ?? '' })
+        }
+        errorMessage={manageError ?? undefined}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        confirmDisabled={isManaging}
+        closeOnConfirm={false}
+        onConfirm={() => void submitDelete()}
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        open={masterTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setMasterTarget(null);
+        }}
+        title={t('confirmations.setMasterTitle', { title: masterTarget?.title ?? '' })}
+        description={t('confirmations.setMasterDescription')}
+        errorMessage={manageError ?? undefined}
+        confirmLabel={t('dashboard.manage.setMaster')}
+        cancelLabel={t('common.cancel')}
+        confirmDisabled={isManaging}
+        closeOnConfirm={false}
+        onConfirm={() => void submitSetMaster()}
+      />
+
+      {/* Both trees drive these from state, so they live at page level — the
+          mount condition is the one the desktop card branch used to carry. */}
+      {!masterResumeId && (isLlmConfigured || statusLoading) && (
+        <>
+          <MasterResumeChoiceDialog
+            open={isMasterChoiceDialogOpen}
+            onOpenChange={setIsMasterChoiceDialogOpen}
+            onChooseUpload={handleChooseUpload}
+            onChooseWizard={handleChooseWizard}
           />
-        ))}
-
-        {Array.from({ length: extraFillerCount }).map((_, index) => (
-          <Card
-            key={`extra-filler-${index}`}
-            variant="ghost"
-            noPadding
-            className={`hidden md:block ${fillerPalette[index % fillerPalette.length]} aspect-square h-full opacity-70 pointer-events-none`}
+          <ResumeUploadDialog
+            open={isUploadDialogOpen}
+            onOpenChange={setIsUploadDialogOpen}
+            onUploadComplete={handleUploadComplete}
+            trigger={<button type="button" className="hidden" tabIndex={-1} aria-hidden="true" />}
           />
-        ))}
+        </>
+      )}
 
-        <ConfirmDialog
-          open={showDeleteDialog}
-          onOpenChange={setShowDeleteDialog}
-          title={t('confirmations.deleteMasterResumeTitle')}
-          description={t('confirmations.deleteMasterResumeDescription')}
-          confirmLabel={t('dashboard.deleteAndReupload')}
-          cancelLabel={t('confirmations.keepResumeCancelLabel')}
-          onConfirm={confirmDeleteAndReupload}
-          variant="danger"
-        />
+      <ActionSheet
+        open={sheet !== null}
+        onOpenChange={(open) => {
+          if (!open) setSheet(null);
+        }}
+        title={sheet?.title ?? ''}
+        items={sheet?.items ?? []}
+      />
 
-        <ConfirmDialog
-          open={deleteError}
-          onOpenChange={setDeleteError}
-          title={t('common.error')}
-          description={t('dashboard.errors.deleteFailed')}
-          confirmLabel={t('common.retry')}
-          cancelLabel={t('common.cancel')}
-          onConfirm={confirmDeleteAndReupload}
-          onCancel={() => setDeleteError(false)}
-          variant="danger"
-        />
-
-        <Dialog
-          open={renameTarget !== null}
-          onOpenChange={(open) => {
-            if (!open) setRenameTarget(null);
-          }}
-        >
-          <DialogContent className="max-w-md border-2 border-black shadow-[4px_4px_0px_0px_#000000]">
-            <DialogHeader>
-              <DialogTitle>{t('dashboard.manage.renameTitle')}</DialogTitle>
-              <DialogDescription>{t('dashboard.manage.renameDescription')}</DialogDescription>
-            </DialogHeader>
-            <Input
-              value={renameValue}
-              onChange={(event) => setRenameValue(event.target.value)}
-              aria-label={t('dashboard.manage.nameLabel')}
-              placeholder={t('dashboard.manage.namePlaceholder')}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void submitRename();
-              }}
-            />
-            {manageError && (
-              <p role="alert" className="font-mono text-xs uppercase tracking-wider text-red-600">
-                {manageError}
-              </p>
-            )}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setRenameTarget(null)}>
-                {t('common.cancel')}
-              </Button>
-              <Button onClick={() => void submitRename()} disabled={isManaging}>
-                {t('common.save')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <ConfirmDialog
-          open={deleteTarget !== null}
-          onOpenChange={(open) => {
-            if (!open) setDeleteTarget(null);
-          }}
-          title={t('dashboard.manage.deleteTitle')}
-          description={
-            deleteTarget?.isMaster
-              ? t('dashboard.manage.deleteMasterDescription', { title: deleteTarget.title })
-              : t('dashboard.manage.deleteDescription', { title: deleteTarget?.title ?? '' })
-          }
-          errorMessage={manageError ?? undefined}
-          confirmLabel={t('common.delete')}
-          cancelLabel={t('common.cancel')}
-          confirmDisabled={isManaging}
-          closeOnConfirm={false}
-          onConfirm={() => void submitDelete()}
-          variant="danger"
-        />
-
-        <ConfirmDialog
-          open={masterTarget !== null}
-          onOpenChange={(open) => {
-            if (!open) setMasterTarget(null);
-          }}
-          title={t('confirmations.setMasterTitle', { title: masterTarget?.title ?? '' })}
-          description={t('confirmations.setMasterDescription')}
-          errorMessage={manageError ?? undefined}
-          confirmLabel={t('dashboard.manage.setMaster')}
-          cancelLabel={t('common.cancel')}
-          confirmDisabled={isManaging}
-          closeOnConfirm={false}
-          onConfirm={() => void submitSetMaster()}
-        />
-      </SwissGrid>
+      {compareBase && (
+        <MobileActionBar aboveNav>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs uppercase">
+            {t('dashboard.compare.pickSecond', { title: compareBase.title })}
+          </span>
+          <Button variant="outline" size="sm" onClick={() => setCompareBase(null)}>
+            {t('common.cancel')}
+          </Button>
+        </MobileActionBar>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Geist, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Space_Grotesk } from 'next/font/google';
 import './(default)/css/globals.css';
 
@@ -53,6 +53,15 @@ export const metadata: Metadata = {
   description: 'Build your resume with Resume Matcher',
   applicationName: 'Resume Matcher',
   keywords: ['resume', 'matcher', 'job', 'application'],
+};
+
+// `viewportFit: 'cover'` is what makes `env(safe-area-inset-bottom)` non-zero on
+// notched devices — the mobile bottom bar sizing depends on it. No `maximumScale`
+// or `userScalable`: pinch-zoom must stay available.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -135,29 +135,36 @@ export function DiffPreviewModal({
           <DiffView diff={diff} acceptedPaths={accepted} onAcceptedPathsChange={setAccepted} />
         </div>
 
-        <div className="flex flex-wrap justify-between items-center gap-3 pt-4 border-t-2 border-black bg-white -mx-6 -mb-6 px-6 py-4">
-          <Button variant="outline" onClick={onReject} disabled={isConfirming} className="gap-2">
-            <X className="w-4 h-4" />
-            {t('tailor.diffModal.rejectButton')}
-          </Button>
-          <div className="flex items-center gap-3">
-            {allPaths.length > 0 && (
-              <span className="font-mono text-xs uppercase tracking-wider text-steel-grey">
-                {accepted.length === 0
-                  ? t('tailor.diffModal.noSelection')
-                  : t('tailor.diffModal.acceptingCount', {
-                      count: accepted.length,
-                      total: allPaths.length,
-                    })}
-              </span>
-            )}
-            {isConfirming && elapsed > 0 && (
-              <span className="font-mono text-xs text-steel-grey">{elapsed}s</span>
-            )}
+        <div className="flex flex-col gap-3 pt-4 border-t-2 border-black bg-white -mx-6 -mb-6 px-6 py-4">
+          {(allPaths.length > 0 || (isConfirming && elapsed > 0)) && (
+            <div className="flex items-center gap-3 font-mono text-xs uppercase tracking-wider text-steel-grey">
+              {allPaths.length > 0 && (
+                <span>
+                  {accepted.length === 0
+                    ? t('tailor.diffModal.noSelection')
+                    : t('tailor.diffModal.acceptingCount', {
+                        count: accepted.length,
+                        total: allPaths.length,
+                      })}
+                </span>
+              )}
+              {isConfirming && elapsed > 0 && <span>{elapsed}s</span>}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={onReject}
+              disabled={isConfirming}
+              className="flex-1 gap-2"
+            >
+              <X className="w-4 h-4" />
+              {t('tailor.diffModal.rejectButton')}
+            </Button>
             <Button
               onClick={() => onConfirm(isWholePreview ? null : accepted)}
               disabled={isConfirming || (allPaths.length > 0 && accepted.length === 0)}
-              className="gap-2 bg-success hover:bg-green-800"
+              className="flex-1 gap-2 bg-success hover:bg-green-800"
             >
               {isConfirming ? (
                 <>

@@ -29,7 +29,7 @@ export function BulkActionBar({ selectedCount, onMove, onDelete, onClear }: Bulk
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-3 border border-black bg-background p-3 shadow-sw-sm">
+    <div className="flex flex-wrap items-center gap-2 border border-black bg-background p-3 shadow-sw-sm sm:gap-3">
       <span className="font-mono text-sm font-bold text-ink">
         {t('tracker.bulk.selected', { count: String(selectedCount) })}
       </span>
@@ -44,12 +44,12 @@ export function BulkActionBar({ selectedCount, onMove, onDelete, onClear }: Bulk
         />
       </div>
 
-      <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)}>
+      <Button variant="destructive" onClick={() => setConfirmDelete(true)}>
         <Trash2 className="h-4 w-4" />
         {t('common.delete')}
       </Button>
 
-      <Button variant="ghost" size="sm" onClick={onClear}>
+      <Button variant="ghost" onClick={onClear}>
         <X className="h-4 w-4" />
         {t('tracker.bulk.clear')}
       </Button>

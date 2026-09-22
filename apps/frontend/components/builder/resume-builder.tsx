@@ -14,6 +14,7 @@ import { GeneratePrompt } from './generate-prompt';
 import { InterviewPrepView } from './interview-prep-view';
 import { Button } from '@/components/ui/button';
 import { RetroTabs, type Tab } from '@/components/ui/retro-tabs';
+import { Segmented } from '@/components/ui/segmented';
 import { ConfirmDialog, type ConfirmDialogProps } from '@/components/ui/confirm-dialog';
 import {
   Download,
@@ -25,12 +26,18 @@ import {
   Check,
   Sparkles,
   Loader2,
+  MoreVertical,
 } from 'lucide-react';
 import {
   useResumePreview,
   type InterviewPrepData,
 } from '@/components/common/resume_previewer_context';
 import { PaginatedPreview } from '@/components/preview';
+import { ReadingPreview } from '@/components/preview/reading-preview';
+import { MobileActionBar } from '@/components/common/mobile-action-bar';
+import { ActionSheet, type ActionSheetItem } from '@/components/ui/action-sheet';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import {
   downloadResumePdf,
   downloadCoverLetterPdf,
@@ -276,6 +283,14 @@ const ResumeBuilderContent = () => {
   // visible. It is a second axis: `activeTab` selects the *mode* and drives
   // both panes, this selects *which pane* the phone shows.
   const [mobilePane, setMobilePane] = useState<'edit' | 'preview'>('edit');
+  const isMobile = useIsMobile();
+  // Formatting is a sheet on a phone, not ~1400px of inline chrome above the
+  // first field.
+  const [formattingOpen, setFormattingOpen] = useState(false);
+  // The reflowed reading view is the phone default; the scaled A4 page is one
+  // tap away.
+  const [previewMode, setPreviewMode] = useState<'read' | 'page'>('read');
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
 
   useEffect(() => {
     setActiveTab(getTabFromSearchParams(searchParams));
@@ -1517,165 +1532,216 @@ const ResumeBuilderContent = () => {
     },
   ];
 
+  // `interview-prep` renders the same view in both panes and `history` renders
+  // the same preview, so the pane switch is a no-op there: hide it and pin the
+  // phone to the editor pane.
+  const paneSwitchApplies = activeTab !== 'interview-prep' && activeTab !== 'history';
+  const effectivePane = paneSwitchApplies ? mobilePane : 'edit';
+
+  // Secondary actions below `lg`: the header row they live in is desktop-only.
+  const mobileSheetItems: ActionSheetItem[] = [];
+  if (activeTab === 'resume') {
+    mobileSheetItems.push(
+      {
+        id: 'regenerate',
+        label: t('builder.regenerate.buttonLabel'),
+        disabled: !resumeId || isSaving,
+        onSelect: handleStartRegenerate,
+      },
+      {
+        id: 'reset',
+        label: t('common.reset'),
+        disabled: !hasUnsavedChanges,
+        onSelect: handleReset,
+      }
+    );
+  } else if (activeTab === 'cover-letter' && coverLetter) {
+    mobileSheetItems.push({
+      id: 'regenerate-cover-letter',
+      label: t('coverLetter.regenerate'),
+      disabled: isGeneratingCoverLetter,
+      onSelect: handleGenerateCoverLetter,
+    });
+  } else if (activeTab === 'outreach' && outreachMessage) {
+    mobileSheetItems.push({
+      id: 'regenerate-outreach',
+      label: t('outreach.regenerate'),
+      disabled: isGeneratingOutreach,
+      onSelect: handleGenerateOutreach,
+    });
+  } else if (activeTab === 'interview-prep' && interviewPrep) {
+    mobileSheetItems.push({
+      id: 'regenerate-interview-prep',
+      label: t('interviewPrep.regenerate'),
+      disabled: !canGenerateInterviewPrep || isGeneratingInterviewPrep,
+      onSelect: handleGenerateInterviewPrep,
+    });
+  }
+
   return (
     <div className="min-h-0 flex-1 w-full bg-background flex justify-center items-stretch p-0 sm:p-4 md:p-8">
       {/* Main Container */}
       <div className="w-full h-full max-w-none border-0 sm:max-w-[90%] sm:border md:max-w-[95%] xl:max-w-[1800px] border-black bg-background shadow-sw-lg flex flex-col">
-        {/* Header Section */}
-        <div className="border-b border-black p-4 md:p-8 bg-background no-print">
-          {/* Top Row: Back button and Actions */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-            <div>
-              <Button variant="link" onClick={handleBackToDashboard} className="mb-2 -ml-1">
-                <ArrowLeft className="w-4 h-4" />
-                {t('nav.backToDashboard')}
-              </Button>
-              <h1 className="font-serif text-2xl sm:text-3xl md:text-5xl text-black tracking-tight leading-[0.95] uppercase">
-                {t('nav.builder')}
-              </h1>
-              <div className="mt-3 flex items-center gap-3">
-                <p className="text-sm font-mono text-blue-700 uppercase tracking-wide font-bold">
-                  {'// '}
-                  {resumeId ? t('builder.editMode') : t('builder.createAndPreview')}
-                </p>
-                {resumeSaveStatus && (
-                  <span
-                    className={`flex items-center gap-1 text-xs font-mono px-2 py-1 border ${resumeSaveStatusStyles[resumeSaveStatus.tone]}`}
+        {/* Header Section. Below `lg` the route top bar carries the title and
+            back chevron, the ⋯ sheet carries the secondary actions and the
+            sticky action bar carries the primary ones — so none of this
+            renders there. */}
+        {!isMobile && (
+          <div className="hidden lg:block border-b border-black p-4 md:p-8 bg-background no-print">
+            {/* Top Row: Back button and Actions */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+              <div>
+                <Button variant="link" onClick={handleBackToDashboard} className="mb-2 -ml-1">
+                  <ArrowLeft className="w-4 h-4" />
+                  {t('nav.backToDashboard')}
+                </Button>
+                <h1 className="font-serif text-2xl sm:text-3xl md:text-5xl text-black tracking-tight leading-[0.95] uppercase">
+                  {t('nav.builder')}
+                </h1>
+                <div className="mt-3 flex items-center gap-3">
+                  <p className="text-sm font-mono text-blue-700 uppercase tracking-wide font-bold">
+                    {'// '}
+                    {resumeId ? t('builder.editMode') : t('builder.createAndPreview')}
+                  </p>
+                  {resumeSaveStatus && (
+                    <span
+                      className={`flex items-center gap-1 text-xs font-mono px-2 py-1 border ${resumeSaveStatusStyles[resumeSaveStatus.tone]}`}
+                    >
+                      <ResumeSaveStatusIcon className="w-3 h-3" />
+                      {resumeSaveStatus.label}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 sm:gap-3 mt-4 md:mt-0 w-full md:w-auto">
+                {/* Resume tab actions */}
+                {activeTab === 'resume' && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleStartRegenerate}
+                      disabled={!resumeId || isSaving}
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      {t('builder.regenerate.buttonLabel')}
+                    </Button>
+                    <Button
+                      variant="warning"
+                      size="sm"
+                      onClick={handleReset}
+                      disabled={!hasUnsavedChanges}
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      {t('common.reset')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleSave}
+                      disabled={!resumeId || isSaving || loadingState !== 'loaded'}
+                    >
+                      <Save className="w-4 h-4" />
+                      {isSaving
+                        ? t('common.saving')
+                        : autoSaveError
+                          ? t('builder.autoSave.retrySave')
+                          : hasUnsavedChanges
+                            ? t('builder.autoSave.saveNow')
+                            : t('builder.autoSave.savedButton')}
+                    </Button>
+                    <Button
+                      variant="success"
+                      size="sm"
+                      onClick={handleDownload}
+                      disabled={!resumeId || isDownloading}
+                    >
+                      <Download className="w-4 h-4" />
+                      {isDownloading ? t('common.generating') : t('common.download')}
+                    </Button>
+                  </>
+                )}
+
+                {/* Cover letter tab actions */}
+                {activeTab === 'cover-letter' && coverLetter && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleGenerateCoverLetter}
+                      disabled={isGeneratingCoverLetter}
+                    >
+                      {isGeneratingCoverLetter ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
+                      {t('coverLetter.regenerate')}
+                    </Button>
+                    <Button
+                      variant="success"
+                      size="sm"
+                      onClick={handleDownloadCoverLetter}
+                      disabled={!resumeId || isDownloading}
+                    >
+                      <Download className="w-4 h-4" />
+                      {isDownloading ? t('common.generating') : t('common.download')}
+                    </Button>
+                  </>
+                )}
+
+                {/* Outreach tab actions */}
+                {activeTab === 'outreach' && outreachMessage && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleGenerateOutreach}
+                      disabled={isGeneratingOutreach}
+                    >
+                      {isGeneratingOutreach ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
+                      {t('outreach.regenerate')}
+                    </Button>
+                    <Button variant="success" size="sm" onClick={handleCopyOutreach}>
+                      {isCopied ? (
+                        <>
+                          <Check className="w-4 h-4" />
+                          {t('outreach.copied')}
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4" />
+                          {t('outreach.copyToClipboard')}
+                        </>
+                      )}
+                    </Button>
+                  </>
+                )}
+
+                {/* Interview prep tab actions */}
+                {activeTab === 'interview-prep' && interviewPrep && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleGenerateInterviewPrep}
+                    disabled={!canGenerateInterviewPrep || isGeneratingInterviewPrep}
                   >
-                    <ResumeSaveStatusIcon className="w-3 h-3" />
-                    {resumeSaveStatus.label}
-                  </span>
+                    {isGeneratingInterviewPrep ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-4 h-4" />
+                    )}
+                    {t('interviewPrep.regenerate')}
+                  </Button>
                 )}
               </div>
             </div>
-
-            <div className="flex flex-wrap gap-2 sm:gap-3 mt-4 md:mt-0 w-full md:w-auto">
-              {/* Resume tab actions */}
-              {activeTab === 'resume' && (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleStartRegenerate}
-                    disabled={!resumeId || isSaving}
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    {t('builder.regenerate.buttonLabel')}
-                  </Button>
-                  <Button
-                    variant="warning"
-                    size="sm"
-                    onClick={handleReset}
-                    disabled={!hasUnsavedChanges}
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    {t('common.reset')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleSave}
-                    disabled={!resumeId || isSaving || loadingState !== 'loaded'}
-                  >
-                    <Save className="w-4 h-4" />
-                    {isSaving
-                      ? t('common.saving')
-                      : autoSaveError
-                        ? t('builder.autoSave.retrySave')
-                        : hasUnsavedChanges
-                          ? t('builder.autoSave.saveNow')
-                          : t('builder.autoSave.savedButton')}
-                  </Button>
-                  <Button
-                    variant="success"
-                    size="sm"
-                    onClick={handleDownload}
-                    disabled={!resumeId || isDownloading}
-                  >
-                    <Download className="w-4 h-4" />
-                    {isDownloading ? t('common.generating') : t('common.download')}
-                  </Button>
-                </>
-              )}
-
-              {/* Cover letter tab actions */}
-              {activeTab === 'cover-letter' && coverLetter && (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleGenerateCoverLetter}
-                    disabled={isGeneratingCoverLetter}
-                  >
-                    {isGeneratingCoverLetter ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-4 h-4" />
-                    )}
-                    {t('coverLetter.regenerate')}
-                  </Button>
-                  <Button
-                    variant="success"
-                    size="sm"
-                    onClick={handleDownloadCoverLetter}
-                    disabled={!resumeId || isDownloading}
-                  >
-                    <Download className="w-4 h-4" />
-                    {isDownloading ? t('common.generating') : t('common.download')}
-                  </Button>
-                </>
-              )}
-
-              {/* Outreach tab actions */}
-              {activeTab === 'outreach' && outreachMessage && (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleGenerateOutreach}
-                    disabled={isGeneratingOutreach}
-                  >
-                    {isGeneratingOutreach ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-4 h-4" />
-                    )}
-                    {t('outreach.regenerate')}
-                  </Button>
-                  <Button variant="success" size="sm" onClick={handleCopyOutreach}>
-                    {isCopied ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        {t('outreach.copied')}
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-4 h-4" />
-                        {t('outreach.copyToClipboard')}
-                      </>
-                    )}
-                  </Button>
-                </>
-              )}
-
-              {/* Interview prep tab actions */}
-              {activeTab === 'interview-prep' && interviewPrep && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleGenerateInterviewPrep}
-                  disabled={!canGenerateInterviewPrep || isGeneratingInterviewPrep}
-                >
-                  {isGeneratingInterviewPrep ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-4 h-4" />
-                  )}
-                  {t('interviewPrep.regenerate')}
-                </Button>
-              )}
-            </div>
           </div>
-        </div>
+        )}
 
         {/* Mobile: the preview pane is hidden below lg, so the mode tabs live here,
             plus an editor/preview switch for the single visible pane. */}
@@ -1685,20 +1751,29 @@ const ResumeBuilderContent = () => {
             activeTab={activeTab}
             onTabChange={(id) => setActiveTab(id as TabId)}
           />
-          <div className="flex gap-0 py-2">
-            {(['edit', 'preview'] as const).map((pane) => (
+          <div className="flex items-center gap-2 py-2">
+            {paneSwitchApplies && (
+              <Segmented
+                className="flex-1"
+                ariaLabel={`${t('builder.pane.edit')} / ${t('builder.pane.preview')}`}
+                value={mobilePane}
+                onChange={(id) => setMobilePane(id as 'edit' | 'preview')}
+                options={[
+                  { id: 'edit', label: t('builder.pane.edit') },
+                  { id: 'preview', label: t('builder.pane.preview') },
+                ]}
+              />
+            )}
+            {isMobile && mobileSheetItems.length > 0 && (
               <button
-                key={pane}
                 type="button"
-                aria-pressed={mobilePane === pane}
-                onClick={() => setMobilePane(pane)}
-                className={`min-h-11 flex-1 border border-black px-4 font-mono text-xs uppercase tracking-wider ${
-                  pane === 'edit' ? 'border-r-0' : ''
-                } ${mobilePane === pane ? 'bg-black text-white' : 'bg-white text-ink'}`}
+                onClick={() => setMobileActionsOpen(true)}
+                aria-label={t('common.more')}
+                className="flex h-11 w-11 shrink-0 items-center justify-center border border-black bg-white"
               >
-                {t(`builder.pane.${pane}`)}
+                <MoreVertical className="h-5 w-5" />
               </button>
-            ))}
+            )}
           </div>
         </div>
 
@@ -1707,7 +1782,7 @@ const ResumeBuilderContent = () => {
           {/* Left Panel: Editor */}
           <div
             data-testid="builder-editor-pane"
-            className={`bg-background p-4 md:p-8 overflow-y-auto no-print ${mobilePane === 'edit' ? 'block' : 'hidden'} lg:block`}
+            className={`bg-background p-4 md:p-8 overflow-y-auto no-print ${effectivePane === 'edit' ? 'block' : 'hidden'} lg:block`}
           >
             <div className="max-w-3xl mx-auto space-y-6">
               <div className="flex items-center gap-2 border-b-2 border-black pb-2">
@@ -1734,12 +1809,18 @@ const ResumeBuilderContent = () => {
                   </div>
                 ) : (
                   <>
-                    <FormattingControls
-                      settings={templateSettings}
-                      onChange={handleSettingsChange}
-                      texAvailable={texAvailable}
+                    <div className="hidden lg:block">
+                      <FormattingControls
+                        settings={templateSettings}
+                        onChange={handleSettingsChange}
+                        texAvailable={texAvailable}
+                      />
+                    </div>
+                    <ResumeForm
+                      doc={doc}
+                      onUpdate={handleUpdate}
+                      onOpenFormatting={() => setFormattingOpen(true)}
                     />
-                    <ResumeForm doc={doc} onUpdate={handleUpdate} />
                   </>
                 ))}
 
@@ -1874,8 +1955,23 @@ const ResumeBuilderContent = () => {
           {/* Right Panel: Preview with Tabs */}
           <div
             data-testid="builder-preview-pane"
-            className={`bg-secondary overflow-hidden flex-col no-print ${mobilePane === 'preview' ? 'flex' : 'hidden'} lg:flex`}
+            className={`bg-secondary overflow-hidden flex-col no-print ${effectivePane === 'preview' ? 'flex' : 'hidden'} lg:flex`}
           >
+            {/* Reading view vs the scaled A4 page — phone only. */}
+            {activeTab === 'resume' && (
+              <div className="shrink-0 border-b border-black bg-secondary p-2 lg:hidden">
+                <Segmented
+                  ariaLabel={`${t('builder.preview.readView')} / ${t('builder.preview.pageView')}`}
+                  value={previewMode}
+                  onChange={(id) => setPreviewMode(id as 'read' | 'page')}
+                  options={[
+                    { id: 'read', label: t('builder.preview.readView') },
+                    { id: 'page', label: t('builder.preview.pageView') },
+                  ]}
+                />
+              </div>
+            )}
+
             {/* Tabs Header */}
             <div className="hidden px-6 pt-3 shrink-0 bg-secondary lg:block">
               <RetroTabs
@@ -1889,7 +1985,12 @@ const ResumeBuilderContent = () => {
             <div className="flex-1 overflow-y-auto">
               {/* Resume Preview */}
               {activeTab === 'resume' &&
-                (usesTexEngine && resumeId ? (
+                // READ wins over the TeX engine on a phone: an A4 PDF scaled to 375px is
+                // the unreadable artefact the reading view exists to replace. PAGE still
+                // shows the real compiled page.
+                (isMobile && previewMode === 'read' ? (
+                  <ReadingPreview doc={canonicalDocument} settings={templateSettings} />
+                ) : usesTexEngine && resumeId ? (
                   <TexPdfPreview
                     resumeId={resumeId}
                     template={texTemplate}
@@ -2005,6 +2106,76 @@ const ResumeBuilderContent = () => {
             </span>
           </div>
         </div>
+
+        {/* Thumb-zone primary actions. `/builder` is a detail route, so the
+            bottom tab bar is absent and the bar owns the bottom edge. */}
+        {isMobile && activeTab === 'resume' && (
+          <MobileActionBar>
+            {resumeSaveStatus && (
+              <span
+                className={`flex shrink-0 items-center gap-1 border px-2 py-1 font-mono text-xs ${resumeSaveStatusStyles[resumeSaveStatus.tone]}`}
+              >
+                <ResumeSaveStatusIcon className="w-3 h-3" />
+                {resumeSaveStatus.label}
+              </span>
+            )}
+            <Button
+              className="flex-1"
+              onClick={handleSave}
+              disabled={!resumeId || isSaving || loadingState !== 'loaded'}
+            >
+              <Save className="w-4 h-4" />
+              {isSaving
+                ? t('common.saving')
+                : autoSaveError
+                  ? t('builder.autoSave.retrySave')
+                  : hasUnsavedChanges
+                    ? t('builder.autoSave.saveNow')
+                    : t('builder.autoSave.savedButton')}
+            </Button>
+            <Button
+              variant="success"
+              className="flex-1"
+              onClick={handleDownload}
+              disabled={!resumeId || isDownloading}
+            >
+              <Download className="w-4 h-4" />
+              {isDownloading ? t('common.generating') : t('common.download')}
+            </Button>
+          </MobileActionBar>
+        )}
+
+        {isMobile && activeTab === 'cover-letter' && coverLetter && (
+          <MobileActionBar>
+            <Button
+              variant="success"
+              className="flex-1"
+              onClick={handleDownloadCoverLetter}
+              disabled={!resumeId || isDownloading}
+            >
+              <Download className="w-4 h-4" />
+              {isDownloading ? t('common.generating') : t('common.download')}
+            </Button>
+          </MobileActionBar>
+        )}
+
+        {isMobile && activeTab === 'outreach' && outreachMessage && (
+          <MobileActionBar>
+            <Button variant="success" className="flex-1" onClick={handleCopyOutreach}>
+              {isCopied ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  {t('outreach.copied')}
+                </>
+              ) : (
+                <>
+                  <Copy className="w-4 h-4" />
+                  {t('outreach.copyToClipboard')}
+                </>
+              )}
+            </Button>
+          </MobileActionBar>
+        )}
       </div>
 
       {/* Regenerate Confirmation Dialog */}
@@ -2098,6 +2269,31 @@ const ResumeBuilderContent = () => {
         onAccept={regenerateWizard.acceptChanges}
         onReject={regenerateWizard.rejectAndRegenerate}
         onClose={regenerateWizard.reset}
+      />
+
+      {/* Formatting, as a bottom sheet — the phone's replacement for the inline
+          formatting card. */}
+      <Dialog open={formattingOpen} onOpenChange={setFormattingOpen}>
+        <DialogContent className="p-0 gap-0 sm:max-w-lg">
+          <DialogHeader className="border-b border-black px-4 py-3 pr-14">
+            <DialogTitle>{t('builder.formatting.panelTitle')}</DialogTitle>
+          </DialogHeader>
+          <div className="p-4">
+            <FormattingControls
+              variant="plain"
+              settings={templateSettings}
+              onChange={handleSettingsChange}
+              texAvailable={texAvailable}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <ActionSheet
+        open={mobileActionsOpen}
+        onOpenChange={setMobileActionsOpen}
+        title={t('common.more')}
+        items={mobileSheetItems}
       />
     </div>
   );

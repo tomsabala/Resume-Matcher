@@ -140,20 +140,25 @@ const DialogContent: React.FC<DialogContentProps> = ({ children, className }) =>
         onClick={() => onOpenChange(false)}
       />
       {/* Content */}
-      <div className="fixed inset-0 flex items-start justify-center overflow-y-auto overscroll-contain p-4 sm:items-center">
+      <div className="fixed inset-0 flex items-end justify-center overflow-y-auto overscroll-contain p-0 sm:items-center sm:p-4">
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           className={cn(
-            'relative w-full max-w-lg p-6',
-            'border border-black bg-background shadow-sw-lg',
+            'relative w-full max-w-lg max-h-[92dvh] overflow-y-auto p-6',
+            'border-t-2 border-black bg-background shadow-sw-lg sm:border',
             'rounded-none',
-            'animate-in fade-in-0 zoom-in-95 duration-200',
+            'animate-in fade-in-0 slide-in-from-bottom-4 duration-200 sm:zoom-in-95 sm:slide-in-from-bottom-0',
             className
           )}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Grab handle — the sheet presentation only. */}
+          <div
+            className="mx-auto mb-4 h-1 w-10 shrink-0 bg-steel-grey sm:hidden"
+            aria-hidden="true"
+          />
           {children}
           <button
             onClick={() => onOpenChange(false)}

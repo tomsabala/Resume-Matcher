@@ -18,6 +18,81 @@ import {
 import type { Section } from '@/lib/types/document';
 import { sectionHeading } from '@/lib/utils/section-helpers';
 import { useTranslations } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
+
+interface SectionHeadingEditorProps {
+  heading: string;
+  onRename: (newHeading: string) => void;
+  /** Called on commit, cancel and Escape — the caller owns the editing flag. */
+  onDone: () => void;
+  inputClassName?: string;
+  className?: string;
+}
+
+/**
+ * The inline rename field. Lives here because the desktop section header and the
+ * mobile section-editor bar are the same flow — neither may re-implement it.
+ */
+export const SectionHeadingEditor: React.FC<SectionHeadingEditorProps> = ({
+  heading,
+  onRename,
+  onDone,
+  inputClassName,
+  className,
+}) => {
+  const { t } = useTranslations();
+  const [editedHeading, setEditedHeading] = useState(heading);
+
+  const commit = () => {
+    // Committing writes the literal text, which is exactly how a renamed
+    // section stops resolving through its headingI18nKey.
+    if (editedHeading.trim()) {
+      onRename(editedHeading.trim());
+    }
+    onDone();
+  };
+
+  return (
+    <div className={cn('flex items-center gap-1', className)}>
+      <Input
+        value={editedHeading}
+        onChange={(e) => setEditedHeading(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            commit();
+          } else if (e.key === 'Escape') {
+            onDone();
+          }
+        }}
+        className={cn(
+          'h-9 w-full sm:w-48 rounded-none border-black font-serif text-lg font-bold',
+          inputClassName
+        )}
+        autoFocus
+      />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-11 w-11 lg:h-8 lg:w-8 text-green-700 hover:text-green-800 hover:bg-green-50"
+        onClick={commit}
+        aria-label={t('common.save')}
+        title={t('common.save')}
+      >
+        <Check className="w-4 h-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-11 w-11 lg:h-8 lg:w-8 text-steel-grey hover:text-ink-soft hover:bg-paper-tint"
+        onClick={onDone}
+        aria-label={t('common.cancel')}
+        title={t('common.cancel')}
+      >
+        <X className="w-4 h-4" />
+      </Button>
+    </div>
+  );
+};
 
 interface SectionHeaderProps {
   section: Section;
@@ -54,26 +129,7 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
   const { t } = useTranslations();
   const heading = sectionHeading(section, t);
   const [isEditing, setIsEditing] = useState(false);
-  const [editedHeading, setEditedHeading] = useState(heading);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-  const handleSaveEdit = () => {
-    // Committing writes the literal text, which is exactly how a renamed
-    // section stops resolving through its headingI18nKey.
-    if (editedHeading.trim()) {
-      onRename(editedHeading.trim());
-    }
-    setIsEditing(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSaveEdit();
-    } else if (e.key === 'Escape') {
-      setEditedHeading(heading);
-      setIsEditing(false);
-    }
-  };
 
   const isHidden = !section.visible;
 
@@ -86,38 +142,11 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black pb-2 mb-4">
         <div className="flex items-center gap-2">
           {isEditing ? (
-            <div className="flex items-center gap-1">
-              <Input
-                value={editedHeading}
-                onChange={(e) => setEditedHeading(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="h-9 w-full sm:w-48 rounded-none border-black font-serif text-lg font-bold"
-                autoFocus
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-green-700 hover:text-green-800 hover:bg-green-50"
-                onClick={handleSaveEdit}
-                aria-label={t('common.save')}
-                title={t('common.save')}
-              >
-                <Check className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-steel-grey hover:text-ink-soft hover:bg-paper-tint"
-                onClick={() => {
-                  setEditedHeading(heading);
-                  setIsEditing(false);
-                }}
-                aria-label={t('common.cancel')}
-                title={t('common.cancel')}
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
+            <SectionHeadingEditor
+              heading={heading}
+              onRename={onRename}
+              onDone={() => setIsEditing(false)}
+            />
           ) : (
             <>
               <h3 className="font-serif text-xl font-bold">{heading}</h3>
@@ -130,10 +159,7 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
                 // The default Button overlay (-inset-1.5) only gives 36×36
                 // for h-6 buttons; this override adds 4 more px per side.
                 className="h-6 w-6 text-steel-grey hover:text-ink-soft before:-inset-[10px]"
-                onClick={() => {
-                  setEditedHeading(heading);
-                  setIsEditing(true);
-                }}
+                onClick={() => setIsEditing(true)}
                 aria-label={t('builder.sectionHeader.renameSection')}
                 title={t('builder.sectionHeader.renameSection')}
               >

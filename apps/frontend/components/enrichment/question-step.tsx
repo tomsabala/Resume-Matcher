@@ -76,7 +76,7 @@ export function QuestionStep({
   }, [handleContinue]);
 
   return (
-    <div className="flex flex-col h-full min-h-[500px]">
+    <div className="flex flex-col h-full min-h-0 sm:min-h-[500px]">
       {/* Progress indicator */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-2">
@@ -84,11 +84,11 @@ export function QuestionStep({
             {t('enrichment.questionProgress', { current: questionNumber, total: totalQuestions })}
           </span>
         </div>
-        <div className="flex gap-1">
+        <div className="flex flex-1 gap-1 overflow-hidden ml-4">
           {Array.from({ length: totalQuestions }).map((_, i) => (
             <div
               key={i}
-              className={`h-1.5 w-6 transition-colors ${
+              className={`h-1.5 min-w-0 flex-1 transition-colors ${
                 i < questionNumber
                   ? 'bg-black'
                   : i === questionNumber - 1

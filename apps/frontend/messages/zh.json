@@ -32,7 +32,8 @@
     "databaseReset": "数据库已成功重置",
     "popupBlocked": "弹窗被阻止。请允许弹窗或手动打开此链接：{url}",
     "resumeDeleted": "此简历已被删除。请上传或选择另一份简历。",
-    "dragToReorder": "拖动以重新排序"
+    "dragToReorder": "拖动以重新排序",
+    "more": "更多操作"
   },
   "home": {
     "brandLine1": "简历",
@@ -47,7 +48,13 @@
     "settings": "设置",
     "backToDashboard": "返回仪表板",
     "goToSettings": "前往设置",
-    "applicationTracker": "申请追踪"
+    "applicationTracker": "申请追踪",
+    "tabs": {
+      "resumes": "简历",
+      "tracker": "追踪",
+      "create": "新建",
+      "settings": "设置"
+    }
   },
   "dashboard": {
     "title": "仪表板",
@@ -146,6 +153,9 @@
         "invalid": "回答被拒绝",
         "provider": "服务商错误"
       }
+    },
+    "compare": {
+      "pickSecond": "选择第二份简历与“{title}”比较"
     }
   },
   "builder": {
@@ -546,6 +556,15 @@
     "pane": {
       "edit": "编辑",
       "preview": "预览"
+    },
+    "sections": {
+      "title": "板块",
+      "itemCount": "{count} 项",
+      "reorder": "调整顺序"
+    },
+    "preview": {
+      "readView": "阅读",
+      "pageView": "页面"
     }
   },
   "enrichment": {
@@ -1113,7 +1132,8 @@
       "loadFailed": "无法加载申请。",
       "moveFailed": "无法移动该申请。",
       "deleteFailed": "无法删除该申请。"
-    }
+    },
+    "stageFilter": "按阶段筛选"
   },
   "interviewPrep": {
     "title": "面试准备",

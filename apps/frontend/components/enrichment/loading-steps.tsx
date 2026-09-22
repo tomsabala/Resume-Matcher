@@ -11,7 +11,7 @@ interface LoadingStepProps {
 
 function LoadingStep({ message, submessage }: LoadingStepProps) {
   return (
-    <div className="flex flex-col items-center justify-center h-full min-h-[400px] gap-6">
+    <div className="flex flex-col items-center justify-center h-full min-h-0 sm:min-h-[400px] gap-6">
       <div className="relative">
         <Loader2 className="w-12 h-12 animate-spin text-black" />
       </div>
@@ -69,7 +69,7 @@ export function CompleteStep({
   const { t } = useTranslations();
   const hasUpdatedCount = updatedCount !== undefined;
   return (
-    <div className="flex flex-col items-center justify-center h-full min-h-[400px] gap-6">
+    <div className="flex flex-col items-center justify-center h-full min-h-0 sm:min-h-[400px] gap-6">
       <div className="relative">
         <CheckCircle2 className="w-16 h-16 text-green-600" />
       </div>
@@ -115,7 +115,7 @@ interface NoImprovementsStepProps {
 export function NoImprovementsStep({ onClose, summary }: NoImprovementsStepProps) {
   const { t } = useTranslations();
   return (
-    <div className="flex flex-col items-center justify-center h-full min-h-[400px] gap-6">
+    <div className="flex flex-col items-center justify-center h-full min-h-0 sm:min-h-[400px] gap-6">
       <div className="relative">
         <CheckCircle2 className="w-16 h-16 text-green-600" />
       </div>
@@ -142,7 +142,7 @@ interface ErrorStepProps {
 export function ErrorStep({ error, onRetry, onClose }: ErrorStepProps) {
   const { t } = useTranslations();
   return (
-    <div className="flex flex-col items-center justify-center h-full min-h-[400px] gap-6">
+    <div className="flex flex-col items-center justify-center h-full min-h-0 sm:min-h-[400px] gap-6">
       <div className="relative">
         <AlertCircle className="w-16 h-16 text-red-500" />
       </div>

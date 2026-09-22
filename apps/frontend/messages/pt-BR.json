@@ -32,7 +32,8 @@
     "databaseReset": "Banco de dados redefinido com sucesso",
     "popupBlocked": "Popup bloqueado. Por favor, permita popups ou abra esta URL manualmente: {url}",
     "resumeDeleted": "Este currículo foi excluído. Envie ou selecione outro currículo.",
-    "dragToReorder": "Arraste para reordenar"
+    "dragToReorder": "Arraste para reordenar",
+    "more": "Mais ações"
   },
   "home": {
     "brandLine1": "Resume",
@@ -47,7 +48,13 @@
     "settings": "Configurações",
     "backToDashboard": "Voltar ao Painel",
     "goToSettings": "Ir para Configurações",
-    "applicationTracker": "Acompanhamento de candidaturas"
+    "applicationTracker": "Acompanhamento de candidaturas",
+    "tabs": {
+      "resumes": "Currículos",
+      "tracker": "Acompanhar",
+      "create": "Criar",
+      "settings": "Ajustes"
+    }
   },
   "dashboard": {
     "title": "Painel",
@@ -146,6 +153,9 @@
         "invalid": "Resposta rejeitada",
         "provider": "Erro do provedor"
       }
+    },
+    "compare": {
+      "pickSecond": "Escolha um segundo currículo para comparar com “{title}”"
     }
   },
   "builder": {
@@ -546,6 +556,15 @@
     "pane": {
       "edit": "EDITAR",
       "preview": "PRÉVIA"
+    },
+    "sections": {
+      "title": "Seções",
+      "itemCount": "{count} itens",
+      "reorder": "Reordenar"
+    },
+    "preview": {
+      "readView": "Leitura",
+      "pageView": "Página"
     }
   },
   "enrichment": {
@@ -1113,7 +1132,8 @@
       "loadFailed": "Não foi possível carregar as candidaturas.",
       "moveFailed": "Não foi possível mover a candidatura.",
       "deleteFailed": "Não foi possível excluir a(s) candidatura(s)."
-    }
+    },
+    "stageFilter": "Filtrar por etapa"
   },
   "interviewPrep": {
     "title": "Preparação para entrevista",

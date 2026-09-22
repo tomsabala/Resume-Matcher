@@ -32,7 +32,8 @@
     "databaseReset": "Database reset successfully",
     "popupBlocked": "Popup blocked. Please allow popups or open this URL manually: {url}",
     "resumeDeleted": "This resume was deleted. Upload or select another resume.",
-    "dragToReorder": "Drag to reorder"
+    "dragToReorder": "Drag to reorder",
+    "more": "More actions"
   },
   "home": {
     "brandLine1": "Resume",
@@ -47,7 +48,13 @@
     "settings": "Settings",
     "backToDashboard": "Back to Dashboard",
     "goToSettings": "Go to Settings",
-    "applicationTracker": "Application Tracker"
+    "applicationTracker": "Application Tracker",
+    "tabs": {
+      "resumes": "Resumes",
+      "tracker": "Tracker",
+      "create": "Create",
+      "settings": "Settings"
+    }
   },
   "dashboard": {
     "title": "Dashboard",
@@ -146,6 +153,9 @@
         "invalid": "Answer rejected",
         "provider": "Provider error"
       }
+    },
+    "compare": {
+      "pickSecond": "Pick a second resume to compare with “{title}”"
     }
   },
   "builder": {
@@ -546,6 +556,15 @@
     "pane": {
       "edit": "EDIT",
       "preview": "PREVIEW"
+    },
+    "sections": {
+      "title": "Sections",
+      "itemCount": "{count} items",
+      "reorder": "Reorder"
+    },
+    "preview": {
+      "readView": "Read",
+      "pageView": "Page"
     }
   },
   "enrichment": {
@@ -1113,7 +1132,8 @@
       "loadFailed": "Could not load applications.",
       "moveFailed": "Could not move the application.",
       "deleteFailed": "Could not delete the application(s)."
-    }
+    },
+    "stageFilter": "Filter by stage"
   },
   "interviewPrep": {
     "title": "Interview Prep",
