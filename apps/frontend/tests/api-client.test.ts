@@ -46,6 +46,47 @@ describe('api client', () => {
       await apiFetch('https://example.com/x');
       expect(fetchMock.mock.calls[0][0]).toBe('https://example.com/x');
     });
+
+    it('keeps a fully spelled-out /api path on this origin, not the gateway root', async () => {
+      // Without a mount prefix the two forms coincide, which is why this went unnoticed.
+      await apiFetch('/api/v1/workspaces');
+      expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/workspaces');
+    });
+  });
+
+  describe('apiFetch under a gateway mount prefix', () => {
+    // BASE_PATH is inlined at module load, so the env has to be set before the import.
+    async function freshClient(basePath: string) {
+      vi.resetModules();
+      vi.stubEnv('NEXT_PUBLIC_BASE_PATH', basePath);
+      return import('@/lib/api/client');
+    }
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    });
+
+    it('puts the mount prefix on an endpoint that already spells out /api/v1', async () => {
+      // `/api/v1/workspaces` on a mounted deployment is the gateway's own root: it answered
+      // with the launcher's HTML, so every workspace and version call failed on a JSON
+      // parse that named nothing. Only these two modules pass full paths.
+      const { apiFetch: mountedFetch } = await freshClient('/a/resume-matcher');
+      await mountedFetch('/api/v1/workspaces');
+      expect(fetchMock.mock.calls[0][0]).toBe('/a/resume-matcher/api/v1/workspaces');
+    });
+
+    it('does not double the prefix when the caller already included it', async () => {
+      const { apiFetch: mountedFetch } = await freshClient('/a/resume-matcher');
+      await mountedFetch('/a/resume-matcher/api/v1/workspaces');
+      expect(fetchMock.mock.calls[0][0]).toBe('/a/resume-matcher/api/v1/workspaces');
+    });
+
+    it('still resolves a relative endpoint through API_BASE', async () => {
+      const { apiFetch: mountedFetch } = await freshClient('/a/resume-matcher');
+      await mountedFetch('/health');
+      expect(fetchMock.mock.calls[0][0]).toBe('/a/resume-matcher/api/v1/health');
+    });
   });
 
   it('preserves response origin metadata through body buffering', async () => {

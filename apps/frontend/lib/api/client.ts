@@ -117,13 +117,24 @@ export async function apiFetch(
 ): Promise<Response> {
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const isAbsoluteUrl = endpoint.startsWith('http://') || endpoint.startsWith('https://');
-  const isApiPath = normalizedEndpoint.startsWith('/api/');
+  const isApiPath =
+    normalizedEndpoint.startsWith('/api/') ||
+    (BASE_PATH !== '' && normalizedEndpoint.startsWith(`${BASE_PATH}/api/`));
   let url = `${API_BASE}${normalizedEndpoint}`;
 
   if (isAbsoluteUrl) {
     url = endpoint;
   } else if (isApiPath) {
-    url = resolveRuntimeApiBase(normalizedEndpoint);
+    // A caller that spelled out `/api/v1/...` still has to land under the mount prefix:
+    // on a gateway-mounted deployment `/api/v1/workspaces` is the *gateway's* root, which
+    // answers with its own HTML, so the request never reaches this app and the JSON parse
+    // fails with something unrelated. resolveRuntimeApiBase takes the prefix back off for
+    // a server-side call, which goes straight to uvicorn and never sees the gateway.
+    const mounted =
+      BASE_PATH && !normalizedEndpoint.startsWith(`${BASE_PATH}/`)
+        ? `${BASE_PATH}${normalizedEndpoint}`
+        : normalizedEndpoint;
+    url = resolveRuntimeApiBase(mounted);
   }
 
   // Defaults to DEFAULT_TIMEOUT_MS, which tracks the backend's
