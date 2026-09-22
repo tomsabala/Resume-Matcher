@@ -32,7 +32,12 @@ printf '\n── pre-push gate ────────────────�
 # 1) Backend test suite ----------------------------------------------------
 if command -v uv >/dev/null 2>&1; then
   echo "▶ backend  : uv run pytest"
-  if ! ( cd "$REPO_ROOT/apps/backend" && uv run pytest -q -p no:cacheprovider ); then
+  # `env -u PYTHONPATH`: a sourced ROS/conda/system setup exports a PYTHONPATH of
+  # foreign site-packages, and pytest autoloads every pytest11 entry point it finds
+  # there. On a ROS box that drags in launch_testing, which imports `lark` — absent
+  # from this venv — so collection dies before a single test runs. The venv needs
+  # nothing from PYTHONPATH, so drop it rather than name the offending plugins.
+  if ! ( cd "$REPO_ROOT/apps/backend" && env -u PYTHONPATH uv run pytest -q -p no:cacheprovider ); then
     echo "  ✗ backend tests failed" >&2
     status=1
   fi

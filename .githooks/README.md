@@ -48,10 +48,18 @@ git config --unset core.hooksPath   # disable the hooks entirely
 ## Run the checks manually
 
 ```bash
-cd apps/backend && uv run pytest          # backend suite
-python3 scripts/check_locale_parity.py    # locale parity (from repo root)
-cd apps/frontend && npm run test          # frontend suite (vitest)
+cd apps/backend && env -u PYTHONPATH uv run pytest   # backend suite
+python3 scripts/check_locale_parity.py               # locale parity (from repo root)
+cd apps/frontend && npm run test                     # frontend suite (vitest)
 ```
+
+`env -u PYTHONPATH` matches what the hook does, and matters only if your shell
+has sourced something that exports one — ROS (`/opt/ros/*/setup.bash`), conda, a
+system Python. pytest autoloads every `pytest11` entry point it can see, so those
+foreign site-packages get loaded into this venv's run; on a ROS box that pulls in
+`launch_testing`, which imports `lark`, which is not installed here, and
+collection dies before a single test runs. Plain `uv run pytest` is fine in a
+clean shell.
 
 See [`docs/agent/testing-strategy.md`](../docs/agent/testing-strategy.md) for the
 full testing strategy this gate enforces.
