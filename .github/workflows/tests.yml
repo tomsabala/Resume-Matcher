@@ -42,6 +42,17 @@ jobs:
         working-directory: apps/backend
         run: uv sync --extra dev
 
+      # Without these the runner is a weaker gate than the hook it replaced:
+      # 53 PDF tests skip themselves with "Chromium unavailable", and the
+      # multilingual PDF test fails because the rendered page embeds no CJK
+      # glyphs. Both pass locally, so CI must match the developer's machine.
+      - name: Install Chromium and CJK fonts
+        working-directory: apps/backend
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          uv run playwright install --with-deps chromium
+
       - name: pytest
         working-directory: apps/backend
         # The LLM-as-judge evals are excluded by the project's own addopts
