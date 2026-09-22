@@ -1,9 +1,15 @@
 name: Publish Docker Image
 
+# Release build only. This is a multi-arch (amd64 + arm64) image and the arm64 half
+# runs under QEMU emulation, so it costs ~17 minutes a run. It used to run on every
+# push to main, which meant every commit — including one-line fixups — paid that
+# while publishing a `:latest` nobody consumes between releases. The image that is
+# actually deployed is built by apps-image.yml (amd64 only, ~3 minutes, on push).
+#
+# Cut a release with a tag, or run this by hand:
+#   git tag v1.2.3 && git push origin v1.2.3
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*.*.*"
   workflow_dispatch:
@@ -60,7 +66,7 @@ jobs:
             ${{ env.HAS_DOCKERHUB != '' && format('{0}/resume-matcher', secrets.DOCKERHUB_USERNAME) || '' }}
           tags: |
             type=raw,value=validation-${{ github.sha }},enable=${{ inputs.dry_run == true }}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=semver,pattern={{version}},value=${{ github.ref_name }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=semver,pattern={{major}}.{{minor}},value=${{ github.ref_name }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 

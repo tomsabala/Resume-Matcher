@@ -57,6 +57,18 @@ every one of them. See `.githooks/README.md`.
    confirming the suite is xdist-safe (compare pass counts both ways before
    committing to it).
 
+`pytest-xdist` is **not** currently a dependency, and a large part of this suite
+writes to SQLite, so option 3 is not a one-liner: it needs per-worker database
+isolation and a pass-count comparison before it can be trusted.
+
+### Already done
+
+- The release image build (`docker-publish.yml`, ~17 min of QEMU-emulated arm64)
+  no longer runs on every push to `main` — it runs on `v*.*.*` tags and on
+  manual dispatch. The image that actually gets deployed is `apps-image.yml`
+  (~3 min, amd64, still on push). That alone removed more wall-clock per commit
+  than the whole frontend gate costs.
+
 Options 1 and 3 compose. Prefer 1; 3 is a stopgap.
 
 ### Done when
