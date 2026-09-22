@@ -42,15 +42,27 @@ jobs:
         working-directory: apps/backend
         run: uv sync --extra dev
 
-      # Without these the runner is a weaker gate than the hook it replaced:
-      # 53 PDF tests skip themselves with "Chromium unavailable", and the
-      # multilingual PDF test fails because the rendered page embeds no CJK
-      # glyphs. Both pass locally, so CI must match the developer's machine.
-      - name: Install Chromium and CJK fonts
+      # Without these the runner is a weaker gate than the hook it replaced.
+      # Measured, not guessed — `-rs` on the first green run named every skip:
+      #   53 "no LaTeX engine installed", and before that "Chromium unavailable"
+      #   plus a multilingual PDF test failing for want of CJK glyphs.
+      # All of them pass on a developer machine, which has the lot.
+      #
+      # texlive-xetex + latexmk rather than tectonic: tectonic downloads its
+      # packages at run time, and a test suite that reaches the network to pass
+      # is a flake waiting to happen. The template preamble needs fontawesome5,
+      # supertabular, titlesec, enumitem, multirow and tabularx, which live in
+      # latex-extra / fonts-extra.
+      - name: Install the renderers the tests assume
         working-directory: apps/backend
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          sudo apt-get install -y --no-install-recommends \
+            fonts-noto-cjk \
+            latexmk \
+            texlive-xetex \
+            texlive-latex-extra \
+            texlive-fonts-extra
           uv run playwright install --with-deps chromium
 
       - name: pytest

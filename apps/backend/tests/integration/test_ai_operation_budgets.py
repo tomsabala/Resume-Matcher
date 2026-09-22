@@ -499,12 +499,19 @@ async def test_deadline_during_claim_retires_committed_owner_before_returning(
     claim = isolated_db.claim_resume_processing
     workspace_id = await isolated_db.default_workspace_id()
 
+    # The only two-sided window in this file: the deadline must fire AFTER the
+    # claim commits and BEFORE the request finishes. Every other test here pairs
+    # a tiny budget with a 10s sleep, so ordering is never in doubt. At 0.04s vs
+    # 0.1s this one left 60ms, which is under the scheduling jitter of a shared
+    # CI runner — it went red there while passing locally. The numbers are
+    # arbitrary; the ordering is the assertion, so make the gaps wide enough
+    # that only a real regression can reorder them.
     async def slow_claim(*args: Any, **kwargs: Any) -> str | None:
         token = await claim(*args, **kwargs)
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(2)
         return token
 
-    monkeypatch.setattr(settings, "request_timeout_seconds", 0.04)
+    monkeypatch.setattr(settings, "request_timeout_seconds", 0.25)
     monkeypatch.setattr(isolated_db, "claim_resume_processing", slow_claim)
     monkeypatch.setattr(
         resumes, "parse_document", AsyncMock(return_value="Synthetic resume")
