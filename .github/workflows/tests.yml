@@ -57,7 +57,10 @@ jobs:
         working-directory: apps/backend
         # The LLM-as-judge evals are excluded by the project's own addopts
         # (-m "not eval"), so this makes no network or LLM calls.
-        run: uv run pytest -q -p no:cacheprovider
+        # `-rs` prints the reason for every skip. A suite that quietly skips a
+        # chunk of itself on the runner reads green while testing less than the
+        # developer's machine does, so the reasons have to be in the log.
+        run: uv run pytest -q -p no:cacheprovider -rs
 
   frontend:
     name: Frontend (vitest + tsc + lint)
