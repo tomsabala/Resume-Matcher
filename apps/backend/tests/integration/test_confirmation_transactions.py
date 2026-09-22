@@ -866,7 +866,13 @@ async def test_optional_title_timeout_can_still_commit_required_resume(
 ) -> None:
     workspace_id = await isolated_db.default_workspace_id()
     payload = await preview_payload(isolated_db, confirmation_client, sample_resume)
-    monkeypatch.setattr(resumes.settings, "request_timeout_seconds", 1)
+    # The endpoint hands optional work 80% of the remaining budget and keeps the
+    # rest for the commit transaction (routers/resumes.py, `generation_timeout`).
+    # At 1s that left the commit 200ms, which is enough on a developer machine
+    # and not on a shared runner — the request deadline fired and the assertion
+    # saw 504 instead of the 200 it is actually about. 5s keeps the shape (the
+    # stalled title always exhausts its slice) and gives the commit a second.
+    monkeypatch.setattr(resumes.settings, "request_timeout_seconds", 5)
 
     async def stalled_title(*_args: Any, **_kwargs: Any) -> str:
         await asyncio.Event().wait()
