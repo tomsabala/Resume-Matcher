@@ -52,9 +52,12 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
+          # Never hardcode the upstream owner: on a fork GITHUB_TOKEN has no write
+          # access to it, so the build succeeds and only the final push is denied —
+          # ~17 minutes per commit for an image that can never be published.
           images: |
-            ghcr.io/srbhr/resume-matcher
-            ${{ env.HAS_DOCKERHUB != '' && 'srbhr/resume-matcher' || '' }}
+            ghcr.io/${{ github.repository_owner }}/resume-matcher
+            ${{ env.HAS_DOCKERHUB != '' && format('{0}/resume-matcher', secrets.DOCKERHUB_USERNAME) || '' }}
           tags: |
             type=raw,value=validation-${{ github.sha }},enable=${{ inputs.dry_run == true }}
             type=raw,value=latest,enable={{is_default_branch}}
