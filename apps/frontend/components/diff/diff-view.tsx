@@ -121,7 +121,7 @@ export function DiffModeToggle({ view, onChange }: DiffModeToggleProps) {
         type="button"
         aria-pressed={view === 'unified'}
         onClick={() => onChange('unified')}
-        className={`border-r-2 border-black px-3 py-1 font-mono text-xs tracking-wider uppercase ${
+        className={`border-r-2 border-black px-3 py-2 font-mono text-xs tracking-wider uppercase ${
           view === 'unified' ? 'bg-black text-white' : 'bg-white text-ink'
         }`}
       >
@@ -131,7 +131,7 @@ export function DiffModeToggle({ view, onChange }: DiffModeToggleProps) {
         type="button"
         aria-pressed={view === 'split'}
         onClick={() => onChange('split')}
-        className={`px-3 py-1 font-mono text-xs tracking-wider uppercase ${
+        className={`px-3 py-2 font-mono text-xs tracking-wider uppercase ${
           view === 'split' ? 'bg-black text-white' : 'bg-white text-ink'
         }`}
       >
@@ -232,7 +232,7 @@ export function DiffView({
 
       {view === 'split' && (
         // Mirrors a row's gutter so the labels sit over their own columns.
-        <div className="flex gap-2 border-2 border-black bg-white px-3 py-1">
+        <div className="hidden gap-2 border-2 border-black bg-white px-3 py-1 sm:flex">
           <span aria-hidden="true" className="w-4 shrink-0" />
           <div className="flex min-w-0 flex-1">
             <span className="w-1/2 border-r-2 border-black pr-3 font-mono text-xs tracking-wider text-steel-grey uppercase">

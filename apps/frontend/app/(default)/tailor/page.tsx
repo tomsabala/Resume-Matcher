@@ -383,10 +383,14 @@ export default function TailorPage() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#F6F5EE] flex flex-col items-center justify-center p-4 md:p-8 font-sans">
-      <div className="w-full max-w-4xl bg-white border border-black shadow-sw-lg p-8 md:p-12 lg:p-14 relative">
+    <div className="flex-1 w-full bg-[#F6F5EE] flex flex-col items-center justify-center p-4 md:p-8 font-sans">
+      <div className="w-full max-w-4xl bg-white border border-black shadow-sw-lg p-4 sm:p-8 md:p-12 lg:p-14 relative">
         {/* Back Button */}
-        <Button variant="link" className="absolute top-4 left-4" onClick={() => router.back()}>
+        <Button
+          variant="link"
+          className="static mb-4 sm:absolute sm:top-4 sm:left-4 sm:mb-0"
+          onClick={() => router.back()}
+        >
           <ArrowLeft className="w-4 h-4" />
           {t('common.back')}
         </Button>

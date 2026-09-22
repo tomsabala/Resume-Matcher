@@ -43,7 +43,7 @@ export function ApplicationCard({
       <Card
         variant="interactive"
         noPadding
-        className={`p-3 ${selected ? 'ring-2 ring-primary' : ''}`}
+        className={`p-3 border-ink shadow-sw-xs lg:border-transparent lg:shadow-none ${selected ? 'ring-2 ring-primary' : ''}`}
       >
         <div className="flex items-start gap-2">
           <input
@@ -52,7 +52,7 @@ export function ApplicationCard({
             onChange={() => onToggleSelect(application.application_id)}
             onClick={(e) => e.stopPropagation()}
             aria-label={t('tracker.card.selectAria')}
-            className="mt-1 h-4 w-4 shrink-0 rounded-none border-black accent-primary"
+            className="relative mt-1 h-4 w-4 shrink-0 cursor-pointer appearance-none border border-black bg-white before:absolute before:-inset-[14px] before:content-[''] checked:bg-black"
           />
 
           <button
@@ -81,7 +81,7 @@ export function ApplicationCard({
 
           <button
             type="button"
-            className="mt-0.5 shrink-0 cursor-grab text-steel-grey hover:text-ink active:cursor-grabbing"
+            className="touch-none -m-2 mt-0 flex h-11 w-11 shrink-0 items-center justify-center cursor-grab text-steel-grey hover:text-ink active:cursor-grabbing"
             aria-label={t('tracker.card.dragAria')}
             {...attributes}
             {...listeners}

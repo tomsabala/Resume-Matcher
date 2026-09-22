@@ -31,7 +31,8 @@
     "keysCleared": "API密钥已成功清除",
     "databaseReset": "数据库已成功重置",
     "popupBlocked": "弹窗被阻止。请允许弹窗或手动打开此链接：{url}",
-    "resumeDeleted": "此简历已被删除。请上传或选择另一份简历。"
+    "resumeDeleted": "此简历已被删除。请上传或选择另一份简历。",
+    "dragToReorder": "拖动以重新排序"
   },
   "home": {
     "brandLine1": "简历",
@@ -541,6 +542,10 @@
       "headingLabel": "板块标题",
       "headingPlaceholder": "例如：出版物、志愿服务、证书",
       "kindLabel": "内容形式"
+    },
+    "pane": {
+      "edit": "编辑",
+      "preview": "预览"
     }
   },
   "enrichment": {

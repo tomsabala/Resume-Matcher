@@ -31,7 +31,8 @@
     "keysCleared": "APIキーが正常にクリアされました",
     "databaseReset": "データベースが正常にリセットされました",
     "popupBlocked": "ポップアップがブロックされました。ポップアップを許可するか、次のURLを手動で開いてください: {url}",
-    "resumeDeleted": "この履歴書は削除されました。別の履歴書をアップロードするか選択してください。"
+    "resumeDeleted": "この履歴書は削除されました。別の履歴書をアップロードするか選択してください。",
+    "dragToReorder": "ドラッグして並べ替え"
   },
   "home": {
     "brandLine1": "履歴書",
@@ -541,6 +542,10 @@
       "headingLabel": "セクション見出し",
       "headingPlaceholder": "例：出版物、ボランティア、資格",
       "kindLabel": "内容の形式"
+    },
+    "pane": {
+      "edit": "編集",
+      "preview": "プレビュー"
     }
   },
   "enrichment": {

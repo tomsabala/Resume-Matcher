@@ -140,13 +140,13 @@ const DialogContent: React.FC<DialogContentProps> = ({ children, className }) =>
         onClick={() => onOpenChange(false)}
       />
       {/* Content */}
-      <div className="fixed inset-0 flex items-center justify-center p-4">
+      <div className="fixed inset-0 flex items-start justify-center overflow-y-auto overscroll-contain p-4 sm:items-center">
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           className={cn(
-            'relative w-full max-w-lg',
+            'relative w-full max-w-lg p-6',
             'border border-black bg-background shadow-sw-lg',
             'rounded-none',
             'animate-in fade-in-0 zoom-in-95 duration-200',
@@ -157,7 +157,7 @@ const DialogContent: React.FC<DialogContentProps> = ({ children, className }) =>
           {children}
           <button
             onClick={() => onOpenChange(false)}
-            className="absolute right-4 top-4 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
+            className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-blue-700"
           >
             <X className="h-5 w-5" />
             <span className="sr-only">{t('common.close')}</span>
@@ -175,7 +175,10 @@ interface DialogHeaderProps {
 }
 
 const DialogHeader: React.FC<DialogHeaderProps> = ({ className, children, ...props }) => (
-  <div className={cn('flex flex-col space-y-1.5 text-center sm:text-left', className)} {...props}>
+  <div
+    className={cn('flex flex-col space-y-1.5 pr-8 text-center sm:text-left', className)}
+    {...props}
+  >
     {children}
   </div>
 );

@@ -46,7 +46,7 @@ export const GroupsForm: React.FC<SectionFormProps> = ({ section, onChange }) =>
             <Button
               variant="ghost"
               size="icon"
-              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
+              className="absolute top-2 right-2 opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100"
               onClick={() => replaceGroups(section.groups.filter((_, i) => i !== index))}
               aria-label={t('builder.sectionForms.groups.removeGroup')}
               title={t('builder.sectionForms.groups.removeGroup')}

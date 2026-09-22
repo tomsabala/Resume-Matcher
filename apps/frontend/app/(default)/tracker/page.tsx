@@ -12,7 +12,7 @@ export default function TrackerPage() {
     // Fill the viewport so the Swiss canvas grows with the window; the board
     // area flexes to the available height and the columns scroll internally.
     <main
-      className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background px-4 py-6 md:px-8"
+      className="flex min-h-0 flex-1 w-full flex-col overflow-hidden bg-background px-4 py-6 md:px-8"
       style={{
         backgroundImage:
           'linear-gradient(rgba(29, 78, 216, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(29, 78, 216, 0.1) 1px, transparent 1px)',

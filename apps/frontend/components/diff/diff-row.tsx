@@ -101,11 +101,11 @@ export function DiffRowLine({ row, view, checked, onToggle }: DiffRowLineProps) 
 
   const content =
     view === 'split' ? (
-      <div className="flex h-full">
-        <div className="w-1/2 border-r-2 border-black pr-3">
+      <div className="flex h-full max-sm:flex-col">
+        <div className="w-1/2 border-r-2 border-black pr-3 max-sm:w-full max-sm:border-r-0 max-sm:border-b-2 max-sm:pr-0 max-sm:pb-1">
           <SideText row={row} side="base" />
         </div>
-        <div className="w-1/2 pl-3">
+        <div className="w-1/2 pl-3 max-sm:w-full max-sm:pl-0 max-sm:pt-1">
           <SideText row={row} side="head" />
         </div>
       </div>
@@ -144,7 +144,7 @@ export function DiffRowLine({ row, view, checked, onToggle }: DiffRowLineProps) 
           checked={checked ?? false}
           onChange={(event) => onToggle?.(row.path, event.target.checked)}
           aria-label={t('diff.acceptRow', { path: row.path })}
-          className="mt-1 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white checked:bg-black"
+          className="relative mt-1 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white before:absolute before:-inset-[16px] before:content-[''] checked:bg-black"
         />
       )}
       <span

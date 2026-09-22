@@ -13,7 +13,7 @@ import { OutreachPreview } from './outreach-preview';
 import { GeneratePrompt } from './generate-prompt';
 import { InterviewPrepView } from './interview-prep-view';
 import { Button } from '@/components/ui/button';
-import { RetroTabs } from '@/components/ui/retro-tabs';
+import { RetroTabs, type Tab } from '@/components/ui/retro-tabs';
 import { ConfirmDialog, type ConfirmDialogProps } from '@/components/ui/confirm-dialog';
 import {
   Download,
@@ -272,6 +272,10 @@ const ResumeBuilderContent = () => {
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabId>(() => getTabFromSearchParams(searchParams));
+  // Below `lg` only one pane fits, so `mobilePane` picks which of the two is
+  // visible. It is a second axis: `activeTab` selects the *mode* and drives
+  // both panes, this selects *which pane* the phone shows.
+  const [mobilePane, setMobilePane] = useState<'edit' | 'preview'>('edit');
 
   useEffect(() => {
     setActiveTab(getTabFromSearchParams(searchParams));
@@ -1475,12 +1479,50 @@ const ResumeBuilderContent = () => {
   };
   const ResumeSaveStatusIcon = resumeSaveStatus?.tone === 'green' ? Check : AlertTriangle;
 
+  // Hoisted out of the preview pane so the `lg:hidden` mobile bar can render the
+  // same mode tabs — below `lg` the preview pane (and its tab strip) is hidden.
+  const previewTabs: Tab[] = [
+    { id: 'resume', label: t('builder.previewTabs.resume') },
+    {
+      id: 'cover-letter',
+      label: t('builder.previewTabs.coverLetter'),
+      disabled: !coverLetter,
+    },
+    {
+      id: 'outreach',
+      label: t('builder.previewTabs.outreach'),
+      disabled: !outreachMessage,
+    },
+    {
+      id: 'interview-prep',
+      label: t('builder.previewTabs.interviewPrep'),
+      disabled: !isTailoredResume,
+    },
+    {
+      id: 'jd-match',
+      label: t('builder.previewTabs.jdMatch'),
+      disabled: !jobDescription,
+    },
+    {
+      id: 'history',
+      label: t('builder.previewTabs.history'),
+      // A resume that was never saved has no history to show.
+      disabled: !resumeId,
+    },
+    {
+      id: 'latex',
+      label: t('builder.previewTabs.latex'),
+      // LaTeX is generated from the saved document.
+      disabled: !resumeId,
+    },
+  ];
+
   return (
-    <div className="h-screen w-full bg-background flex justify-center items-center p-4 md:p-8">
+    <div className="min-h-0 flex-1 w-full bg-background flex justify-center items-stretch p-0 sm:p-4 md:p-8">
       {/* Main Container */}
-      <div className="w-full h-full max-w-[90%] md:max-w-[95%] xl:max-w-[1800px] border border-black bg-background shadow-sw-lg flex flex-col">
+      <div className="w-full h-full max-w-none border-0 sm:max-w-[90%] sm:border md:max-w-[95%] xl:max-w-[1800px] border-black bg-background shadow-sw-lg flex flex-col">
         {/* Header Section */}
-        <div className="border-b border-black p-6 md:p-8 bg-background no-print">
+        <div className="border-b border-black p-4 md:p-8 bg-background no-print">
           {/* Top Row: Back button and Actions */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
             <div>
@@ -1488,7 +1530,7 @@ const ResumeBuilderContent = () => {
                 <ArrowLeft className="w-4 h-4" />
                 {t('nav.backToDashboard')}
               </Button>
-              <h1 className="font-serif text-3xl md:text-5xl text-black tracking-tight leading-[0.95] uppercase">
+              <h1 className="font-serif text-2xl sm:text-3xl md:text-5xl text-black tracking-tight leading-[0.95] uppercase">
                 {t('nav.builder')}
               </h1>
               <div className="mt-3 flex items-center gap-3">
@@ -1507,7 +1549,7 @@ const ResumeBuilderContent = () => {
               </div>
             </div>
 
-            <div className="flex gap-3 mt-4 md:mt-0">
+            <div className="flex flex-wrap gap-2 sm:gap-3 mt-4 md:mt-0 w-full md:w-auto">
               {/* Resume tab actions */}
               {activeTab === 'resume' && (
                 <>
@@ -1635,10 +1677,38 @@ const ResumeBuilderContent = () => {
           </div>
         </div>
 
+        {/* Mobile: the preview pane is hidden below lg, so the mode tabs live here,
+            plus an editor/preview switch for the single visible pane. */}
+        <div className="shrink-0 border-b border-black bg-secondary px-2 pt-2 lg:hidden no-print">
+          <RetroTabs
+            tabs={previewTabs}
+            activeTab={activeTab}
+            onTabChange={(id) => setActiveTab(id as TabId)}
+          />
+          <div className="flex gap-0 py-2">
+            {(['edit', 'preview'] as const).map((pane) => (
+              <button
+                key={pane}
+                type="button"
+                aria-pressed={mobilePane === pane}
+                onClick={() => setMobilePane(pane)}
+                className={`min-h-11 flex-1 border border-black px-4 font-mono text-xs uppercase tracking-wider ${
+                  pane === 'edit' ? 'border-r-0' : ''
+                } ${mobilePane === pane ? 'bg-black text-white' : 'bg-white text-ink'}`}
+              >
+                {t(`builder.pane.${pane}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 bg-black gap-[1px] flex-1 min-h-0">
           {/* Left Panel: Editor */}
-          <div className="bg-background p-6 md:p-8 overflow-y-auto no-print">
+          <div
+            data-testid="builder-editor-pane"
+            className={`bg-background p-4 md:p-8 overflow-y-auto no-print ${mobilePane === 'edit' ? 'block' : 'hidden'} lg:block`}
+          >
             <div className="max-w-3xl mx-auto space-y-6">
               <div className="flex items-center gap-2 border-b-2 border-black pb-2">
                 <div className="w-3 h-3 bg-blue-700"></div>
@@ -1802,45 +1872,14 @@ const ResumeBuilderContent = () => {
           </div>
 
           {/* Right Panel: Preview with Tabs */}
-          <div className="bg-secondary overflow-hidden flex flex-col no-print">
+          <div
+            data-testid="builder-preview-pane"
+            className={`bg-secondary overflow-hidden flex-col no-print ${mobilePane === 'preview' ? 'flex' : 'hidden'} lg:flex`}
+          >
             {/* Tabs Header */}
-            <div className="px-6 pt-3 shrink-0 bg-secondary">
+            <div className="hidden px-6 pt-3 shrink-0 bg-secondary lg:block">
               <RetroTabs
-                tabs={[
-                  { id: 'resume', label: t('builder.previewTabs.resume') },
-                  {
-                    id: 'cover-letter',
-                    label: t('builder.previewTabs.coverLetter'),
-                    disabled: !coverLetter,
-                  },
-                  {
-                    id: 'outreach',
-                    label: t('builder.previewTabs.outreach'),
-                    disabled: !outreachMessage,
-                  },
-                  {
-                    id: 'interview-prep',
-                    label: t('builder.previewTabs.interviewPrep'),
-                    disabled: !isTailoredResume,
-                  },
-                  {
-                    id: 'jd-match',
-                    label: t('builder.previewTabs.jdMatch'),
-                    disabled: !jobDescription,
-                  },
-                  {
-                    id: 'history',
-                    label: t('builder.previewTabs.history'),
-                    // A resume that was never saved has no history to show.
-                    disabled: !resumeId,
-                  },
-                  {
-                    id: 'latex',
-                    label: t('builder.previewTabs.latex'),
-                    // LaTeX is generated from the saved document.
-                    disabled: !resumeId,
-                  },
-                ]}
+                tabs={previewTabs}
                 activeTab={activeTab}
                 onTabChange={(id) => setActiveTab(id as TabId)}
               />

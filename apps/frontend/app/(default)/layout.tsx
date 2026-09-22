@@ -14,8 +14,10 @@ export default function DefaultLayout({ children }: { children: React.ReactNode 
         <LanguageProvider>
           <ResumePreviewProvider>
             <LocalizedErrorBoundary>
-              <AppHeader />
-              <main className="min-h-screen flex flex-col">{children}</main>
+              <div className="flex min-h-[100dvh] flex-col">
+                <AppHeader />
+                <main className="flex min-h-0 flex-1 flex-col">{children}</main>
+              </div>
             </LocalizedErrorBoundary>
           </ResumePreviewProvider>
         </LanguageProvider>

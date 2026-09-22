@@ -31,7 +31,8 @@
     "keysCleared": "Clés API supprimées avec succès",
     "databaseReset": "Base de données réinitialisée avec succès",
     "popupBlocked": "Fenêtre contextuelle bloquée. Veuillez autoriser les fenêtres contextuelles ou ouvrir cette URL manuellement : {url}",
-    "resumeDeleted": "Ce CV a été supprimé. Importez ou sélectionnez un autre CV."
+    "resumeDeleted": "Ce CV a été supprimé. Importez ou sélectionnez un autre CV.",
+    "dragToReorder": "Glisser pour réorganiser"
   },
   "home": {
     "brandLine1": "Resume",
@@ -541,6 +542,10 @@
       "headingLabel": "Titre de la section",
       "headingPlaceholder": "ex. : Publications, Bénévolat, Certifications",
       "kindLabel": "Forme du contenu"
+    },
+    "pane": {
+      "edit": "MODIFIER",
+      "preview": "APERÇU"
     }
   },
   "enrichment": {

@@ -314,7 +314,7 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
             <h4 className="font-mono text-xs font-bold uppercase tracking-wider mb-3 text-ink-soft">
               {t('builder.formatting.margins')}
             </h4>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <MarginSlider
                 label={t('builder.formatting.margin.top')}
                 value={settings.margins.top}
@@ -638,13 +638,13 @@ function LevelSelector<L extends number>({
   return (
     <div className="flex flex-col gap-1">
       <span className="font-mono text-xs text-ink-soft">{label}:</span>
-      <div className="flex gap-1">
+      <div className="flex flex-wrap gap-1">
         {levels.map((level) => (
           <button
             key={level}
             onClick={() => onChange(level)}
             disabled={disabled}
-            className={`w-6 h-6 font-mono text-xs border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+            className={`w-8 h-8 sm:w-6 sm:h-6 font-mono text-xs border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
               value === level
                 ? 'bg-blue-700 text-white border-blue-700 shadow-sw-xs'
                 : 'bg-white text-ink-soft border-steel-grey hover:border-black'

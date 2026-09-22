@@ -31,7 +31,8 @@
     "keysCleared": "Claves API borradas con éxito",
     "databaseReset": "Base de datos restablecida con éxito",
     "popupBlocked": "Se bloqueó la ventana emergente. Permite las ventanas emergentes o abre manualmente esta URL: {url}",
-    "resumeDeleted": "Este currículum se eliminó. Sube o selecciona otro."
+    "resumeDeleted": "Este currículum se eliminó. Sube o selecciona otro.",
+    "dragToReorder": "Arrastrar para reordenar"
   },
   "home": {
     "brandLine1": "Currículum",
@@ -541,6 +542,10 @@
       "headingLabel": "Título de la sección",
       "headingPlaceholder": "p. ej., Publicaciones, Voluntariado, Certificaciones",
       "kindLabel": "Forma del contenido"
+    },
+    "pane": {
+      "edit": "EDITAR",
+      "preview": "VISTA PREVIA"
     }
   },
   "enrichment": {

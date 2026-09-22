@@ -16,7 +16,7 @@ export default function Hero() {
 
   return (
     <section
-      className="h-screen w-full p-4 md:p-12 lg:p-24 bg-background"
+      className="min-h-0 flex-1 w-full p-4 md:p-12 lg:p-24 bg-background"
       style={{
         backgroundImage:
           'linear-gradient(rgba(29, 78, 216, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(29, 78, 216, 0.1) 1px, transparent 1px)',

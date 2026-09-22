@@ -98,7 +98,7 @@ export default function ApiKeyMenu(): React.ReactElement {
             onClick={handleClose}
             aria-hidden="true"
           />
-          <div className="absolute right-0 z-50 mt-2 w-80 rounded-none border-2 border-black bg-white p-4 shadow-sw-default">
+          <div className="absolute right-0 z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-none border-2 border-black bg-white p-4 shadow-sw-default">
             <h3 className="font-serif text-base font-semibold text-black mb-2">
               {t('settings.apiKeyMenu.title')}
             </h3>

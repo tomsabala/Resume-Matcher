@@ -17,7 +17,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       <input
         type={type}
         className={cn(
-          'flex h-10 w-full border border-black bg-transparent px-3 py-2 text-sm',
+          'flex h-11 w-full border border-black bg-transparent px-3 py-2 text-base sm:h-10 sm:text-sm',
           // Swiss style: hard borders only, no soft shadow on inputs.
           'placeholder:text-steel-grey',
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-700',

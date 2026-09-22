@@ -79,11 +79,11 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
 
   return (
     <div
-      className={`space-y-0 border p-6 bg-white shadow-sw-default ${
+      className={`space-y-0 border p-4 sm:p-6 bg-white shadow-sw-default ${
         isHidden ? 'border-dashed border-steel-grey opacity-60' : 'border-black'
       }`}
     >
-      <div className="flex justify-between items-center border-b border-black pb-2 mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black pb-2 mb-4">
         <div className="flex items-center gap-2">
           {isEditing ? (
             <div className="flex items-center gap-1">
@@ -91,7 +91,7 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
                 value={editedHeading}
                 onChange={(e) => setEditedHeading(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="h-8 w-48 rounded-none border-black font-serif text-lg font-bold"
+                className="h-9 w-full sm:w-48 rounded-none border-black font-serif text-lg font-bold"
                 autoFocus
               />
               <Button
@@ -153,7 +153,7 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           {/* Column placement. Single-column templates ignore it; two-column
               templates partition on it. */}
           <Button

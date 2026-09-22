@@ -78,7 +78,7 @@ export function DiffPreviewModal({
             <span>{t('tailor.missingDiffDialog.confirmLabel')}</span>
           </div>
 
-          <div className="flex justify-end items-center gap-3 pt-4 border-t-2 border-black bg-white -mx-6 -mb-6 px-6 py-4">
+          <div className="flex flex-wrap justify-end items-center gap-3 pt-4 border-t-2 border-black bg-white -mx-6 -mb-6 px-6 py-4">
             <Button variant="outline" onClick={onClose} disabled={isConfirming} className="gap-2">
               {t('common.cancel')}
             </Button>
@@ -135,7 +135,7 @@ export function DiffPreviewModal({
           <DiffView diff={diff} acceptedPaths={accepted} onAcceptedPathsChange={setAccepted} />
         </div>
 
-        <div className="flex justify-between items-center pt-4 border-t-2 border-black bg-white -mx-6 -mb-6 px-6 py-4">
+        <div className="flex flex-wrap justify-between items-center gap-3 pt-4 border-t-2 border-black bg-white -mx-6 -mb-6 px-6 py-4">
           <Button variant="outline" onClick={onReject} disabled={isConfirming} className="gap-2">
             <X className="w-4 h-4" />
             {t('tailor.diffModal.rejectButton')}

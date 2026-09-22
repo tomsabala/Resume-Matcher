@@ -309,7 +309,7 @@ export function ResumeUploadDialog({
         <div className="p-6 bg-background">
           <div
             className={`
-                            relative border-2 border-dashed p-8 text-center transition-all duration-200
+                            relative border-2 border-dashed p-5 sm:p-8 text-center transition-all duration-200
                             ${isDragging ? 'border-blue-700 bg-blue-50' : 'border-steel-grey hover:border-black hover:bg-white'}
                             ${currentFile ? 'bg-white border-solid border-black' : ''}
                             ${!currentFile && !isRecovering ? 'cursor-pointer' : 'cursor-default'}
@@ -337,9 +337,7 @@ export function ResumeUploadDialog({
                     <FileIcon className="w-5 h-5 text-black" />
                   </div>
                   <div className="min-w-0">
-                    <p className="font-bold text-sm truncate max-w-[200px]">
-                      {currentFile.file.name}
-                    </p>
+                    <p className="font-bold text-sm truncate">{currentFile.file.name}</p>
                     <p className="font-mono text-xs text-steel-grey">
                       {formatBytes(currentFile.file.size)}
                     </p>

@@ -26,6 +26,18 @@
   padding: var(--margin-top) var(--margin-right) var(--margin-bottom) var(--margin-left);
 }
 
+/* Screen-only, and only where the resume flows at viewport width (the `.resume-print`
+   wrapper on the resume viewer). 10mm page margins are print geometry; on a phone they
+   consume ~76px of a 375px viewport. Deliberately NOT applied inside the paginated
+   preview, which is a WYSIWYG scaled A4 page and must keep print geometry. Print and
+   PDF are unaffected — `page.pdf()` in apps/backend/app/pdf.py renders in print media,
+   where an `@media screen` block never applies. */
+@media screen and (max-width: 639px) {
+  :global(.resume-print) .resume-body {
+    padding: 1rem;
+  }
+}
+
 .resume-header {
   margin-bottom: var(--section-gap);
   padding-bottom: calc(var(--item-gap) * 1.25);

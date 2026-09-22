@@ -59,7 +59,7 @@ function CompareContent() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-background px-4 pt-6 pb-16 md:px-8">
+    <div className="flex-1 w-full bg-background px-4 pt-6 pb-16 md:px-8">
       <div className="w-full max-w-[96rem]">
         <Link
           href="/dashboard"

@@ -4,7 +4,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragEndEvent,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   KeyboardSensor,
   closestCorners,
   useSensor,
@@ -52,7 +53,8 @@ export function KanbanBoard() {
   const { t } = useTranslations();
   const { revision } = useWorkspace();
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -145,7 +147,10 @@ export function KanbanBoard() {
   }, [loading, isEmpty]);
 
   const scrollByColumn = (direction: 1 | -1) => {
-    scrollRef.current?.scrollBy({ left: direction * 320, behavior: 'smooth' });
+    const el = scrollRef.current;
+    if (!el) return;
+    const step = el.querySelector<HTMLElement>('[data-column]')?.offsetWidth ?? el.clientWidth;
+    el.scrollBy({ left: direction * step, behavior: 'smooth' });
   };
 
   const scrollToColumn = (status: ApplicationStatus) => {
@@ -215,7 +220,7 @@ export function KanbanBoard() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Header — mirrors the dashboard canvas header */}
-      <div className="flex shrink-0 flex-col gap-4 border-b border-black p-6 md:flex-row md:items-center md:justify-between md:p-8">
+      <div className="flex shrink-0 flex-col gap-4 border-b border-black p-4 md:flex-row md:items-center md:justify-between md:p-8">
         <div>
           <h1 className="font-serif text-3xl font-bold uppercase tracking-tight text-ink md:text-4xl">
             {t('tracker.title')}
@@ -224,7 +229,7 @@ export function KanbanBoard() {
             {t('tracker.subtitle')}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Button variant="outline" onClick={() => setManageOpen(true)}>
             <Settings className="h-4 w-4" />
             {t('tracker.manage')}
@@ -236,7 +241,7 @@ export function KanbanBoard() {
                 aria-label={t('tracker.scroll.prev')}
                 onClick={() => scrollByColumn(-1)}
                 disabled={!canScrollLeft}
-                className="flex h-10 w-10 items-center justify-center border border-black bg-background text-ink shadow-sw-xs transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none disabled:pointer-events-none disabled:opacity-30"
+                className="flex h-11 w-11 items-center justify-center border border-black bg-background text-ink shadow-sw-xs transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none disabled:pointer-events-none disabled:opacity-30"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
@@ -245,7 +250,7 @@ export function KanbanBoard() {
                 aria-label={t('tracker.scroll.next')}
                 onClick={() => scrollByColumn(1)}
                 disabled={!canScrollRight}
-                className="-ml-px flex h-10 w-10 items-center justify-center border border-black bg-background text-ink shadow-sw-xs transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none disabled:pointer-events-none disabled:opacity-30"
+                className="-ml-px flex h-11 w-11 items-center justify-center border border-black bg-background text-ink shadow-sw-xs transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none disabled:pointer-events-none disabled:opacity-30"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
@@ -293,7 +298,10 @@ export function KanbanBoard() {
             collisionDetection={closestCorners}
             onDragEnd={handleDragEnd}
           >
-            <div ref={scrollRef} className="flex min-h-0 flex-1 overflow-x-auto">
+            <div
+              ref={scrollRef}
+              className="flex min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overscroll-x-contain"
+            >
               {visibleStatuses.map((status, index) => (
                 <div
                   key={status}
@@ -320,7 +328,7 @@ export function KanbanBoard() {
       {/* Stage rail — an always-visible map of every stage (with counts) so
           off-screen sections are never lost; click a stage to jump to it. */}
       {!isEmpty && (
-        <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-t border-black bg-paper-tint px-6 py-2 md:px-8">
+        <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-t border-black bg-paper-tint px-4 py-2 md:px-8">
           {canScrollRight && (
             <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] font-bold uppercase tracking-wide text-primary">
               {t('tracker.scroll.hint')}
@@ -333,7 +341,7 @@ export function KanbanBoard() {
                 key={status}
                 type="button"
                 onClick={() => scrollToColumn(status)}
-                className="flex shrink-0 items-center gap-1.5 border border-black bg-background px-2 py-1 font-mono text-[11px] uppercase tracking-wide text-ink-soft shadow-sw-xs transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:text-primary hover:shadow-none"
+                className="relative flex shrink-0 items-center gap-1.5 border border-black bg-background px-2 py-1 font-mono text-[11px] uppercase tracking-wide text-ink-soft shadow-sw-xs transition-all before:absolute before:-inset-[9px] before:content-[''] hover:translate-x-[1px] hover:translate-y-[1px] hover:text-primary hover:shadow-none"
               >
                 {t(`tracker.columns.${status}`)}
                 <span className="text-steel-grey">{columns[status].length}</span>

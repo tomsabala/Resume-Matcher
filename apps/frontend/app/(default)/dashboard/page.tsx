@@ -509,33 +509,33 @@ export default function DashboardPage() {
         <Button
           variant="ghost"
           size="icon"
-          className="relative z-10 h-7 w-7 rounded-none hover:bg-blue-100 hover:text-blue-700"
+          className="relative z-10 h-8 w-8 before:-inset-[6px] rounded-none hover:bg-blue-100 hover:text-blue-700"
           onClick={(event) => openSetMaster(event, resume)}
           aria-label={t('dashboard.manage.setMasterResume', { title: resume.title })}
           title={t('dashboard.manage.setMaster')}
         >
-          <Star className="h-3.5 w-3.5" />
+          <Star className="h-4 w-4" />
         </Button>
       )}
       <Button
         variant="ghost"
         size="icon"
-        className="relative z-10 h-7 w-7 rounded-none hover:bg-blue-100 hover:text-blue-700"
+        className="relative z-10 h-8 w-8 before:-inset-[6px] rounded-none hover:bg-blue-100 hover:text-blue-700"
         onClick={(event) => openRename(event, resume)}
         aria-label={t('dashboard.manage.renameResume', { title: resume.title })}
         title={t('dashboard.manage.rename')}
       >
-        <Pencil className="h-3.5 w-3.5" />
+        <Pencil className="h-4 w-4" />
       </Button>
       <Button
         variant="ghost"
         size="icon"
-        className="relative z-10 h-7 w-7 rounded-none hover:bg-red-100 hover:text-red-600"
+        className="relative z-10 h-8 w-8 before:-inset-[6px] rounded-none hover:bg-red-100 hover:text-red-600"
         onClick={(event) => openDelete(event, resume)}
         aria-label={t('dashboard.manage.deleteResume', { title: resume.title })}
         title={t('common.delete')}
       >
-        <Trash2 className="h-3.5 w-3.5" />
+        <Trash2 className="h-4 w-4" />
       </Button>
     </>
   );
@@ -631,7 +631,7 @@ export default function DashboardPage() {
       <AIFailurePanel revision={processingStatus === 'failed' ? revision + 1 : revision} />
       {/* Configuration Warning Banner */}
       {masterResumeId && !isLlmConfigured && !statusLoading && (
-        <div className="border-2 border-warning bg-amber-50 p-4 shadow-sw-default mb-6 flex items-center justify-between">
+        <div className="border-2 border-warning bg-amber-50 p-4 shadow-sw-default mb-6 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-warning" />
             <div>
@@ -775,7 +775,7 @@ export default function DashboardPage() {
                     })}
                     onClick={(event) => event.stopPropagation()}
                     onChange={() => toggleSelected(masterResumeId)}
-                    className="relative z-10 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white checked:bg-black"
+                    className="relative z-10 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white checked:bg-black before:absolute before:-inset-[16px] before:content-['']"
                   />
                   {(processingStatus === 'failed' || processingStatus === 'processing') && (
                     <>
@@ -879,7 +879,7 @@ export default function DashboardPage() {
                       aria-label={t('dashboard.selection.selectResume', { title })}
                       onClick={(event) => event.stopPropagation()}
                       onChange={() => toggleSelected(resume.resume_id)}
-                      className="relative z-10 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white checked:bg-black"
+                      className="relative z-10 h-3 w-3 shrink-0 cursor-pointer appearance-none border border-black bg-white checked:bg-black before:absolute before:-inset-[16px] before:content-['']"
                     />
                     {cardActions({
                       resumeId: resume.resume_id,

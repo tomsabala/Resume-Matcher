@@ -52,10 +52,16 @@ export function PageContainer({
     : maxContentHeight;
 
   return (
-    <div className="relative flex flex-col items-center">
+    // A CSS transform does not change the layout box, so the wrapper must carry
+    // the *scaled* width itself. Without it the untransformed 793.7px page box
+    // is centred in a narrow parent and overflows both sides — and a scroll
+    // container cannot reach negative coordinates, so the left edge is lost.
+    // `items-start` pairs with `origin-top-left` below: the full-width page box
+    // starts at the wrapper's left edge and scales down to fill it exactly.
+    <div className="relative flex flex-col items-start" style={{ width: pageWidthPx * scale }}>
       {/* Page wrapper with scale transform */}
       <div
-        className="relative bg-white border-2 border-black shadow-sw-card origin-top"
+        className="relative bg-white border-2 border-black shadow-sw-card origin-top-left"
         style={{
           width: pageWidthPx,
           height: pageHeightPx,

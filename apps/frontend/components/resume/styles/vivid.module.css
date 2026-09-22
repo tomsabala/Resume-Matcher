@@ -141,3 +141,25 @@
     page-break-after: avoid !important;
   }
 }
+
+/* Screen-only: below 640px the 63:37 split leaves ~22 characters per line, so the
+   sidebar drops under the main column. This template separates its columns with the
+   grid gap rather than a rule, so the stacked gap is widened instead of adding a border.
+   Print and PDF render at page width, where this block never applies.
+   Scoped to `.resume-print` — the resume viewer, where the resume flows at viewport
+   width. The paginated preview is a WYSIWYG scaled A4 page and keeps both columns.
+ */
+@media screen and (max-width: 639px) {
+  :global(.resume-print) .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :global(.resume-print) .mainColumn {
+    padding-right: 0;
+  }
+
+  :global(.resume-print) .sidebarColumn {
+    padding-left: 0;
+    padding-top: var(--section-gap);
+  }
+}

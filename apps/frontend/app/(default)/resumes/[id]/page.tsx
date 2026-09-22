@@ -430,7 +430,7 @@ export default function ResumeViewerPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background">
+      <div className="flex-1 flex flex-col items-center justify-center bg-background">
         <Loader2 className="w-10 h-10 animate-spin text-blue-700 mb-4" />
         <p className="font-mono text-sm font-bold uppercase text-blue-700">
           {t('resumeViewer.loading')}
@@ -445,7 +445,7 @@ export default function ResumeViewerPage() {
 
     return (
       <>
-        <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4">
+        <div className="flex-1 flex flex-col items-center justify-center bg-background p-4">
           <div
             className={`border p-6 text-center max-w-md shadow-sw-default ${
               isProcessing
@@ -501,7 +501,7 @@ export default function ResumeViewerPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background py-12 px-4 md:px-8 overflow-y-auto">
+    <div className="flex-1 bg-background py-6 px-4 md:py-12 md:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header Actions */}
         <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
@@ -510,7 +510,7 @@ export default function ResumeViewerPage() {
             {t('nav.backToDashboard')}
           </Button>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-2 w-full md:w-auto md:gap-3">
             {isMasterResume && (
               <Button onClick={() => setShowEnrichmentModal(true)} className="gap-2">
                 <Sparkles className="w-4 h-4" />
@@ -573,7 +573,7 @@ export default function ResumeViewerPage() {
                   {resumeTitle || t('resumeViewer.titlePlaceholder')}
                 </h2>
                 <Pencil
-                  className={`w-4 h-4 transition-opacity ${resumeTitle ? 'opacity-0 group-hover:opacity-60' : 'opacity-40 group-hover:opacity-60'}`}
+                  className={`w-4 h-4 transition-opacity ${resumeTitle ? 'opacity-60 lg:opacity-0 lg:group-hover:opacity-60' : 'opacity-40 group-hover:opacity-60'}`}
                 />
               </button>
             )}
@@ -583,7 +583,7 @@ export default function ResumeViewerPage() {
         {/* Resume Viewer — the renderer the selected template belongs to. */}
         <div className="flex justify-center pb-4">
           {usesTexEngine ? (
-            <div className="w-full max-w-[250mm] h-[297mm] border-2 border-black bg-white shadow-sw-lg">
+            <div className="w-full max-w-[250mm] h-[70vh] sm:h-[297mm] border-2 border-black bg-white shadow-sw-lg">
               <TexPdfPreview
                 resumeId={resumeId}
                 template={templateSettings.template as TexTemplateId}

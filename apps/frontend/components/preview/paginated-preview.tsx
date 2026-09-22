@@ -17,7 +17,8 @@ interface PaginatedPreviewProps {
   settings: TemplateSettings;
 }
 
-const MIN_ZOOM = 0.4;
+// A4 at 375px needs ~0.33, so the floor must sit below it or auto-fit cannot fit.
+const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 1.5;
 const ZOOM_STEP = 0.1;
 
@@ -47,21 +48,38 @@ export function PaginatedPreview({ doc, settings }: PaginatedPreviewProps) {
 
   // Calculate auto-zoom to fit container width
   const calculateAutoZoom = useCallback(() => {
-    if (!containerRef.current || !autoZoom) return;
+    const container = containerRef.current;
+    if (!container || !autoZoom) return;
 
-    const containerWidth = containerRef.current.clientWidth - 48; // Padding
+    // Derive the padding from the element instead of hardcoding it — the scroll
+    // container's padding is responsive (p-2 below sm, p-6 above).
+    const style = getComputedStyle(container);
+    const available =
+      container.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    // The preview pane is `display:none` on mobile until its tab is selected;
+    // measuring then yields 0, and the observer below re-runs once it is shown.
+    if (available <= 0) return;
     const pageWidthPx = mmToPx(PAGE_DIMENSIONS[settings.pageSize].width);
-    const optimalZoom = Math.min(containerWidth / pageWidthPx, MAX_ZOOM);
+    const optimalZoom = Math.min(available / pageWidthPx, MAX_ZOOM);
     setZoom(Math.max(MIN_ZOOM, Math.min(optimalZoom, 0.75))); // Cap at 75% for usability
   }, [settings.pageSize, autoZoom]);
 
-  // Auto-zoom on mount and when page size changes
+  // Auto-zoom on mount, on viewport resize, and when the pane itself is
+  // resized — including 0 -> visible when the mobile pane switch reveals it.
   useEffect(() => {
     calculateAutoZoom();
-    // Add resize listener
     const handleResize = () => calculateAutoZoom();
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    const container = containerRef.current;
+    const observer =
+      container && typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(handleResize)
+        : undefined;
+    observer?.observe(container!);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      observer?.disconnect();
+    };
   }, [calculateAutoZoom]);
 
   const handleZoomIn = () => {
@@ -82,7 +100,7 @@ export function PaginatedPreview({ doc, settings }: PaginatedPreviewProps) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Controls bar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-steel-grey bg-secondary shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-2 border-b border-steel-grey bg-secondary shrink-0 sm:px-4">
         <div className="flex items-center gap-2">
           {/* Zoom controls */}
           <Button
@@ -139,7 +157,7 @@ export function PaginatedPreview({ doc, settings }: PaginatedPreviewProps) {
       </div>
 
       {/* Scrollable preview area */}
-      <div ref={containerRef} className="flex-1 overflow-auto bg-[#D5D5D0] p-6">
+      <div ref={containerRef} className="flex-1 overflow-auto bg-[#D5D5D0] p-2 sm:p-6">
         {/* Hidden measurement container - renders content at actual size */}
         <div
           ref={measurementRef}
@@ -161,8 +179,10 @@ export function PaginatedPreview({ doc, settings }: PaginatedPreviewProps) {
           />
         </div>
 
-        {/* Visible pages */}
-        <div className="flex flex-col items-center gap-4">
+        {/* Visible pages. `w-max min-w-full` centres a page narrower than the
+            viewport but grows with a zoomed-in one, so an oversized page
+            overflows to the right (scrollable) instead of to both sides. */}
+        <div className="flex w-max min-w-full flex-col items-center gap-4">
           {pages.map((page, index) => (
             <React.Fragment key={page.pageNumber}>
               {index > 0 && (

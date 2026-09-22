@@ -34,7 +34,7 @@ export function BulkActionBar({ selectedCount, onMove, onDelete, onClear }: Bulk
         {t('tracker.bulk.selected', { count: String(selectedCount) })}
       </span>
 
-      <div className="w-48">
+      <div className="w-full sm:w-48">
         <Dropdown
           options={moveOptions}
           value=""

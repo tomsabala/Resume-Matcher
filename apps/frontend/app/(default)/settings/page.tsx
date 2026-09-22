@@ -686,10 +686,10 @@ export default function SettingsPage() {
     : t('settings.llmConfiguration.baseUrlDescription');
 
   return (
-    <div className="flex flex-col items-center justify-start p-6 md:p-12 min-h-screen overflow-y-auto">
+    <div className="flex flex-1 flex-col items-center justify-start p-3 sm:p-6 md:p-12">
       <div className="w-full max-w-4xl border border-black bg-background shadow-sw-lg">
         {/* Header */}
-        <div className="border-b border-black p-8 bg-white flex justify-between items-start">
+        <div className="border-b border-black p-4 sm:p-8 bg-white flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
           <div>
             <h1 className="font-serif text-3xl font-bold tracking-tight uppercase">
               {t('settings.title')}
@@ -707,7 +707,7 @@ export default function SettingsPage() {
           </Link>
         </div>
 
-        <div className="p-8 space-y-10">
+        <div className="p-4 sm:p-8 space-y-8 sm:space-y-10">
           {/* API Key Not Configured Warning */}
           {!statusLoading && systemStatus && !systemStatus.llm_configured && (
             <div className="border-2 border-amber-500 bg-amber-50 p-4 shadow-sw-default">
@@ -781,7 +781,7 @@ export default function SettingsPage() {
               // rather than the viewport — useful when the settings page is
               // shown alongside a sidebar or in a split view.
               <div className="@container">
-                <div className="grid grid-cols-2 @3xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2 @3xl:grid-cols-4">
                   {/* LLM Status */}
                   <div className="border border-black bg-white p-4 shadow-sw-sm">
                     <div className="flex items-center gap-2 mb-2">
@@ -851,41 +851,45 @@ export default function SettingsPage() {
 
             {/* Additional Stats Row */}
             {systemStatus && (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="border border-black bg-white p-4 shadow-sw-sm">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Sparkles className="w-4 h-4 text-steel-grey" />
-                    <span className="font-mono text-xs uppercase text-steel-grey">
-                      {t('settings.statusCards.improvements')}
+              // @container so this row matches its sibling above and adapts to
+              // the section width rather than the viewport.
+              <div className="@container">
+                <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2 @3xl:grid-cols-4">
+                  <div className="border border-black bg-white p-4 shadow-sw-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Sparkles className="w-4 h-4 text-steel-grey" />
+                      <span className="font-mono text-xs uppercase text-steel-grey">
+                        {t('settings.statusCards.improvements')}
+                      </span>
+                    </div>
+                    <span className="font-mono text-2xl font-bold">
+                      {systemStatus.database_stats.total_improvements}
                     </span>
                   </div>
-                  <span className="font-mono text-2xl font-bold">
-                    {systemStatus.database_stats.total_improvements}
-                  </span>
-                </div>
-                <div className="border border-black bg-white p-4 shadow-sw-sm">
-                  <div className="flex items-center gap-2 mb-2">
-                    <FileText className="w-4 h-4 text-steel-grey" />
-                    <span className="font-mono text-xs uppercase text-steel-grey">
-                      {t('settings.statusCards.masterResume')}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {systemStatus.has_master_resume ? (
-                      <>
-                        <CheckCircle2 className="w-5 h-5 text-green-600" />
-                        <span className="font-mono text-sm font-bold">
-                          {t('settings.statusValues.configured')}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="w-5 h-5 text-amber-500" />
-                        <span className="font-mono text-sm font-bold">
-                          {t('settings.statusValues.notSet')}
-                        </span>
-                      </>
-                    )}
+                  <div className="border border-black bg-white p-4 shadow-sw-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <FileText className="w-4 h-4 text-steel-grey" />
+                      <span className="font-mono text-xs uppercase text-steel-grey">
+                        {t('settings.statusCards.masterResume')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {systemStatus.has_master_resume ? (
+                        <>
+                          <CheckCircle2 className="w-5 h-5 text-green-600" />
+                          <span className="font-mono text-sm font-bold">
+                            {t('settings.statusValues.configured')}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="w-5 h-5 text-amber-500" />
+                          <span className="font-mono text-sm font-bold">
+                            {t('settings.statusValues.notSet')}
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -901,16 +905,19 @@ export default function SettingsPage() {
               </h2>
             </div>
 
-            <div className="grid gap-6">
+            {/* grid-cols-1 (minmax(0,1fr)) rather than an implicit auto column:
+                an auto column is sized by its content's max-content width, which
+                the provider button row overflows at phone widths. */}
+            <div className="grid grid-cols-1 gap-6">
               {/* Provider Selection */}
               <div className="space-y-2">
                 <Label>{t('settings.providerLabel')}</Label>
-                <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
                   {PROVIDERS.map((p) => (
                     <button
                       key={p}
                       onClick={() => handleProviderChange(p)}
-                      className={`px-3 py-2 text-xs uppercase ${SEGMENTED_BUTTON_BASE} ${
+                      className={`min-w-0 px-3 py-3 text-xs uppercase [overflow-wrap:anywhere] ${SEGMENTED_BUTTON_BASE} ${
                         provider === p ? SEGMENTED_BUTTON_ACTIVE : SEGMENTED_BUTTON_INACTIVE
                       }`}
                     >

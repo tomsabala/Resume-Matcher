@@ -24,7 +24,8 @@ import type { Entry, EntryLink } from '@/lib/types/document';
 import {
   DndContext,
   closestCenter,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   KeyboardSensor,
   useSensor,
   useSensors,
@@ -53,7 +54,8 @@ export const GenericItemForm: React.FC<SectionFormProps> = ({ section, onChange 
   const entries = section.entries;
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -132,11 +134,11 @@ export const GenericItemForm: React.FC<SectionFormProps> = ({ section, onChange 
           <div className="space-y-8">
             {entries.map((entry) => (
               <DraggableListItem key={entry.id} id={entry.id}>
-                <div className="p-6 border border-black bg-paper-tint relative group">
+                <div className="p-4 sm:p-6 border border-black bg-paper-tint relative group">
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
+                    className="absolute top-2 right-2 opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100"
                     onClick={() => replaceEntries(entries.filter((item) => item.id !== entry.id))}
                     aria-label={t('builder.sectionForms.entries.removeEntry')}
                     title={t('builder.sectionForms.entries.removeEntry')}
@@ -144,7 +146,7 @@ export const GenericItemForm: React.FC<SectionFormProps> = ({ section, onChange 
                     <Trash2 className="w-4 h-4" />
                   </Button>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 pr-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 pr-10 lg:pr-8">
                     {textField('title', entry.title, (title) => updateEntry(entry.id, { title }))}
                     {textField('subtitle', entry.subtitle, (subtitle) =>
                       updateEntry(entry.id, { subtitle })
@@ -190,8 +192,11 @@ export const GenericItemForm: React.FC<SectionFormProps> = ({ section, onChange 
                       </Button>
                     </div>
                     {entry.links.map((link, linkIndex) => (
-                      <div key={linkIndex} className="flex gap-2 items-center">
-                        <div className="w-40 shrink-0">
+                      <div
+                        key={linkIndex}
+                        className="flex flex-col gap-2 sm:flex-row sm:items-center"
+                      >
+                        <div className="w-full sm:w-40 sm:shrink-0">
                           <Dropdown
                             options={LINK_KINDS.map((kind) => ({
                               id: kind,

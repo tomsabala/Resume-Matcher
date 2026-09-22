@@ -46,3 +46,26 @@
   --resume-tag-radius: 4px;
   --resume-tag-padding: 0.125rem 0.375rem;
 }
+
+/* Screen-only: below 640px the 65:35 split leaves ~22 characters per line, so the
+   sidebar drops under the main column and the vertical rule becomes a horizontal one.
+   Print and PDF render at page width, where this block never applies.
+   Scoped to `.resume-print` — the resume viewer, where the resume flows at viewport
+   width. The paginated preview is a WYSIWYG scaled A4 page and keeps both columns.
+ */
+@media screen and (max-width: 639px) {
+  :global(.resume-print) .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :global(.resume-print) .mainColumn {
+    padding-right: 0;
+    border-right: none;
+  }
+
+  :global(.resume-print) .sidebarColumn {
+    padding-left: 0;
+    border-top: 1px solid var(--resume-border-tertiary);
+    padding-top: var(--section-gap);
+  }
+}

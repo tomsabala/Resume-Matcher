@@ -86,7 +86,7 @@ export function JDComparisonView({ jobDescription, doc }: JDComparisonViewProps)
       </div>
 
       {/* Split View */}
-      <div className="flex-1 grid grid-cols-2 min-h-0">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 min-h-0">
         {/* Left: JD */}
         <div className="border-r border-paper-tint overflow-hidden">
           <JDDisplay content={jobDescription} />

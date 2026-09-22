@@ -30,7 +30,7 @@ export function KanbanColumn({
   const { setNodeRef, isOver } = useDroppable({ id: `column:${status}` });
 
   return (
-    <div className="flex h-full w-80 shrink-0 flex-col p-3">
+    <div className="flex h-full w-[86vw] max-w-80 shrink-0 snap-start flex-col p-3 sm:w-80">
       <div className="mb-2 flex items-center justify-between border-b-2 border-black pb-1">
         <h2 className="font-mono text-xs font-bold uppercase tracking-wide text-ink">
           {t(`tracker.columns.${status}`)}
