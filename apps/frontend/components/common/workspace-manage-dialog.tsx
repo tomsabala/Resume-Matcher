@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { locales, localeNames } from '@/i18n/config';
 import { useTranslations } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/context/workspace-context';
 import type { Workspace } from '@/lib/api/workspaces';
@@ -25,8 +24,8 @@ interface WorkspaceManageDialogProps {
 }
 
 /**
- * Rename a workspace, change the language its content is written in, promote
- * it to default, or delete it with everything scoped to it.
+ * Rename a workspace, promote it to default, or delete it with everything
+ * scoped to it.
  *
  * Deleting the default workspace or the only workspace is refused by the
  * server (409); the message is shown here rather than translated locally, so
@@ -36,7 +35,6 @@ export function WorkspaceManageDialog({ workspace, onClose }: WorkspaceManageDia
   const { t } = useTranslations();
   const { updateWorkspace, deleteWorkspace } = useWorkspace();
   const [name, setName] = useState('');
-  const [language, setLanguage] = useState('en');
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -47,7 +45,6 @@ export function WorkspaceManageDialog({ workspace, onClose }: WorkspaceManageDia
   useEffect(() => {
     if (!workspace) return;
     setName(workspace.name);
-    setLanguage(workspace.content_language);
     setError(null);
   }, [workspace]);
 
@@ -63,7 +60,6 @@ export function WorkspaceManageDialog({ workspace, onClose }: WorkspaceManageDia
     try {
       await updateWorkspace(workspace.workspace_id, {
         name: trimmed,
-        content_language: language,
         ...extra,
       });
       onClose();
@@ -114,27 +110,6 @@ export function WorkspaceManageDialog({ workspace, onClose }: WorkspaceManageDia
                   if (event.key === 'Enter') void save();
                 }}
               />
-            </div>
-
-            <div className="space-y-1">
-              <label
-                htmlFor="workspace-language"
-                className="font-mono text-xs font-bold uppercase tracking-wider"
-              >
-                {t('workspaces.languageLabel')}
-              </label>
-              <select
-                id="workspace-language"
-                value={language}
-                onChange={(event) => setLanguage(event.target.value)}
-                className="w-full border border-black bg-white px-3 py-2 font-mono text-sm rounded-none focus:outline-none focus:ring-0"
-              >
-                {locales.map((code) => (
-                  <option key={code} value={code}>
-                    {localeNames[code]}
-                  </option>
-                ))}
-              </select>
             </div>
 
             {workspace.is_default ? (

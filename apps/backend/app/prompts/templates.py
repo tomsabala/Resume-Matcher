@@ -1,20 +1,8 @@
 """LLM prompt templates for resume processing."""
 
-# Language code to full name mapping
-LANGUAGE_NAMES = {
-    "en": "English",
-    "es": "Spanish",
-    "zh": "Chinese (Simplified)",
-    "ja": "Japanese",
-    "pt": "Brazilian Portuguese",
-    "fr": "French",
-    "ko": "Korean",
-}
-
-
-def get_language_name(code: str) -> str:
-    """Get full language name from code."""
-    return LANGUAGE_NAMES.get(code, "English")
+# Every prompt is written in English; the placeholder stays because saved
+# custom prompts are validated against it (see prompts/__init__.py).
+OUTPUT_LANGUAGE = "English"
 
 
 # A complete v2 document with example values - used for prompts that must show

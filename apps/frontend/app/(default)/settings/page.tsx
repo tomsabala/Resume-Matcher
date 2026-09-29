@@ -56,31 +56,26 @@ import {
   Sparkles,
   Clock,
   Settings2,
-  Globe,
   Trash2,
   AlertTriangle,
   ChevronRight,
 } from 'lucide-react';
-import { useLanguage } from '@/lib/context/language-context';
 import { useTranslations } from '@/lib/i18n';
 import { ATTACHMENT_DRAFT_STORAGE_PREFIX } from '@/lib/utils/attachment-draft-storage';
 import { RESUME_DRAFT_STORAGE_PREFIX, safeStorage } from '@/lib/utils/resume-draft-storage';
 import { TEMPLATE_SETTINGS_STORAGE_KEY } from '@/lib/utils/template-settings-storage';
-import type { SupportedLanguage } from '@/lib/api/config';
-import type { Locale } from '@/i18n/config';
 import { ListRow } from '@/components/ui/list-row';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 
 type Status = 'idle' | 'loading' | 'saving' | 'saved' | 'error' | 'testing';
 
-/** The five panels this page is made of; on a phone they are an index, not one scroll. */
-type SettingsSectionId = 'status' | 'llm' | 'content' | 'language' | 'danger';
+/** The four panels this page is made of; on a phone they are an index, not one scroll. */
+type SettingsSectionId = 'status' | 'llm' | 'content' | 'danger';
 
 const SETTINGS_SECTIONS: { id: SettingsSectionId; labelKey: string; destructive?: boolean }[] = [
   { id: 'status', labelKey: 'settings.systemStatus.title' },
   { id: 'llm', labelKey: 'settings.llmConfigurationTitle' },
   { id: 'content', labelKey: 'settings.contentGeneration.title' },
-  { id: 'language', labelKey: 'settings.uiLanguage' },
   { id: 'danger', labelKey: 'settings.dangerZone', destructive: true },
 ];
 
@@ -191,17 +186,6 @@ export default function SettingsPage() {
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [successMessage, setSuccessDialogMessage] = useState({ title: '', description: '' });
   const [isResetting, setIsResetting] = useState(false);
-
-  // Language settings
-  const {
-    contentLanguage,
-    uiLanguage,
-    setContentLanguage,
-    setUiLanguage,
-    languageNames,
-    supportedLanguages,
-    isLoading: languageLoading,
-  } = useLanguage();
 
   // Translations
   const { t } = useTranslations();
@@ -655,8 +639,6 @@ export default function SettingsPage() {
         // drafts simply stay until their TTL expires.
       }
       safeStorage.remove(TEMPLATE_SETTINGS_STORAGE_KEY);
-      safeStorage.remove('resume_matcher_content_language');
-      safeStorage.remove('resume_matcher_ui_language');
 
       // Refresh status to show empty counts
       await refreshStatus();
@@ -1381,72 +1363,6 @@ export default function SettingsPage() {
                     description={t('settings.promptSettings.description')}
                     disabled={promptConfigLoading}
                   />
-                </div>
-              </div>
-            </section>
-          )}
-
-          {/* Language Settings Section */}
-          {(!isMobile || openSection === 'language') && (
-            <section className="space-y-6">
-              <div className="flex items-center gap-2 border-b border-black/10 pb-2">
-                <Globe className="w-4 h-4" />
-                <h2 className="font-mono text-sm font-bold uppercase tracking-wider">
-                  {t('settings.uiLanguage')} & {t('settings.contentLanguage')}
-                </h2>
-              </div>
-
-              {/* UI Language */}
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-ink-soft mb-2">
-                    {t('settings.uiLanguage')}
-                  </h3>
-                  <p className="text-sm text-ink-soft mb-3">
-                    {t('settings.uiLanguageDescription')}
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    {supportedLanguages.map((lang) => (
-                      <button
-                        key={`ui-${lang}`}
-                        onClick={() => setUiLanguage(lang as Locale)}
-                        disabled={languageLoading}
-                        className={`px-4 py-3 text-sm ${SEGMENTED_BUTTON_BASE} ${uiLanguage === lang ? SEGMENTED_BUTTON_ACTIVE : SEGMENTED_BUTTON_INACTIVE}`}
-                      >
-                        {languageNames[lang]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Content Language */}
-              <div className="space-y-4 pt-4 border-t border-paper-tint">
-                <div>
-                  <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-ink-soft mb-2">
-                    {t('settings.contentLanguage')}
-                  </h3>
-                  <p className="text-sm text-ink-soft mb-3">
-                    {t('settings.contentLanguageDescription')}
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    {supportedLanguages.map((lang) => (
-                      <button
-                        key={`content-${lang}`}
-                        onClick={() => setContentLanguage(lang as SupportedLanguage)}
-                        disabled={languageLoading}
-                        className={`px-4 py-3 text-sm ${SEGMENTED_BUTTON_BASE} ${contentLanguage === lang ? SEGMENTED_BUTTON_ACTIVE : SEGMENTED_BUTTON_INACTIVE}`}
-                      >
-                        {languageNames[lang]}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </div>
             </section>

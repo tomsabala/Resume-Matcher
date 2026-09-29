@@ -42,7 +42,7 @@ export function VersionTimeline({
   onRestored,
   onCompare,
 }: VersionTimelineProps) {
-  const { t, locale } = useTranslations();
+  const { t } = useTranslations();
   const router = useRouter();
   const [versions, setVersions] = useState<VersionSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -125,7 +125,7 @@ export function VersionTimeline({
   const formatTimestamp = (value: string) => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString(locale, {
+    return date.toLocaleString('en-US', {
       month: 'short',
       day: '2-digit',
       hour: '2-digit',

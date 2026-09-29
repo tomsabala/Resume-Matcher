@@ -41,10 +41,6 @@ vi.mock('@/lib/i18n', () => ({
   useTranslations: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock('@/lib/context/language-context', () => ({
-  useLanguage: () => ({ uiLanguage: 'en', contentLanguage: 'en' }),
-}));
-
 vi.mock('@/components/common/resume_previewer_context', () => ({
   useResumePreview: () => ({ improvedData: null }),
 }));
@@ -248,7 +244,7 @@ describe('builder attachment persistence', () => {
     expect(downloadCoverLetterPdf).not.toHaveBeenCalled();
 
     await act(async () => save.resolve());
-    expect(downloadCoverLetterPdf).toHaveBeenCalledWith('a', 'A4', 'en');
+    expect(downloadCoverLetterPdf).toHaveBeenCalledWith('a', 'A4');
   });
 
   it('aborts cover export and retains its draft when the save fails', async () => {
@@ -308,7 +304,7 @@ describe('builder attachment persistence', () => {
     expect(downloadCoverLetterPdf).not.toHaveBeenCalled();
 
     await act(async () => latestSave.resolve());
-    expect(downloadCoverLetterPdf).toHaveBeenCalledWith('a', 'A4', 'en');
+    expect(downloadCoverLetterPdf).toHaveBeenCalledWith('a', 'A4');
   });
 
   it('serializes an existing cover save ahead of the export flush', async () => {
@@ -332,7 +328,7 @@ describe('builder attachment persistence', () => {
     expect(downloadCoverLetterPdf).not.toHaveBeenCalled();
 
     await act(async () => latestSave.resolve());
-    expect(downloadCoverLetterPdf).toHaveBeenCalledWith('a', 'A4', 'en');
+    expect(downloadCoverLetterPdf).toHaveBeenCalledWith('a', 'A4');
   });
 
   it('flushes outreach before Back and offers local-draft leave when it fails', async () => {

@@ -66,12 +66,12 @@ def test_cached_config_follows_a_changed_compatibility_path(
 ) -> None:
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
-    first.write_text('{"language": "en"}')
-    second.write_text('{"language": "fr"}')
+    first.write_text('{"provider": "openai"}')
+    second.write_text('{"provider": "gemini"}')
     monkeypatch.setattr(config_module, "CONFIG_FILE_PATH", first)
-    assert load_config() == {"language": "en"}
+    assert load_config() == {"provider": "openai"}
     monkeypatch.setattr(config_module, "CONFIG_FILE_PATH", second)
-    assert load_config() == {"language": "fr"}
+    assert load_config() == {"provider": "gemini"}
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permissions and symlink contract")

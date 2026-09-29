@@ -7,7 +7,6 @@
 
 import { API_BASE } from '@/lib/api/client';
 import { translate } from '@/lib/i18n/server';
-import { resolveLocale } from '@/lib/i18n/locale';
 import { emptyHeader, type Header, type ResumeDocument } from '@/lib/types/document';
 import { headers } from 'next/headers';
 
@@ -88,7 +87,6 @@ export default async function PrintCoverLetterPage({ params, searchParams }: Pag
 
   const pageSize = parsePageSize(resolvedSearchParams?.pageSize);
   const pageDims = PAGE_DIMENSIONS[pageSize];
-  const locale = resolveLocale(resolvedSearchParams?.lang);
 
   // Fetch cover letter data from API (same pattern as resume)
   const { coverLetter, header } = await fetchCoverLetterData(resolvedParams.id);
@@ -97,12 +95,12 @@ export default async function PrintCoverLetterPage({ params, searchParams }: Pag
   const margins = { top: 25, right: 25, bottom: 25, left: 25 };
 
   // Get today's date formatted
-  const today = new Date().toLocaleDateString(locale, {
+  const today = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   });
-  const nameFallback = translate(locale, 'resume.defaults.name');
+  const nameFallback = translate('en', 'resume.defaults.name');
 
   // Split cover letter into paragraphs
   const paragraphs = coverLetter
@@ -188,7 +186,7 @@ export default async function PrintCoverLetterPage({ params, searchParams }: Pag
           ))
         ) : (
           <p style={{ fontSize: '11pt', color: '#999' }}>
-            {translate(locale, 'coverLetter.print.emptyContent')}
+            {translate('en', 'coverLetter.print.emptyContent')}
           </p>
         )}
       </div>

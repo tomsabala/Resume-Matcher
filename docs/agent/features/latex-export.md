@@ -592,8 +592,8 @@ reads the stored document.
 | Refresh | The parent bumps a `revision` prop after a document save so a *generated* source refetches |
 | Compiled preview | `compileTexPdf` on mount, on every template/revision change and once the debounced formatting controls settle, shown in an `<object>`; object URLs are revoked on cleanup. A missing engine, a compile failure (with its log) and any other error each render in place |
 
-Strings live under the `latex.*` i18n block in every locale
-(`apps/frontend/messages/*.json`) — see [i18n.md](i18n.md).
+Strings live under the `latex.*` block in `apps/frontend/messages/en.json`, the
+app's only copy bundle.
 
 ## Deployment
 

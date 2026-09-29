@@ -1,9 +1,5 @@
-# Builds the image that apps.tom-sabala.dev runs.
-#
-# Separate from docker-publish.yml on purpose. That workflow builds the origin-owning image
-# (no basePath, two architectures, upstream's namespace) and is a merge-conflict magnet every
-# time we pull from srbhr. This one owns a single deployment detail — the mount prefix, which
-# Next.js inlines at build time — and never needs to be reconciled with upstream.
+# Builds and pushes the image that apps.tom-sabala.dev runs: the `:apps-mount` tag,
+# built with BASE_PATH=/a/resume-matcher, which Next.js inlines at build time.
 name: Publish apps-mount image
 
 on:

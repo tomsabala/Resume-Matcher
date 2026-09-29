@@ -69,7 +69,6 @@ import {
 } from '@/lib/types/template-settings';
 import { readTemplateSettings, writeTemplateSettings } from '@/lib/utils/template-settings-storage';
 import { sectionHeading, visibleSections } from '@/lib/utils/section-helpers';
-import { useLanguage } from '@/lib/context/language-context';
 import { buildResumeFilename, downloadBlobAsFile, openUrlInNewTab } from '@/lib/utils/download';
 import { normalizeResumeForRender, normalizeResumeForSave } from '@/lib/utils/resume-normalization';
 import {
@@ -200,7 +199,6 @@ const clearResumeDraftStorageKey = (storageKey: string): void => {
 
 const ResumeBuilderContent = () => {
   const { t } = useTranslations();
-  const { uiLanguage, contentLanguage } = useLanguage();
   const [notificationDialog, setNotificationDialog] = useState<{
     title: string;
     description: string;
@@ -393,7 +391,6 @@ const ResumeBuilderContent = () => {
   // AI Regenerate wizard
   const regenerateWizard = useRegenerateWizard({
     resumeId: resumeId || '',
-    outputLanguage: contentLanguage,
     onSuccess: async () => {
       // Reload resume data after applying changes
       if (!resumeId) {
@@ -1083,7 +1080,7 @@ const ResumeBuilderContent = () => {
     }
     try {
       setIsDownloading(true);
-      const blob = await downloadResumePdf(resumeId, templateSettings, uiLanguage);
+      const blob = await downloadResumePdf(resumeId, templateSettings);
       const company = getCompanyFromTitle(resumeTitle);
       const userName = doc.header.name.trim() || null;
       const filename = buildResumeFilename(userName, company, resumeId, 'resume');
@@ -1098,7 +1095,7 @@ const ResumeBuilderContent = () => {
         error instanceof TypeError &&
         error.message.includes('Failed to fetch')
       ) {
-        const fallbackUrl = getResumePdfUrl(resumeId, templateSettings, uiLanguage);
+        const fallbackUrl = getResumePdfUrl(resumeId, templateSettings);
         const didOpen = openUrlInNewTab(fallbackUrl);
         if (!didOpen) {
           showNotification(t('common.popupBlocked', { url: fallbackUrl }), 'warning');
@@ -1224,7 +1221,7 @@ const ResumeBuilderContent = () => {
       if (!(await flushCoverLetterForExport())) {
         return;
       }
-      const blob = await downloadCoverLetterPdf(resumeId, templateSettings.pageSize, uiLanguage);
+      const blob = await downloadCoverLetterPdf(resumeId, templateSettings.pageSize);
       const company = getCompanyFromTitle(resumeTitle);
       const userName = doc.header.name.trim() || null;
       const filename = buildResumeFilename(userName, company, resumeId, 'cover-letter');
@@ -1232,7 +1229,7 @@ const ResumeBuilderContent = () => {
     } catch (error) {
       console.error('Failed to download cover letter:', error);
       if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-        const fallbackUrl = getCoverLetterPdfUrl(resumeId, templateSettings.pageSize, uiLanguage);
+        const fallbackUrl = getCoverLetterPdfUrl(resumeId, templateSettings.pageSize);
         const didOpen = openUrlInNewTab(fallbackUrl);
         if (!didOpen) {
           showNotification(t('common.popupBlocked', { url: fallbackUrl }), 'warning');

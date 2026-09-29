@@ -12,18 +12,19 @@ App Router under `app/`. A `(default)` route group wraps the main app in provide
 
 | Route                      | File                                   | Type                                                     | Purpose                                                                                             |
 | -------------------------- | -------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `/`                        | `app/(default)/page.tsx`               | Server                                                   | Landing — renders `<Hero/>`                                                                         |
+| `/`                        | `app/(default)/page.tsx`               | Server                                                   | Redirects to `/dashboard`                                                                           |
 | `/dashboard`               | `app/(default)/dashboard/page.tsx`     | Client                                                   | Resume list, upload, delete, retry, status grid                                                     |
 | `/builder`                 | `app/(default)/builder/page.tsx`       | Client wrapper → `components/builder/resume-builder.tsx` | Master-resume editor (forms, drag-drop sections, templates, AI regenerate, cover letter / outreach) |
 | `/tailor`                  | `app/(default)/tailor/page.tsx`        | Client                                                   | Paste JD → preview/confirm tailored resume (diff modal, per-row accept)                             |
 | `/tracker`                 | `app/(default)/tracker/page.tsx`       | Client                                                   | Kanban application tracker — 7-column board (drag/drop, bulk ops, manual add)                       |
-| `/settings`                | `app/(default)/settings/page.tsx`      | Client                                                   | LLM provider/model/key, per-provider API keys, features, prompts, language, reset DB                |
+| `/resume-wizard`           | `app/(default)/resume-wizard/page.tsx` | Client                                                   | AI-led wizard that builds a master resume one question at a time                                    |
+| `/settings`                | `app/(default)/settings/page.tsx`      | Client                                                   | LLM provider/model/key, per-provider API keys, features, prompts, reset DB                          |
 | `/resumes/[id]`            | `app/(default)/resumes/[id]/page.tsx`  | Client                                                   | View one resume, download PDF, rename, enrichment modal                                             |
 | `/compare`                 | `app/(default)/compare/page.tsx`       | Client                                                   | Structured diff of two documents — `?base=&head=` with `resume:<id>` / `version:<id>` tokens        |
-| `/print/resumes/[id]`      | `app/print/resumes/[id]/page.tsx`      | **Server**                                               | Print-only resume render for PDF (reads `searchParams` for template settings + `lang`)              |
+| `/print/resumes/[id]`      | `app/print/resumes/[id]/page.tsx`      | **Server**                                               | Print-only resume render for PDF (reads `searchParams` for template settings)                       |
 | `/print/cover-letter/[id]` | `app/print/cover-letter/[id]/page.tsx` | **Server**                                               | Print-only cover-letter render for PDF                                                              |
 
-`app/layout.tsx` (root) wires fonts (Geist + Space Grotesk) and global CSS. `app/(default)/layout.tsx` nests providers: `StatusCacheProvider` → `WorkspaceProvider` → `LanguageProvider` → `ResumePreviewProvider` → `LocalizedErrorBoundary`, then `AppHeader` + `main`.
+`app/layout.tsx` (root) wires fonts (Geist + Space Grotesk + Noto Sans SC/JP/KR) and global CSS. `app/(default)/layout.tsx` nests providers: `StatusCacheProvider` → `WorkspaceProvider` → `ResumePreviewProvider` → `LocalizedErrorBoundary`, then `AppHeader` + `main`.
 
 > Most pages are `'use client'`. The `print/*` pages are intentionally server components and fetch from the backend directly via `API_BASE` + `lib/i18n/server.ts` (`translate`). Do not add `'use client'` to them.
 
@@ -52,14 +53,14 @@ components/
   enrichment/        # AI enrichment wizard modal/steps
   versions/          # resume version history
   preview/           # paginated A4/Letter preview (use-pagination.ts)
-  home/              # hero, swiss-grid
+  home/              # swiss-grid
   settings/          # api-key-menu
   common/            # app-header, workspace-switcher, error-boundary,
                      #   resume_previewer_context
 lib/
   api/               # backend client (see Data Flow)
-  i18n/              # translation engine (see i18n)
-  context/           # status-cache, language-context, workspace-context
+  i18n/              # translation engine (see "UI copy")
+  context/           # status-cache, workspace-context
   utils/             # section-helpers, resume-normalization, resume-content,
                      #   keyword-matcher, download, html-sanitizer,
                      #   *-draft-storage, preview-error, tracker-column-visibility
@@ -68,8 +69,7 @@ lib/
   constants/page-dimensions.ts
 hooks/               # use-file-upload, use-regenerate-wizard, use-enrichment-wizard,
                      #   use-operation-owner
-i18n/config.ts       # locale list + names/flags (NOTE: distinct from lib/i18n)
-messages/            # en/es/zh/ja/pt-BR/fr/ko JSON (see i18n)
+messages/en.json     # the sole UI copy bundle
 tests/               # vitest (see Testing)
 ```
 
@@ -96,8 +96,7 @@ All backend calls go through **`lib/api/`** — never call `fetch` to the backen
 **Shared client state (React Context, not a fetch lib):**
 
 - `StatusCacheProvider` (`lib/context/status-cache.tsx`) — caches `/status` (LLM health 30min, DB stats 5min stale), with optimistic counter updates. Use `useStatusCache()` / `useIsStatusStale()`.
-- `LanguageProvider` (`lib/context/language-context.tsx`) — UI + content language, localStorage + backend sync. Use `useLanguage()`.
-- `WorkspaceProvider` (`lib/context/workspace-context.tsx`, mounted **outside** `LanguageProvider` because a workspace carries its own content language) — active workspace in `localStorage['rm.activeWorkspaceId']`, seeded into the API client on first render so the first fetch after a reload is already scoped. Use `useWorkspace()`; depend on its `revision` to refetch page data after a switch. Switching also drops workspace-bound local ids (`master_resume_id`, `resume_builder_draft`). The switcher is `components/common/workspace-switcher.tsx`, mounted by `components/common/app-header.tsx`.
+- `WorkspaceProvider` (`lib/context/workspace-context.tsx`) — active workspace in `localStorage['rm.activeWorkspaceId']`, seeded into the API client on first render so the first fetch after a reload is already scoped. Use `useWorkspace()`; depend on its `revision` to refetch page data after a switch. Switching also drops workspace-bound local ids (`master_resume_id`, `resume_builder_draft`). The switcher is `components/common/workspace-switcher.tsx`, mounted by `components/common/app-header.tsx`.
 
 > The **tracker board owns its state locally** — `components/tracker/kanban-board.tsx` holds the columns in `useState` and owns the single `@dnd-kit` `DndContext`. There is **no** `TrackerProvider` / tracker context; don't look for one.
 
@@ -161,38 +160,26 @@ See [custom-sections.md](../../docs/agent/features/custom-sections.md) and
 
 ---
 
-## i18n — READ THIS BEFORE TOUCHING TRANSLATIONS
+## UI copy — English only
 
-Two distinct settings, configured independently in Settings:
-
-- **UI language** — interface text, client-only (`uiLanguage`, localStorage).
-- **Content language** — language the LLM writes resumes/cover letters in (`contentLanguage`, persisted to backend).
-
-**Supported locales (source of truth = `i18n/config.ts`):** `en`, `es`, `zh`, `ja`, `pt`, `fr`, `ko` — seven (the `pt` file is `messages/pt-BR.json`, imported as `pt`; every other locale's file matches its code).
+There is no locale system: the app ships one bundle, `messages/en.json`, and no
+language setting. `i18n/config.ts` keeps `locales = ['en']` and `defaultLocale`
+so the types stay honest.
 
 Engine (no external i18n lib, plain JSON):
 
-- `i18n/config.ts` — `locales`, `defaultLocale='en'`, `localeNames`, `localeFlags`.
-- `lib/i18n/messages.ts` — static-imports every locale JSON; the critical types live here.
-- `lib/i18n/translations.ts` — `useTranslations()` returns `{ t, messages, locale }`; `t('a.b.c', params)` does dot-path lookup + `{placeholder}` substitution. Missing key returns the key string (no throw).
-- `lib/i18n/server.ts` — `translate(locale, key, params)` for server/print pages.
+- `lib/i18n/messages.ts` — static-imports `en.json`; `type Messages = typeof en`.
+- `lib/i18n/translations.ts` — `useTranslations()` returns `{ t, messages, locale: 'en' }`;
+  `t('a.b.c', params)` does dot-path lookup + `{placeholder}` substitution. A missing key
+  returns the key string (no throw). Components still destructure `locale` in places; it is
+  always `'en'`.
+- `lib/i18n/server.ts` — `translate('en', key, params)` for the server/print pages.
 
-### ⚠️ CRITICAL build-breaking constraint
+Date and number formatting uses the `'en-US'` literal at each call site, not a variable.
 
-`lib/i18n/messages.ts`:
-
-```ts
-export type Messages = typeof en; // shape derived from en.json
-const allMessages: Record<Locale, Messages> = { en, es, zh, ja, pt, fr, ko };
-```
-
-Because every locale is typed as `Messages` (= the exact shape of `en.json`), **every locale JSON must structurally match `en.json` exactly.** Add a key to `en.json` and the production `tsc` / `next build` FAILS until that same key path exists in `es`, `zh`, `ja`, `pt-BR`, `fr` and `ko`. (A real build break was caused by exactly this.)
-
-**When editing translations:** any key you add/remove/rename in `en.json` MUST be mirrored in all **seven** files (`en`, `es`, `zh`, `ja`, `pt-BR`, `fr`, `ko`) with identical structure. `npm run dev` may tolerate drift; the build will not.
-
-The tracker ships a `tracker.*` key tree (`columns`, `modal`, `manualAdd`, `bulk`, `errors`, `scroll`) plus `nav.applicationTracker`, present in every locale file — subject to the same parity rule.
-
-See [i18n.md](../../docs/agent/features/i18n.md), [i18n-preparation.md](../../docs/agent/features/i18n-preparation.md).
+The three Noto Sans CJK webfaces in `app/layout.tsx` and the `CJK_VARS` fallback in
+`lib/types/template-settings.ts` are **not** an i18n feature: they exist so an _uploaded_
+resume carrying a non-Latin name or employer renders as glyphs instead of tofu. Leave them.
 
 ---
 
@@ -224,7 +211,7 @@ Resume render templates have their own CSS modules in `components/resume/styles/
 # from apps/frontend
 npm install
 npm run dev       # next dev --turbopack (:3030)
-npm run build     # next build  (runs tsc — i18n shape drift fails HERE)
+npm run build     # next build  (runs tsc)
 npm run start
 npm run lint      # eslint .
 npm run format    # prettier --write .
@@ -239,7 +226,7 @@ Backend must run separately on :8000 (see root CLAUDE.md). Frontend proxies `/ap
 
 1. All UI MUST follow Swiss International Style (links above). `rounded-none`, 1px black borders, hard shadows, brand tokens.
 2. Run `npm run lint` and `npm run format` before committing frontend changes.
-3. Any `en.json` key change MUST be mirrored across all seven locale files (see i18n) or the build breaks.
+3. `messages/en.json` is the only copy bundle — the app is English-only; do not reintroduce per-locale files.
 4. **Textarea Enter-key pattern** — confirmed in code (e.g. `app/(default)/tailor/page.tsx`): when a textarea sits inside a dialog/form that submits on Enter, stop propagation:
    ```tsx
    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -257,7 +244,6 @@ Backend must run separately on :8000 (see root CLAUDE.md). Frontend proxies `/ap
 - **Lucide imports:** hot-path/page code imports icons from the deep path (`lucide-react/dist/esm/icons/x`) to avoid the barrel; `optimizePackageImports` in `next.config.ts` also tree-shakes lucide/tiptap/dnd-kit. Stay consistent.
 - **240s timeout** on AI calls (`apiFetch` default) — matches backend; don't shorten for improve/regenerate flows.
 - **`print/*` pages are server components** that read template settings from `searchParams` and call the backend via internal origin — keep them server-side.
-- Two i18n locations exist: `i18n/` (config) and `lib/i18n/` (engine). Don't confuse them.
 - ESLint disables `react-hooks/set-state-in-effect` (existing effects sync props/DOM measurements). Prettier rules run via ESLint (`prettier/prettier: error`).
 
 ---
@@ -268,13 +254,13 @@ Backend must run separately on :8000 (see root CLAUDE.md). Frontend proxies `/ap
 
 Specs (`tests/`):
 
-- **i18n** — `i18n-utils.test.ts` (`getNestedValue` dot-path + `applyParams` substitution), `i18n-locale-parity.test.ts` (every `messages/*.json` must structurally match `en.json` — the in-suite guard for the build break), `i18n-server.test.ts`.
+- **i18n** — `i18n-utils.test.ts` (`getNestedValue` dot-path + `applyParams` substitution), `i18n-server.test.ts`.
 - **resume document** — `section-registry.test.tsx` (every template renders every `SectionKind` from data, honours each bullet style, and omits hidden sections), `template-registration.test.ts` (template registry + font presets), `resume-content.test.ts`.
 - **lib/utils** — `keyword-matcher.test.ts`, `html-sanitizer.test.ts` (XSS whitelist), `download-utils.test.ts`, `resume-draft-storage.test.ts`, `tracker-column-visibility.test.ts`.
 - **lib/api** — `api-client.test.ts` (URL resolution, timeout/AbortError; `fetch` stubbed), `api-resume.test.ts`, `api-config.test.ts`, `api-tracker.test.ts`.
 - **components / lifecycles** — `diff-preview-modal.test.tsx`, `regenerate-wizard.test.tsx`, the `resume-builder-*`, `resume-viewer-*`, `dashboard-*`, `resume-wizard-*` and `wizard-hook-lifecycle` specs.
 
-Pure logic (i18n, utils, api) is tested directly with stubbed `fetch`/`t`; component specs render via Testing Library. The locale-parity spec mirrors `scripts/check_locale_parity.py` (which the pre-push hook also runs without Node). The local `pre-push` gate runs this vitest suite too when Node is available — `git config core.hooksPath .githooks`; see [`.githooks/README.md`](../../.githooks/README.md).
+Pure logic (i18n, utils, api) is tested directly with stubbed `fetch`/`t`; component specs render via Testing Library. `.github/workflows/tests.yml` runs this suite plus `tsc --noEmit` and eslint on pushes to `main`/`dev`; there is no pre-push hook.
 
 ---
 
@@ -285,10 +271,8 @@ Pure logic (i18n, utils, api) is tested directly with stubbed `fetch`/`t`; compo
 | Frontend architecture / user flow   | [frontend-architecture.md](../../docs/agent/architecture/frontend-architecture.md), [frontend-workflow.md](../../docs/agent/architecture/frontend-workflow.md)                                                                                                                                                                               |
 | Coding conventions                  | [coding-standards.md](../../docs/agent/coding-standards.md)                                                                                                                                                                                                                                                                                  |
 | API contracts                       | [front-end-apis.md](../../docs/agent/apis/front-end-apis.md), [api-flow-maps.md](../../docs/agent/apis/api-flow-maps.md)                                                                                                                                                                                                                     |
-| Scope / principles / process        | [scope-and-principles.md](../../docs/agent/scope-and-principles.md), [workflow.md](../../docs/agent/workflow.md)                                                                                                                                                                                                                             |
 | Swiss design system (MANDATORY)     | [pack README](../../docs/portable/swiss-design-system/README.md), [tokens](../../docs/portable/swiss-design-system/tokens.md), [components](../../docs/portable/swiss-design-system/components.md), [anti-patterns](../../docs/portable/swiss-design-system/anti-patterns.md), [layouts](../../docs/portable/swiss-design-system/layouts.md) |
 | Next.js performance (REQUIRED)      | [pack README](../../docs/portable/nextjs-performance/README.md), [checklist](../../docs/portable/nextjs-performance/checklist.md)                                                                                                                                                                                                            |
-| i18n                                | [i18n.md](../../docs/agent/features/i18n.md), [i18n-preparation.md](../../docs/agent/features/i18n-preparation.md)                                                                                                                                                                                                                           |
 | Resume templates / PDF              | [resume-templates.md](../../docs/agent/features/resume-templates.md), [template-system.md](../../docs/agent/design/template-system.md), [pdf-template-guide.md](../../docs/agent/design/pdf-template-guide.md), [adding-resume-templates.md](../../docs/agent/features/adding-resume-templates.md)                                           |
 | Resume sections / document contract | [custom-sections.md](../../docs/agent/features/custom-sections.md)                                                                                                                                                                                                                                                                           |
 | AI enrichment                       | [enrichment.md](../../docs/agent/features/enrichment.md)                                                                                                                                                                                                                                                                                     |

@@ -1,39 +1,31 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useLanguage } from '@/lib/context/language-context';
+import { useCallback } from 'react';
 import type { Locale } from '@/i18n/config';
 import { getMessages as getMessagesForLocale, type Messages } from './messages';
 import { applyParams, getNestedValue } from './utils';
 
+const messages = getMessagesForLocale('en');
+
 /**
- * Hook to get translations for the current UI language
+ * Hook to get the UI copy. The app is English-only, so the bundle is a
+ * module-level constant; the hook survives as the components' single
+ * translation entry point.
  *
  * Usage:
  * const { t } = useTranslations();
  * <button>{t('common.save')}</button>
  */
 export function useTranslations() {
-  const { uiLanguage } = useLanguage();
-  const [messages, setMessages] = useState<Messages>(getMessagesForLocale(uiLanguage));
-
-  useEffect(() => {
-    setMessages(getMessagesForLocale(uiLanguage));
-  }, [uiLanguage]);
-
   /**
-   * Translate a key to the current language
-   * Supports dot notation for nested keys: t('common.save')
+   * Translate a key. Supports dot notation for nested keys: t('common.save')
    */
-  const t = useCallback(
-    (key: string, params?: Record<string, string | number>): string => {
-      const translation = getNestedValue(messages as unknown as Record<string, unknown>, key);
-      return applyParams(translation, params);
-    },
-    [messages]
-  );
+  const t = useCallback((key: string, params?: Record<string, string | number>): string => {
+    const translation = getNestedValue(messages as unknown as Record<string, unknown>, key);
+    return applyParams(translation, params);
+  }, []);
 
-  return { t, messages, locale: uiLanguage };
+  return { t, messages, locale: 'en' as const };
 }
 
 /**

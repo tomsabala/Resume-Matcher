@@ -21,7 +21,7 @@ from app import __version__
 from app.ai_budget import operation_error_content
 from app.config import settings
 from app.database import DatabaseBusyError, db
-from app.pdf import close_pdf_renderer, init_pdf_renderer
+from app.pdf import close_pdf_renderer
 from app.routers import (
     applications_router,
     config_router,
@@ -134,13 +134,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Migrate the schema and warm the workspace lookup before serving, so no
     # request pays cold start inside its own AI deadline.
     await db.ensure_ready()
-    # Import a legacy TinyDB database into SQLite if present (idempotent).
-    # Fail-fast on error: starting with an empty DB would look like data loss.
-    from app.scripts.migrate_tinydb_to_sqlite import migrate as migrate_tinydb
-
-    result = await migrate_tinydb()
-    if result.get("status") == "migrated":
-        logger.info("Startup data migration: %s", result)
     # Fold any legacy plaintext API keys into the encrypted store (idempotent,
     # non-clobbering), then strip them from config.json.
     from app.config import migrate_legacy_keys
@@ -150,8 +143,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     purge_task: asyncio.Task[None] | None = None
     if settings.tenant_mode == "header":
         purge_task = asyncio.create_task(_purge_idle_anonymous_tenants())
-    # PDF renderer uses lazy initialization - will initialize on first use
-    # await init_pdf_renderer()
     yield
     if purge_task is not None:
         purge_task.cancel()

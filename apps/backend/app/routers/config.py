@@ -15,8 +15,6 @@ from app.schemas import (
     FeatureConfigResponse,
     FeaturePromptsRequest,
     FeaturePromptsResponse,
-    LanguageConfigRequest,
-    LanguageConfigResponse,
     PromptConfigRequest,
     PromptConfigResponse,
     PromptOption,
@@ -88,7 +86,6 @@ _FEATURE_KEYS = (
     "enable_outreach_message",
     "enable_interview_prep",
 )
-_LANGUAGE_KEYS = ("ui_language", "content_language")
 _PROMPT_KEYS = ("default_prompt_id",)
 _FEATURE_PROMPT_KEYS = ("cover_letter_prompt", "outreach_message_prompt")
 
@@ -319,64 +316,6 @@ async def update_feature_config(
         enable_cover_letter=stored.get("enable_cover_letter", False),
         enable_outreach_message=stored.get("enable_outreach_message", False),
         enable_interview_prep=stored.get("enable_interview_prep", False),
-    )
-
-
-# Supported languages for i18n
-SUPPORTED_LANGUAGES = ["en", "es", "zh", "ja", "pt", "fr", "ko"]
-
-
-@router.get("/language", response_model=LanguageConfigResponse)
-async def get_language_config(workspace_id: WorkspaceId) -> LanguageConfigResponse:
-    """Get current language configuration."""
-    stored = _load_config(workspace_id)
-
-    # Support legacy single 'language' field migration
-    legacy_language = stored.get("language", "en")
-
-    return LanguageConfigResponse(
-        ui_language=stored.get("ui_language", legacy_language),
-        content_language=stored.get("content_language", legacy_language),
-        supported_languages=SUPPORTED_LANGUAGES,
-    )
-
-
-@router.put("/language", response_model=LanguageConfigResponse)
-async def update_language_config(
-    request: LanguageConfigRequest,
-    workspace_id: WorkspaceId,
-) -> LanguageConfigResponse:
-    """Update language configuration."""
-    stored = _load_config(workspace_id)
-
-    # Validate and update UI language
-    if request.ui_language is not None:
-        if request.ui_language not in SUPPORTED_LANGUAGES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported UI language: {request.ui_language}. Supported: {SUPPORTED_LANGUAGES}",
-            )
-        stored["ui_language"] = request.ui_language
-
-    # Validate and update content language
-    if request.content_language is not None:
-        if request.content_language not in SUPPORTED_LANGUAGES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported content language: {request.content_language}. Supported: {SUPPORTED_LANGUAGES}",
-            )
-        stored["content_language"] = request.content_language
-
-    # Save config
-    await _save_overrides(workspace_id, stored, _LANGUAGE_KEYS)
-
-    # Support legacy single 'language' field migration
-    legacy_language = stored.get("language", "en")
-
-    return LanguageConfigResponse(
-        ui_language=stored.get("ui_language", legacy_language),
-        content_language=stored.get("content_language", legacy_language),
-        supported_languages=SUPPORTED_LANGUAGES,
     )
 
 

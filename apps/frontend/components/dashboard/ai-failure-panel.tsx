@@ -31,7 +31,7 @@ const KIND_LABEL_KEY: Record<AIFailureKind, string> = {
  * says what to change.
  */
 export function AIFailurePanel({ revision = 0 }: { revision?: number }) {
-  const { t, locale } = useTranslations();
+  const { t } = useTranslations();
   const [failures, setFailures] = useState<AIFailure[]>([]);
   const [isDismissing, setIsDismissing] = useState(false);
 
@@ -98,7 +98,7 @@ export function AIFailurePanel({ revision = 0 }: { revision?: number }) {
                 {failure.operation}
               </span>
               <time dateTime={failure.at} className="ml-auto font-mono text-[11px] text-steel-grey">
-                {new Date(failure.at).toLocaleString(locale)}
+                {new Date(failure.at).toLocaleString('en-US')}
               </time>
             </div>
             <p className="mt-1 font-mono text-[11px] break-words text-ink-soft">{failure.detail}</p>

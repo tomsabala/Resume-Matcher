@@ -41,7 +41,6 @@ import {
   type TemplateSettings,
 } from '@/lib/types/template-settings';
 import { readTemplateSettings } from '@/lib/utils/template-settings-storage';
-import { useLanguage } from '@/lib/context/language-context';
 import { downloadBlobAsFile, openUrlInNewTab, sanitizeFilename } from '@/lib/utils/download';
 import { useOperationOwner } from '@/hooks/use-operation-owner';
 
@@ -53,7 +52,6 @@ export default function ResumeViewerPage() {
   useLayoutEffect(() => {
     translationsRef.current = t;
   }, [t]);
-  const { uiLanguage } = useLanguage();
   const params = useParams();
   const router = useRouter();
   const { decrementResumes, setHasMasterResume } = useStatusCache();
@@ -300,7 +298,7 @@ export default function ResumeViewerPage() {
     setIsDownloading(true);
     try {
       setDownloadError(null);
-      const blob = await downloadResumePdf(resumeId, templateSettings, uiLanguage);
+      const blob = await downloadResumePdf(resumeId, templateSettings);
       const filename = sanitizeFilename(resumeTitle, resumeId, 'resume');
       downloadBlobAsFile(blob, filename);
       if (!isCurrentDownload(token)) return;
@@ -310,7 +308,7 @@ export default function ResumeViewerPage() {
       console.error('Failed to download resume:', err);
       // A LaTeX template is compiled, so it has no browser-openable URL.
       if (!usesTexEngine && err instanceof TypeError && err.message.includes('Failed to fetch')) {
-        const fallbackUrl = getResumePdfUrl(resumeId, templateSettings, uiLanguage);
+        const fallbackUrl = getResumePdfUrl(resumeId, templateSettings);
         const didOpen = openUrlInNewTab(fallbackUrl);
         if (!didOpen) {
           setDownloadError(t('common.popupBlocked', { url: fallbackUrl }));

@@ -353,7 +353,7 @@ async def test_auxiliary_timeout_keeps_completed_output_and_returns_warning(
 
     cover, outreach, title_value, interview, warnings = (
         await resumes._generate_auxiliary_messages(
-            {}, "Engineer", "en", True, False, False
+            {}, "Engineer", True, False, False
         )
     )
 
@@ -601,7 +601,7 @@ async def test_auxiliary_boundary_failure_is_not_an_optional_item_error(
     kind = AIOperationDeadlineExceeded if failure == "deadline" else PromptSizeError
     monkeypatch.setattr(resumes, "generate_resume_title", AsyncMock(side_effect=kind("synthetic boundary")))
     with pytest.raises(kind):
-        await resumes._generate_auxiliary_messages({}, "Engineer", "en", False, False, False)
+        await resumes._generate_auxiliary_messages({}, "Engineer", False, False, False)
 
 
 @pytest.mark.parametrize("failure", ["deadline", "prompt"])

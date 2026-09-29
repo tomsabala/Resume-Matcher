@@ -72,7 +72,6 @@ class TestGenerateResumeDiffs:
             original_resume="# Resume markdown",
             job_description=sample_job_description,
             job_keywords=sample_job_keywords,
-            language="en",
             prompt_id="keywords",
             original_resume_data=sample_resume,
         )
@@ -253,7 +252,6 @@ class TestSkillTargetPlanning:
             original_resume_data=sample_resume,
             job_description=sample_job_description,
             job_keywords=sample_job_keywords,
-            language="en",
         )
         assert [item["skill"] for item in result["target_skills"]] == [
             "Python",
@@ -376,7 +374,6 @@ class TestImproveResume:
             original_resume="# Resume markdown",
             job_description=sample_job_description,
             job_keywords=sample_job_keywords,
-            language="en",
             prompt_id="keywords",
             original_resume_data=sample_resume,
         )

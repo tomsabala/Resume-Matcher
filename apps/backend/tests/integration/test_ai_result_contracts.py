@@ -609,7 +609,6 @@ async def test_auxiliary_blank_and_failed_outputs_become_durable_warnings(
         "_load_config",
         lambda: {"enable_cover_letter": True, "enable_outreach_message": True},
     )
-    monkeypatch.setattr(resumes, "get_content_language", lambda: "en")
     monkeypatch.setattr(
         resumes, "generate_resume_title", AsyncMock(return_value="   ")
     )

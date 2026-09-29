@@ -10,15 +10,12 @@ Generic, reusable guides (Swiss design system, Next.js performance) live in [`..
 
 | Doc                                             | Purpose                       |
 | ----------------------------------------------- | ----------------------------- |
-| [scope-and-principles](scope-and-principles.md) | Rules, what's in/out of scope |
 | [quickstart](quickstart.md)                     | Install, run, test commands   |
-| [workflow](workflow.md)                         | Git, PRs, testing             |
 | [coding-standards](coding-standards.md)         | Frontend/backend conventions  |
+| [testing-strategy](testing-strategy.md)         | How the suites are run and kept honest |
 | [backlog](backlog.md)                           | Deferred work (issues are off) |
 
 ### Architecture
-
-See the [hosted review corrections](architecture/hosted-review-corrections.md) for the verified PR stack, per-comment outcomes and full file inventory.
 
 | Doc                                                              | Purpose                                                         |
 | ---------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -26,10 +23,8 @@ See the [hosted review corrections](architecture/hosted-review-corrections.md) f
 | [backend-guide](architecture/backend-guide.md)                   | Module-by-module backend tour                                   |
 | [frontend-architecture](architecture/frontend-architecture.md)   | Components, pages, state                                        |
 | [frontend-workflow](architecture/frontend-workflow.md)           | User flows in the frontend                                      |
-| [reliability-map](architecture/reliability-map.md)               | File/flow ownership, issue map and regression commands          |
 | [ai-operation-budgets](architecture/ai-operation-budgets.md)     | End-to-end deadlines, collection/source limits and cancellation |
 | [storage-transactions](architecture/storage-transactions.md)     | Atomic master, job and tracker writes                           |
-| [prompt-workflow-design](architecture/prompt-workflow-design.md) | Improver pipeline design (superseded — historical)              |
 
 ### APIs
 
@@ -45,10 +40,6 @@ See the [hosted review corrections](architecture/hosted-review-corrections.md) f
 | ---------------------------------------------------------------------------- | --------------------------------- |
 | [template-system](design/template-system.md)                                 | Resume template architecture      |
 | [pdf-template-guide](design/pdf-template-guide.md)                           | PDF rendering pipeline            |
-| [print-pdf-design-spec](design/print-pdf-design-spec.md)                     | Print/PDF design spec             |
-| [resume-template-design-spec](design/resume-template-design-spec.md)         | Resume template design spec       |
-| [templates/swiss-single-spec](design/templates/swiss-single-spec.md)         | Single-column Swiss template spec |
-| [templates/swiss-two-column-spec](design/templates/swiss-two-column-spec.md) | Two-column Swiss template spec    |
 
 > **For the design system itself** (colors, components, anti-patterns), see the portable pack: [`../portable/swiss-design-system/`](../portable/swiss-design-system/README.md)
 
@@ -64,8 +55,8 @@ See the [hosted review corrections](architecture/hosted-review-corrections.md) f
 | [enrichment](features/enrichment.md)                           | AI enrichment flow                                       |
 | [jd-match](features/jd-match.md)                               | Job description matching                                 |
 | [preview-confirmation](features/preview-confirmation.md)       | Durable preview identity, atomic confirmation and replay |
-| [i18n](features/i18n.md)                                       | Internationalization                                     |
-| [i18n-preparation](features/i18n-preparation.md)               | i18n setup notes                                         |
+| [multi-tenancy](features/multi-tenancy.md)                     | Tenant modes, gateway headers, workspace ownership       |
+| [application-tracker](features/application-tracker.md)         | Kanban tracker: columns, cards, bulk operations          |
 
 ### LLM Integration
 
@@ -100,7 +91,7 @@ apps/
 
 ## How to Use
 
-**New tasks:** Read `scope-and-principles` → `quickstart` → `workflow`
+**New tasks:** Read `quickstart` → `coding-standards`
 
 **Backend changes:** `backend-architecture` → `front-end-apis` → `llm-integration`
 

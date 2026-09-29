@@ -24,15 +24,14 @@ function routeTitleKey(pathname: string): string | null {
  * Route-aware top bar: back chevron on detail routes, the route title, and the
  * workspace switcher.
  *
- * Hidden on the landing page and on print routes, which are full-bleed
- * surfaces with no chrome.
+ * Hidden on print routes, which are full-bleed surfaces with no chrome.
  */
 export function AppHeader() {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useTranslations();
 
-  if (pathname === '/' || pathname.startsWith('/print')) return null;
+  if (pathname.startsWith('/print')) return null;
 
   const titleKey = routeTitleKey(pathname);
 

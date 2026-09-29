@@ -2,19 +2,16 @@
 
 An **opt-in, on-demand** harness that drives the real Resume-Matcher app end to end, captures a durable evidence bundle, and has a Claude Code skill judge it. It is a **report, never a gate** — it informs; it never blocks a push and is never wired into CI.
 
-- Design spec: [`docs/superpowers/specs/2026-06-01-agentic-e2e-monitor-design.md`](../../../docs/superpowers/specs/2026-06-01-agentic-e2e-monitor-design.md)
-- Implementation plan: [`docs/superpowers/plans/2026-06-01-agentic-e2e-monitor.md`](../../../docs/superpowers/plans/2026-06-01-agentic-e2e-monitor.md)
-
 ---
 
 ## Install
 
 ```bash
 cd apps/backend
-uv sync --extra dev --extra e2e-monitor   # keep dev so test deps / the pre-push gate keep working
+uv sync --extra dev --extra e2e-monitor   # keep dev so test deps keep working
 ```
 
-The `e2e-monitor` extra is only needed for the PDF text probe (pypdf-based non-blank check). The harness runs without it, degrading the non-blank check to a header+size heuristic. It is **not** part of the default `uv sync` or `--extra dev` (so random clones are unaffected) — sync it *alongside* `dev`, as above, so opting in doesn't remove your test deps (a bare `uv sync --extra e2e-monitor` would, and then the pre-push gate can't run pytest).
+The `e2e-monitor` extra is only needed for the PDF text probe (pypdf-based non-blank check). The harness runs without it, degrading the non-blank check to a header+size heuristic. It is **not** part of the default `uv sync` or `--extra dev` (so random clones are unaffected) — sync it *alongside* `dev`, as above, so opting in doesn't remove your test deps (a bare `uv sync --extra e2e-monitor` would, and then `pytest` has no test deps).
 
 ---
 
@@ -81,7 +78,7 @@ This harness is designed so that cloning the repo and running normal workflows i
 | Optional extra (`--extra e2e-monitor`) | Not pulled in by `uv sync` or `--extra dev` |
 | `RM_E2E_MONITOR=1` opt-in | Every entry point checks the gate; inert without the env var |
 | Import safety | Importing the package does not start a sweep; deterministic tests exercise its helpers |
-| Not in the pre-push hook | `.githooks/pre-push` runs `pytest` only — no e2e sweep |
+| Not in CI | `.github/workflows/tests.yml` runs `pytest`/`vitest` only — no e2e sweep |
 | Gitignored skill | `.claude/skills/monitor-e2e/` is gitignored; the playbook source is committed but the runnable skill is local-only |
 | Isolated `DATA_DIR` | Resume/job writes use a fresh SQLite database; the opted-in parent reads only configured settings and selected credentials |
 

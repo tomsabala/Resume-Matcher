@@ -13,7 +13,9 @@
 ```bash
 # Backend (from repo root)
 cd apps/backend
-uv sync
+uv sync --extra dev
+uv run playwright install chromium
+uv run alembic upgrade head
 
 # Frontend (from repo root)
 cd apps/frontend

@@ -49,7 +49,6 @@ async def create_workspace(
     try:
         workspace = await db.create_workspace(
             name=request.name.strip(),
-            content_language=request.content_language,
             tenant_ref=tenant.tenant_ref,
             is_anonymous=tenant.is_anonymous,
         )

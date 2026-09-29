@@ -1,15 +1,8 @@
-# The test gate.
+# The test gate — the only one. There is no pre-push hook; everything that
+# guards this repo runs here.
 #
 # Runs on pushes to our own long-lived branches and on manual dispatch — NOT on
-# `pull_request`. That is deliberate and is the whole reason this used to live in
-# a pre-push hook: the repo takes a high volume of external contributor PRs, and a
-# PR-triggered workflow would run on every one of them.
-#
-# What changed is where it runs, not what it checks. The hook was costing 12-15
-# minutes of a developer's own machine per push, serially, blocking their
-# terminal, and paid again for every one-line fixup. The hook now runs only the
-# checks that are fast enough to be free (see .githooks/pre-push); everything
-# expensive runs here, in parallel, on a runner.
+# `pull_request`, so a fork's PR cannot spend runner minutes on its own.
 name: Tests
 
 on:
@@ -42,7 +35,7 @@ jobs:
         working-directory: apps/backend
         run: uv sync --extra dev
 
-      # Without these the runner is a weaker gate than the hook it replaced.
+      # Without these the runner would silently test less than it claims to.
       # Measured, not guessed — `-rs` on the first green run named every skip:
       #   53 "no LaTeX engine installed", and before that "Chromium unavailable"
       #   plus a multilingual PDF test failing for want of CJK glyphs.
@@ -89,11 +82,6 @@ jobs:
       - name: Install dependencies
         working-directory: apps/frontend
         run: npm ci
-
-      # Guards the i18n mismatch that once broke `next build` and only surfaced
-      # post-merge in the Docker job. Pure Python, no Node needed.
-      - name: Locale parity
-        run: python3 scripts/check_locale_parity.py
 
       - name: vitest
         working-directory: apps/frontend

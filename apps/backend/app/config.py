@@ -554,11 +554,6 @@ class Settings(BaseSettings):
     data_dir: Path = Path(__file__).parent.parent / "data"
 
     @property
-    def db_path(self) -> Path:
-        """Path to the legacy TinyDB database file (migration source only)."""
-        return self.data_dir / "database.json"
-
-    @property
     def sqlite_path(self) -> Path:
         """Path to the SQLite database file (primary data store)."""
         return self.data_dir / "resume_matcher.db"

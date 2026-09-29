@@ -64,7 +64,7 @@ interface ManagedResume {
 }
 
 export default function DashboardPage() {
-  const { t, locale } = useTranslations();
+  const { t } = useTranslations();
   const { revision } = useWorkspace();
   const [masterResumeId, setMasterResumeId] = useState<string | null>(null);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>('loading');
@@ -124,9 +124,7 @@ export default function DashboardPage() {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return t('common.unknown');
 
-    // Intl resolves plain language tags itself; the old ternary silently sent
-    // ko/fr/pt to en-US. Every other call site already passes `locale` directly.
-    return date.toLocaleDateString(locale, {
+    return date.toLocaleDateString('en-US', {
       month: 'short',
       day: '2-digit',
       year: 'numeric',

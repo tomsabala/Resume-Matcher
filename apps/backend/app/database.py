@@ -323,7 +323,6 @@ class Database:
             "workspace_id": row.workspace_id,
             "name": row.name,
             "slug": row.slug,
-            "content_language": row.content_language,
             "is_default": row.is_default,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
@@ -413,7 +412,6 @@ class Database:
         *,
         name: str,
         slug: str,
-        content_language: str = "en",
         is_default: bool = False,
         tenant_ref: str = SINGLE_TENANT_REF,
         is_anonymous: bool = False,
@@ -434,7 +432,6 @@ class Database:
             workspace_id=str(uuid4()),
             name=name,
             slug=candidate,
-            content_language=content_language,
             is_default=is_default,
             tenant_ref=tenant_ref,
             is_anonymous=is_anonymous,
@@ -449,7 +446,6 @@ class Database:
         self,
         *,
         name: str,
-        content_language: str = "en",
         tenant_ref: str = SINGLE_TENANT_REF,
         is_anonymous: bool = False,
     ) -> dict[str, Any]:
@@ -468,7 +464,6 @@ class Database:
                 session,
                 name=name,
                 slug=slugify_workspace_name(name),
-                content_language=content_language,
                 is_default=any_existing is None,
                 tenant_ref=tenant_ref,
                 is_anonymous=is_anonymous,
@@ -507,8 +502,6 @@ class Database:
                 row.is_default = True
             if "name" in updates and updates["name"]:
                 row.name = updates["name"]
-            if "content_language" in updates and updates["content_language"]:
-                row.content_language = updates["content_language"]
             row.updated_at = _now()
             await session.commit()
             self._default_workspace_cache = None

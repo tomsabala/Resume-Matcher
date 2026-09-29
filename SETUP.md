@@ -1,46 +1,36 @@
 # Resume Matcher Setup Guide
 
-[**English**](SETUP.md) | [Español](SETUP.es.md) | [简体中文](SETUP.zh-CN.md) | [日本語](SETUP.ja.md)
-
-Welcome! This guide will walk you through setting up Resume Matcher on your local machine. Whether you're a developer looking to contribute or someone who wants to run the application locally, this guide has you covered.
+Everything needed to run this fork locally or in Docker.
 
 ---
 
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Step-by-Step Setup](#step-by-step-setup)
-  - [1. Clone the Repository](#1-clone-the-repository)
-  - [2. Backend Setup](#2-backend-setup)
-  - [3. Frontend Setup](#3-frontend-setup)
-- [Configuring Your AI Provider](#configuring-your-ai-provider)
-  - [Option A: Cloud Providers](#option-a-cloud-providers)
-  - [Option B: Local AI with Ollama](#option-b-local-ai-with-ollama-free)
-- [Docker Deployment](#docker-deployment)
-- [Accessing the Application](#accessing-the-application)
-- [Common Commands Reference](#common-commands-reference)
+- [Backend setup](#backend-setup)
+- [Frontend setup](#frontend-setup)
+- [Provider configuration](#provider-configuration)
+- [Docker](#docker)
+- [Accessing the application](#accessing-the-application)
+- [Command reference](#command-reference)
+- [Environment variables](#environment-variables)
 - [Troubleshooting](#troubleshooting)
-- [Project Structure Overview](#project-structure-overview)
-- [Getting Help](#getting-help)
+- [Project structure](#project-structure)
+- [Testing and CI](#testing-and-ci)
 
 ---
 
 ## Prerequisites
 
-Before you begin, make sure you have the following installed on your system:
+| Tool | Minimum | Check |
+|---|---|---|
+| Python | 3.13+ | `python --version` |
+| Node.js | 22+ | `node --version` |
+| npm | 10+ | `npm --version` |
+| uv | latest | `uv --version` |
+| Git | any | `git --version` |
 
-| Tool | Minimum Version | How to Check | Installation |
-|------|-----------------|--------------|--------------|
-| **Python** | 3.13+ | `python --version` | [python.org](https://python.org) |
-| **Node.js** | 22+ | `node --version` | [nodejs.org](https://nodejs.org) |
-| **npm** | 10+ | `npm --version` | Comes with Node.js |
-| **uv** | Latest | `uv --version` | [astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) |
-| **Git** | Any | `git --version` | [git-scm.com](https://git-scm.com) |
-
-### Installing uv (Python Package Manager)
-
-Resume Matcher uses `uv` for fast, reliable Python dependency management. Install it with:
+Installing uv:
 
 ```bash
 # macOS/Linux
@@ -55,425 +45,223 @@ pip install uv
 
 ---
 
-## Quick Start
-
-If you're familiar with development tools and want to get running quickly:
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/srbhr/Resume-Matcher.git
-cd Resume-Matcher
-
-# 2. Start the backend (Terminal 1)
-cd apps/backend
-cp .env.example .env        # Create config from template
-uv sync                      # Install Python dependencies
-uv run app
-
-# 3. Start the frontend (Terminal 2)
-cd apps/frontend
-npm install                  # Install Node.js dependencies
-npm run dev                  # Start the dev server
-```
-
-Open your browser to **<http://localhost:3030>** and you're ready to go!
-
-> **Note:** You'll need to configure an AI provider before using the app. See [Configuring Your AI Provider](#configuring-your-ai-provider) below.
-
----
-
-## Step-by-Step Setup
-
-### 1. Clone the Repository
-
-First, get the code on your machine:
-
-```bash
-git clone https://github.com/srbhr/Resume-Matcher.git
-cd Resume-Matcher
-```
-
-### 2. Backend Setup
-
-The backend is a Python FastAPI application that handles AI processing, resume parsing, and data storage.
-
-#### Navigate to the backend directory
+## Backend setup
 
 ```bash
 cd apps/backend
-```
-
-#### Create your environment file
-
-```bash
 cp .env.example .env
 ```
 
-#### Edit the `.env` file with your preferred text editor
-
-```bash
-# macOS/Linux
-nano .env
-
-# Or use any editor you prefer
-code .env   # VS Code
-```
-
-The most important setting is your AI provider. Here's a minimal configuration for OpenAI:
+A minimal working `.env`:
 
 ```env
 LLM_PROVIDER=openai
 LLM_MODEL=gpt-5-nano-2025-08-07
 LLM_API_KEY=sk-your-api-key-here
 
-# Keep these as default for local development
+# REQUIRED — the backend refuses to start without it.
+# single = private instance, no authentication: anyone who can reach the port
+# owns the data. Correct on your own machine, wrong on a shared host.
+TENANT_MODE=single
+
 HOST=0.0.0.0
 PORT=8000
 FRONTEND_BASE_URL=http://localhost:3030
-CORS_ORIGINS=["http://localhost:3030", "http://127.0.0.1:3030"]
+CORS_ORIGINS=["http://localhost:3030","http://127.0.0.1:3030"]
 ```
 
-#### Install Python dependencies
+Then:
 
 ```bash
-uv sync
+uv sync --extra dev                  # dev deps live in [project.optional-dependencies]
+uv run playwright install chromium   # required by every PDF endpoint
+uv run alembic upgrade head          # Alembic owns the schema
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
-This creates a virtual environment and installs all required packages.
+`RELOAD=true uv run app` is the equivalent using the project's own entry point.
 
-#### Start the backend server
-
-```bash
-RELOAD=true uv run app
-```
-
-You should see output like:
-
-```
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process
-```
-
-**Keep this terminal running** and open a new terminal for the frontend.
-
-### 3. Frontend Setup
-
-The frontend is a Next.js application that provides the user interface.
-
-#### Navigate to the frontend directory
-
-```bash
-cd apps/frontend
-```
-
-#### (Optional) Create a frontend environment file
-
-This is only needed if your backend runs on a different port:
-
-```bash
-cp .env.sample .env.local
-```
-
-#### Install Node.js dependencies
-
-```bash
-npm install
-```
-
-#### Start the development server
-
-```bash
-npm run dev
-```
-
-You should see:
-
-```
-▲ Next.js 16.x.x (Turbopack)
-- Local:        http://localhost:3030
-```
-
-Open **<http://localhost:3030>** in your browser. You should see the Resume Matcher dashboard!
+The SQLite database, the encrypted API-key store and the Fernet secret all live in
+`apps/backend/data/` and are git-ignored.
 
 ---
 
-## Configuring Your AI Provider
+## Frontend setup
 
-Resume Matcher supports multiple AI providers. You can configure your provider through the Settings page in the app, or by editing the backend `.env` file.
-
-### Option A: Cloud Providers
-
-| Provider | Configuration | Get API Key |
-|----------|--------------|-------------|
-| **OpenAI** | `LLM_PROVIDER=openai`<br>`LLM_MODEL=gpt-5-nano-2025-08-07` | [platform.openai.com](https://platform.openai.com/api-keys) |
-| **Azure AI Foundry** | `LLM_PROVIDER=azure_foundry`<br>`LLM_MODEL=mistral-large-latest`<br>`LLM_API_BASE=https://<resource>.services.ai.azure.com/models`<br>For Foundry-hosted Azure OpenAI GPT deployments, use the service root or the full `/openai/v1/responses` endpoint from Foundry. | Azure AI Foundry endpoint/key |
-| **Anthropic** | `LLM_PROVIDER=anthropic`<br>`LLM_MODEL=claude-haiku-4-5-20251001` | [console.anthropic.com](https://console.anthropic.com/) |
-| **Google Gemini** | `LLM_PROVIDER=gemini`<br>`LLM_MODEL=gemini/gemini-3-flash-preview` | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
-| **OpenRouter** | `LLM_PROVIDER=openrouter`<br>`LLM_MODEL=deepseek/deepseek-chat` | [openrouter.ai](https://openrouter.ai/keys) |
-| **DeepSeek** | `LLM_PROVIDER=deepseek`<br>`LLM_MODEL=deepseek-chat` | [platform.deepseek.com](https://platform.deepseek.com/) |
-| **OpenAI-Compatible** | `LLM_PROVIDER=openai_compatible`<br>`LLM_MODEL=llama-3.1-8b`<br>`LLM_API_BASE=http://localhost:8080/v1` | — (local) |
-
-**OpenAI-Compatible** targets any local server that exposes the OpenAI Chat Completions API — llama.cpp, vLLM, LM Studio, etc. API key is optional.
-
-Example `.env` for Anthropic:
-
-```env
-LLM_PROVIDER=anthropic
-LLM_MODEL=claude-haiku-4-5-20251001
-LLM_API_KEY=sk-ant-your-key-here
+```bash
+cd apps/frontend
+cp .env.sample .env.local   # optional; every value has a working default
+npm install
+npm run dev                 # http://localhost:3030
 ```
 
-### Option B: Local AI with Ollama (Free)
+Port 3030 comes from `-p 3030` in the `dev` script, not from the environment. Next reads `PORT`
+when it parses argv and the backend reads `PORT` too, so never export `PORT` shell-wide for both
+processes — change the port with `npm run dev -- -p 3001` and update `FRONTEND_BASE_URL` and
+`CORS_ORIGINS` in the backend `.env` to match.
 
-Want to run AI models locally without API costs? Use Ollama!
+---
 
-#### Step 1: Install Ollama
+## Provider configuration
 
-Download and install from [ollama.com](https://ollama.com)
+Set these in `apps/backend/.env`, or in the Settings UI at
+<http://localhost:3030/settings> (which stores keys encrypted in SQLite).
 
-#### Step 2: Pull a model
+| `LLM_PROVIDER` | Example `LLM_MODEL` | `LLM_API_BASE` |
+|---|---|---|
+| `openai` | `gpt-5-nano-2025-08-07` | — |
+| `openai_compatible` | `llama-3.1-8b` | `http://localhost:8080/v1` (llama.cpp, vLLM, LM Studio; key optional) |
+| `azure_foundry` | `mistral-large-latest` | `https://<resource>.services.ai.azure.com/models` |
+| `anthropic` | `claude-haiku-4-5-20251001` | — |
+| `openrouter` | `deepseek/deepseek-chat` | — |
+| `gemini` | `gemini/gemini-3-flash-preview` | — |
+| `deepseek` | `deepseek-chat` | — |
+| `groq` | `llama-3.3-70b-versatile` | — |
+| `ollama` | `gemma3:4b` | `http://localhost:11434` |
+
+### Ollama
 
 ```bash
 ollama pull gemma3:4b
+ollama serve
 ```
-
-Other good options: `llama3.2`, `mistral`, `codellama`, `neural-chat`
-
-#### Step 3: Configure your `.env`
 
 ```env
 LLM_PROVIDER=ollama
 LLM_MODEL=gemma3:4b
 LLM_API_BASE=http://localhost:11434
-# LLM_API_KEY is not needed for Ollama
+# LLM_API_KEY is not needed
 ```
 
-#### Step 4: Make sure Ollama is running
-
-```bash
-ollama serve
-```
-
-Ollama typically starts automatically after installation.
+From Docker, point at the host instead: `LLM_API_BASE=http://host.docker.internal:11434`
+(macOS/Windows; on Linux use the host IP).
 
 ---
 
-## Docker Deployment
-
-Prefer containerized deployment? Resume Matcher includes Docker support.
-
-### Quick Start with Docker Compose
+## Docker
 
 ```bash
-# Start the container from a published image
-docker compose up -d
-
-# View logs
-docker compose logs -f
-
-# Stop the container
-docker compose down
+docker compose up -d      # start
+docker compose logs -f    # follow logs
+docker compose down       # stop
 ```
 
-### Customizing Ports
+Host port comes from `PORT` in the **root** `.env` (default 3030) and maps to container port
+3000. `PORT=4000 docker compose up -d` moves it.
+
+### LaTeX export
+
+The image ships [Tectonic](https://tectonic-typesetting.github.io/) (~30 MB plus a pre-warmed
+package bundle) so the LaTeX tab can compile PDFs in-container. It is a **build arg**, decided
+at image build time:
 
 ```bash
-# Change host port only (container stays on 3000)
-PORT=4000 docker compose up -d
+docker compose build                        # default: INSTALL_LATEX=true
+INSTALL_LATEX=false docker compose build     # smaller image, no TeX engine
 ```
 
-### LaTeX Export (Optional)
+Without an engine — or on an architecture other than amd64/arm64 — generation, editing, reset
+and `.tex` download all still work; only the in-container compile answers `503`. Pin an engine
+with `RESUME_MATCHER_LATEX_ENGINE` instead of the `tectonic` → `latexmk` → `xelatex` →
+`pdflatex` auto-detection.
 
-Besides the Chromium-rendered PDF, Resume Matcher can export a resume as real
-LaTeX: a generated `.tex` you can download or hand-edit, compiled to PDF by a
-TeX engine inside the container.
+### Tenancy
 
-The image ships [Tectonic](https://tectonic-typesetting.github.io/) (~30MB,
-plus a pre-warmed package bundle) for that. It is a **build arg**, so it is
-decided when the image is built:
+`TENANT_MODE` is required in the container too. `single` means no authentication: **anyone who
+can reach the port owns the data**. `header` expects a gateway that authenticates visitors and
+injects `X-Apps-Tenant`, `X-Apps-Role` and `X-Apps-Proxy-Secret`, and refuses to start unless
+`GATEWAY_SECRET` matches what the gateway sends.
 
-```bash
-# Default: LaTeX compilation available in-container
-docker compose build
+### Secrets
 
-# Smaller image without any TeX engine
-INSTALL_LATEX=false docker compose build
-```
-
-With `INSTALL_LATEX=false` — or on an architecture other than `amd64`/`arm64`,
-where no Tectonic build is fetched — the LaTeX tab still generates, edits,
-resets and downloads the `.tex`. Only the in-container **PDF compile** is
-unavailable: that one endpoint answers `503` and the UI tells you to download
-the `.tex` and compile it locally.
-
-To pin an engine instead of auto-detecting `tectonic` → `latexmk` → `xelatex`
-→ `pdflatex`, set `RESUME_MATCHER_LATEX_ENGINE` (a name on `PATH` or an
-absolute path) — see the table below.
-
-### Configuration Options
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3030` | Host port mapped to container port `3000` (set in root `.env`) |
-| `LOG_LEVEL` | `INFO` | Application-wide Python/Uvicorn log level (`ERROR`, `WARNING`, `INFO`, `DEBUG`) |
-| `LOG_LLM` | `WARNING` | LiteLLM log level (`ERROR`, `WARNING`, `INFO`, `DEBUG`) |
-| `LLM_PROVIDER` | `openai` | AI provider (openai, anthropic, gemini, etc.) |
-| `LLM_MODEL` | — | Model to use (configured via Settings UI) |
-| `LLM_API_KEY` | — | API key (recommended: configure via Settings UI) |
-| `LLM_API_BASE` | — | Custom API endpoint (for Ollama or proxies) |
-| `INSTALL_LATEX` | `true` | **Build arg** (not runtime): install Tectonic so LaTeX export can compile PDFs in-container. `false` = smaller image, `.tex` generation/download only |
-| `RESUME_MATCHER_LATEX_ENGINE` | — | Pin the LaTeX engine instead of auto-detecting `tectonic` → `latexmk` → `xelatex` → `pdflatex` |
-
-> **Note:** Changes to `LOG_LEVEL` and `LOG_LLM` require a container restart to take effect.
-
-### Using Ollama with Docker
-
-To use Ollama running on your host machine:
-
-```bash
-LLM_API_BASE=http://host.docker.internal:11434 docker compose up -d
-```
-
-Then configure Ollama as your provider in the Settings UI.
-
-### Using Docker Secrets
-
-The container supports `*_FILE` from
-[docker secrets](https://docs.docker.com/compose/how-tos/use-secrets/#use-secrets).
-For sensitive values, you can mount a secret file and point to it:
+Any of `LOG_LEVEL`, `LOG_LLM`, `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_API_BASE` can be
+supplied as a `*_FILE` variant pointing at a mounted Docker secret:
 
 ```bash
 LLM_API_KEY_FILE=/run/secrets/llm_api_key docker compose up -d
 ```
 
-Supported `*_FILE` variables:
+Use the variable or its `*_FILE` variant, never both — the container exits with an explicit
+error if both are set.
 
-| Variable | `*_FILE` variant |
-|----------|-----------------|
-| `LOG_LEVEL` | `LOG_LEVEL_FILE` |
-| `LOG_LLM` | `LOG_LLM_FILE` |
-| `LLM_PROVIDER` | `LLM_PROVIDER_FILE` |
-| `LLM_MODEL` | `LLM_MODEL_FILE` |
-| `LLM_API_KEY` | `LLM_API_KEY_FILE` |
-| `LLM_API_BASE` | `LLM_API_BASE_FILE` |
-
-Rules:
-
-- Use either the variable or its `*_FILE` variant, not both.
-- If both are set, the container exits with an explicit error.
-
-### Logging Level Configuration
-
-You can tune logs globally and for LiteLLM separately:
+### Logging
 
 ```bash
 LOG_LEVEL=INFO LOG_LLM=DEBUG docker compose up -d
 ```
 
-> **Security warning:** `LOG_LLM=DEBUG` causes LiteLLM to log API keys in
-> plaintext. Do not use `DEBUG` level in production or shared environments.
-> The default `WARNING` is safe.
-
-> **Note:** LiteLLM also reads the `LITELLM_LOG` environment variable internally
-> to control handler-level filtering. `LOG_LLM` sets the *logger* level. Both must
-> allow a message for it to appear. If you set `LITELLM_LOG` from LiteLLM docs,
-> make sure `LOG_LLM` is set to an equal or lower level.
-
-### Important Notes
-
-- **API keys are best configured through the UI** at `http://localhost:3030/settings`
-- Data is persisted in a Docker volume (`resume-data`)
-- The Settings UI configuration is stored in the volume and persists across restarts
-- App and API share the same origin: frontend on `/`, API on `/api`
-
-
-
-## Accessing the Application
-
-Once the container is running, open your browser:
-
-| URL | Description |
-|-----|-------------|
-| **<http://localhost:3030>** | Main application (Dashboard) |
-| **<http://localhost:3030/settings>** | Configure AI provider |
-| **<http://localhost:3030/api/v1/health>** | Backend health check |
-| **<http://localhost:3030/docs>** | Interactive API documentation |
-
-### First-Time Setup Checklist
-
-1. Open <http://localhost:3030/settings>
-2. Select your AI provider
-3. Enter your API key (or configure Ollama)
-4. Click "Save Configuration"
-5. Click "Test Connection" to verify it works
-6. Return to Dashboard and upload your first resume!
+> **Security warning:** `LOG_LLM=DEBUG` makes LiteLLM log API keys in plaintext. The default
+> `WARNING` is safe. Changes to either level need a container restart.
 
 ---
 
-## Common Commands Reference
+## Accessing the application
 
-### Backend Commands
+| URL | Description |
+|---|---|
+| <http://localhost:3030> | Dashboard |
+| <http://localhost:3030/settings> | Provider, keys, features |
+| <http://localhost:3030/api/v1/health> | Backend health check |
+| <http://localhost:3030/docs> | Interactive API docs |
 
-```bash
-cd apps/backend
+First run: open Settings, select a provider, enter the API key (or configure Ollama), save,
+then "Test Connection". Upload a resume from the Dashboard, or build one at `/resume-wizard`.
 
-# Start development server (with auto-reload)
-RELOAD=true uv run app
+---
 
-# Start production server
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+## Command reference
 
-# Install dependencies
-uv sync
-
-# Install with dev dependencies (for testing)
-uv sync --group dev
-
-# Run tests
-uv run pytest
-
-# Check if database needs reset (stored as JSON files)
-ls -la data/
-```
-
-### Frontend Commands
+### Backend (`cd apps/backend`)
 
 ```bash
-cd apps/frontend
-
-# Start development server (with Turbopack for fast refresh)
-npm run dev
-
-# Build for production
-npm run build
-
-# Start production server
-npm run start
-
-# Run linter
-npm run lint
-
-# Format code with Prettier
-npm run format
-
-# Run on a different port
-npm run dev -- -p 3001
+RELOAD=true uv run app                       # dev server with auto-reload
+uv run uvicorn app.main:app --port 8000      # plain server
+uv sync --extra dev                          # install deps incl. test deps
+uv run pytest                                # test suite (LLM-judge evals excluded)
+uv run pytest --cov=app                      # with coverage
+uv run alembic upgrade head && uv run alembic check   # migrate, then verify models match
+RM_E2E_MONITOR=1 uv run python -m e2e_monitor sweep   # opt-in end-to-end monitor
 ```
 
-### Database Management
-
-Resume Matcher uses TinyDB (JSON file storage). All data is in `apps/backend/data/`:
+### Frontend (`cd apps/frontend`)
 
 ```bash
-# View database files
-ls apps/backend/data/
-
-# Backup your data
-cp -r apps/backend/data apps/backend/data-backup
-
-# Reset everything (start fresh)
-rm -rf apps/backend/data
+npm run dev        # dev server on :3030
+npm run build      # production build
+npm run start      # serve the build
+npm run lint       # eslint
+npm run typecheck  # tsc --noEmit
+npm run format     # prettier --write
+npm run test       # vitest
 ```
+
+---
+
+## Environment variables
+
+From `apps/backend/.env.example`:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `LLM_PROVIDER` | `openai` | See the provider table above |
+| `LLM_MODEL` | — | Provider-specific model id |
+| `LLM_API_KEY` | — | Optional for `ollama` and most `openai_compatible` servers |
+| `LLM_API_BASE` | — | Required for `ollama`, `openai_compatible`, `azure_foundry` |
+| `TENANT_MODE` | — | **Required.** `single` or `header` |
+| `GATEWAY_SECRET` | — | Required when `TENANT_MODE=header` |
+| `CLAIM_TENANT_REF` | — | One-shot ownership transfer when moving `single` → `header`; remove after one start |
+| `HOST` / `PORT` | `0.0.0.0` / `8000` | Backend bind address |
+| `RELOAD` | `false` | `true` makes `uv run app` auto-reload (dev only) |
+| `REASONING_EFFORT` | — | `minimal`/`low`/`medium`/`high`; dropped for providers that don't support it |
+| `LOG_LEVEL` | `INFO` | Application + Uvicorn |
+| `LOG_LLM` | `WARNING` | LiteLLM; `DEBUG` logs API keys in plaintext |
+| `FRONTEND_BASE_URL` | `http://localhost:3030` | Where the PDF renderer loads the print route from |
+| `CORS_ORIGINS` | `["http://localhost:3030", ...]` | JSON array |
+| `REQUEST_TIMEOUT_SECONDS` | `240` | Bounded to [30, 1800] |
+
+`REQUEST_TIMEOUT_SECONDS` must be kept in step with the frontend's
+`NEXT_PUBLIC_REQUEST_TIMEOUT_MS` (= this × 1000). The Next.js proxy and the browser client abort
+on the shorter of the two, so raising only the backend has no effect.
 
 ---
 
@@ -481,64 +269,35 @@ rm -rf apps/backend/data
 
 ### Backend won't start
 
-**Error:** `ModuleNotFoundError`
-
-Make sure you're running with `uv`:
-
-```bash
-uv run uvicorn app.main:app --reload
-```
-
-**Error:** `LLM_API_KEY not configured`
-
-Check your `.env` file has a valid API key for your chosen provider.
+- **`TENANT_MODE` missing or misspelled** — the settings layer refuses a blank or unknown value.
+  Set `TENANT_MODE=single` for local use.
+- **`ModuleNotFoundError`** — run through uv: `uv run uvicorn app.main:app --reload`.
+- **`LLM_API_KEY not configured`** — the `.env` has no valid key for the chosen provider.
 
 ### Frontend won't start
 
-**Error:** `ECONNREFUSED` when loading pages
+- **`ECONNREFUSED` when loading pages** — the backend isn't running.
+- **Build or TypeScript errors** — clear the Next cache: `rm -rf apps/frontend/.next`.
 
-The backend isn't running. Start it first:
+### PDF download fails
 
-```bash
-cd apps/backend && uv run uvicorn app.main:app --reload
-```
-
-**Error:** Build or TypeScript errors
-
-Clear the Next.js cache:
-
-```bash
-rm -rf apps/frontend/.next
-npm run dev
-```
-
-### PDF Download fails
-
-**Error:** `Cannot connect to frontend for PDF generation`
-
-Your backend can't reach the frontend. Check:
-
-1. Frontend is running
-2. `FRONTEND_BASE_URL` in `.env` matches your frontend URL
-3. `CORS_ORIGINS` includes your frontend URL
-
-If frontend runs on port 3001:
+`Cannot connect to frontend for PDF generation` means the backend can't reach the print route.
+Check the frontend is running, and that `FRONTEND_BASE_URL` and `CORS_ORIGINS` name its actual
+URL. On port 3001:
 
 ```env
 FRONTEND_BASE_URL=http://localhost:3001
 CORS_ORIGINS=["http://localhost:3001", "http://127.0.0.1:3001"]
 ```
 
-### Chinese / Japanese / Korean text renders as boxes (□□□) in the PDF
+### Non-Latin text renders as boxes (□□□) in the PDF
 
-The PDF is rendered by headless Chromium, which falls back to **system** fonts
-for any glyph the bundled webfonts don't cover. A headless Linux host usually
-ships none for CJK, so the text becomes tofu boxes.
+An uploaded resume can carry a non-Latin name, employer or school. The PDF is rendered by
+headless Chromium, which falls back to **system** fonts for any glyph the bundled webfonts don't
+cover, and a headless Linux host usually ships none for CJK.
 
-**Docker users:** nothing to do — the image installs `fonts-noto-cjk`.
-
-**Running without Docker:** install system CJK fonts on the machine running the
-backend.
+Docker users: nothing to do, the image installs `fonts-noto-cjk`. Without Docker, install system
+CJK fonts on the machine running the backend and restart it:
 
 ```bash
 # Debian / Ubuntu
@@ -550,97 +309,66 @@ sudo dnf install -y google-noto-sans-cjk-fonts
 # Arch
 sudo pacman -S noto-fonts-cjk
 
-# macOS — CJK fonts ship with the OS, no action needed
+# macOS — CJK fonts ship with the OS
 ```
 
-Restart the backend afterwards so Chromium picks up the new font cache.
+### LaTeX export fails
 
-### LaTeX PDF export fails
-
-**Error:** `No LaTeX engine found. Install tectonic or a TeX distribution, or
-download the .tex source instead.` (HTTP 503)
-
-No TeX engine is visible to the backend. Everything except the PDF compile
-still works — use **Download .tex** and compile it wherever you like.
-
-To get in-app compilation:
-
-- **Docker:** rebuild with the default `INSTALL_LATEX=true`.
-- **Without Docker:** install [Tectonic](https://tectonic-typesetting.github.io/)
-  or any TeX distribution on the machine running the backend, so `tectonic`,
-  `latexmk`, `xelatex` or `pdflatex` is on its `PATH`. Detection happens per
-  request; pin a specific one with `RESUME_MATCHER_LATEX_ENGINE`.
-
-**Error:** `LaTeX compilation failed` with an engine log (HTTP 422)
-
-The engine ran and rejected the source. This only happens on a hand-edited
-source: fix the line the log points at (the excerpt starts at TeX's `!` error
-line), or use **Reset to generated** to go back to the generated `.tex` — your
-edited version stays in the version history either way.
-
-> The first in-container compile after a build downloads nothing extra: the
-> image warms Tectonic's package bundle at build time.
+- **`No LaTeX engine found …` (503)** — no TeX engine visible to the backend. Use **Download
+  .tex** and compile elsewhere, rebuild the image with `INSTALL_LATEX=true`, or install Tectonic
+  or a TeX distribution so `tectonic`/`latexmk`/`xelatex`/`pdflatex` is on `PATH`.
+- **`LaTeX compilation failed` with an engine log (422)** — the engine ran and rejected a
+  hand-edited source. Fix the line the log points at, or use **Reset to generated**; the edited
+  version stays in version history either way.
 
 ### Ollama connection fails
 
-**Error:** `Connection refused to localhost:11434`
-
-1. Check Ollama is running: `ollama list`
-2. Start Ollama if needed: `ollama serve`
-3. Make sure the model is downloaded: `ollama pull gemma3:4b`
+`Connection refused to localhost:11434` — check `ollama list`, start `ollama serve`, and make
+sure the model is pulled (`ollama pull gemma3:4b`).
 
 ---
 
-## Project Structure Overview
+## Project structure
 
 ```
-Resume-Matcher/
-├── apps/
-│   ├── backend/                 # Python FastAPI backend
-│   │   ├── app/
-│   │   │   ├── main.py          # Application entry point
-│   │   │   ├── config.py        # Environment configuration
-│   │   │   ├── database.py      # TinyDB wrapper
-│   │   │   ├── llm.py           # AI provider integration
-│   │   │   ├── routers/         # API endpoints
-│   │   │   ├── services/        # Business logic
-│   │   │   ├── schemas/         # Data models
-│   │   │   └── prompts/         # LLM prompt templates
-│   │   ├── data/                # Database storage (auto-created)
-│   │   ├── .env.example         # Environment template
-│   │   └── pyproject.toml       # Python dependencies
-│   │
-│   └── frontend/                # Next.js React frontend
-│       ├── app/                 # Pages (dashboard, builder, etc.)
-│       ├── components/          # Reusable React components
-│       ├── lib/                 # Utilities and API client
-│       ├── .env.sample          # Environment template
-│       └── package.json         # Node.js dependencies
+apps/
+├── backend/                 # FastAPI + Python
+│   ├── alembic.ini          # Alembic config (Alembic owns the schema)
+│   ├── migrations/          # env.py + versions/
+│   ├── app/
+│   │   ├── main.py          # Entry point
+│   │   ├── config.py        # Environment settings
+│   │   ├── database.py      # Async SQLAlchemy/SQLite facade
+│   │   ├── models.py        # ORM models
+│   │   ├── db_engine.py     # Async + sync SQLite engines (WAL/FK pragmas)
+│   │   ├── crypto.py        # Fernet encrypt/decrypt for API keys at rest
+│   │   ├── deps.py          # resolve_workspace_id (X-Workspace-Id header)
+│   │   ├── llm.py           # LiteLLM wrapper
+│   │   ├── latex/           # LaTeX export (escape/render/compile + *.tex.j2)
+│   │   ├── routers/         # API endpoints (incl. applications.py = tracker)
+│   │   ├── services/        # Business logic
+│   │   ├── schemas/         # Pydantic models — document.py = the resume contract
+│   │   └── prompts/         # LLM prompt templates
+│   └── data/                # resume_matcher.db + encrypted API keys + .secret_key
 │
-├── docs/                        # Additional documentation
-├── docker-compose.yml           # Docker configuration
-├── Dockerfile                   # Container build instructions
-└── README.md                    # Project overview
+└── frontend/                # Next.js + React
+    ├── app/                 # Pages (dashboard, builder, wizard, tailor, tracker,
+    │                        #   resumes/[id], settings, print)
+    ├── components/          # UI (resume/section-kinds/, builder/forms/, tracker/, ...)
+    ├── lib/                 # API client, types/document.ts, utils/
+    ├── hooks/               # Custom React hooks
+    └── messages/            # en.json — the sole UI copy bundle
 ```
 
 ---
 
-## Getting Help
+## Testing and CI
 
-Stuck? Here are your options:
+```bash
+cd apps/backend  && uv run pytest    # backend suite
+cd apps/frontend && npm run test     # frontend suite
+```
 
-- **Discord Community:** [dsc.gg/resume-matcher](https://dsc.gg/resume-matcher) - Active community for questions and discussions
-- **GitHub Issues:** [Open an issue](https://github.com/srbhr/Resume-Matcher/issues) for bugs or feature requests
-- **Documentation:** Check the [docs/agent/](docs/agent/) folder for detailed guides
-
-### Useful Documentation
-
-| Document | Description |
-|----------|-------------|
-| [backend-guide.md](docs/agent/architecture/backend-guide.md) | Backend architecture and API details |
-| [frontend-workflow.md](docs/agent/architecture/frontend-workflow.md) | User flow and component architecture |
-| [swiss-design-system/](docs/portable/swiss-design-system/README.md) | UI design system (Swiss International Style) — portable pack |
-
----
-
-Happy resume building! If you find Resume Matcher helpful, consider [starring the repo](https://github.com/srbhr/Resume-Matcher) and [joining our Discord](https://dsc.gg/resume-matcher).
+`.github/workflows/tests.yml` runs both on pushes to `main` and `dev`, plus `tsc --noEmit` and
+eslint on the frontend. There is no pre-push hook and no PR-triggered workflow — CI on those two
+branches is the whole gate.

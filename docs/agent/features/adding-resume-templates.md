@@ -165,8 +165,8 @@ are `text`, `entries`, `tags`, `groups`).
 3. Add an editor in `components/builder/forms/` and register it in
    `SECTION_KIND_FORMS`; add an icon to `KIND_ICONS`/`KIND_ORDER` in
    `add-section-dialog.tsx` and a
-   `builder.sectionForms.kinds.<kind>.{label,description}` entry to every
-   locale file.
+   `builder.sectionForms.kinds.<kind>.{label,description}` entry to
+   `messages/en.json`.
 4. Extend `improver.build_allowed_paths` with the change path(s) the new kind
    exposes, and `document_walk` if the new content is prose or short values the
    traversal helpers should see.

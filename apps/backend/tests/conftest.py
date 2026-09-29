@@ -427,7 +427,7 @@ def sample_changes():
 
 
 # ---------------------------------------------------------------------------
-# Isolated database — swap the global TinyDB singleton for a temp-file DB
+# Isolated database — swap the global SQLite `Database` singleton for a temp-file DB
 # ---------------------------------------------------------------------------
 
 @pytest.fixture

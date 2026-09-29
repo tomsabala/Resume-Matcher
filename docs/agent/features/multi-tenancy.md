@@ -160,8 +160,8 @@ old behaviour:
 - `Database.reset_database` is replaced by `reset_workspace(workspace_id)`.
 
 `db.default_workspace_id()` survives, but only as the **instance** default — the standalone
-tenant's workspace, for the paths that run outside a request (the legacy key migration, the
-TinyDB import, the synchronous config reader). It is deliberately not a request fallback.
+tenant's workspace, for the paths that run outside a request (the legacy key migration and the
+synchronous config reader). It is deliberately not a request fallback.
 
 ### Bugs this closed on the way
 
@@ -174,8 +174,6 @@ Several pre-existing bugs were data-retention leaks waiting for the anonymous pu
   tenant's settings save wiped every tenant's keys.
 - `get_stats` counted every row in the database.
 - `register_preview`'s expired-preview GC swept every tenant's rows on any tenant's request.
-- The TinyDB import stamped no workspace at all, so imported rows landed in workspace `""`,
-  which no request can resolve to.
 
 ## 3. The three formerly global tables
 
@@ -200,13 +198,12 @@ rest, and per-tenant keys would buy nothing against an attacker who already has 
 `config.json` is now the **instance default** layer only. A tenant's own choices live in
 `workspace_settings` (`workspace_id`, `key`, `value` JSON) and are merged over it, key by key:
 "tenant override, else instance default". `config.json` is written only by the operator out of
-band and by the two startup migrations.
+band and by the startup key migration.
 
 The overridable keys are a flat allowlist in `app/config_cache.py`
 (`OVERRIDABLE_CONFIG_KEYS`): `provider`, `model`, `api_base`, `reasoning_effort`, the three
-`enable_*` feature toggles, `ui_language`, `content_language`, `language`,
-`default_prompt_id`, `cover_letter_prompt`, `outreach_message_prompt`. Everything else in the
-file stays instance-wide.
+`enable_*` feature toggles, `default_prompt_id`, `cover_letter_prompt`,
+`outreach_message_prompt`. Everything else in the file stays instance-wide.
 
 Both readers produce the same merged view, or `GET /config` would disagree with what the LLM
 path actually uses:

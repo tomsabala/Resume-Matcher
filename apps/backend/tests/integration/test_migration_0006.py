@@ -160,9 +160,9 @@ def test_the_default_index_becomes_per_tenant(migrated: Any) -> None:
     with pytest.raises(sqlite3.IntegrityError):
         connection.execute(
             "INSERT INTO workspaces"
-            " (workspace_id, name, slug, content_language, is_default, tenant_ref,"
+            " (workspace_id, name, slug, is_default, tenant_ref,"
             "  is_anonymous, last_seen_at, created_at, updated_at)"
-            " VALUES ('ws-third', 'Third', 'third', 'en', 1, 'anon-1', 1, 't', 't', 't')"
+            " VALUES ('ws-third', 'Third', 'third', 1, 'anon-1', 1, 't', 't', 't')"
         )
 
 

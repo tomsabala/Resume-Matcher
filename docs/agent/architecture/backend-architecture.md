@@ -6,7 +6,7 @@
 
 ```
 apps/backend/app/
-├── main.py              # FastAPI entry point (lifespan: TinyDB→SQLite import, legacy-key fold-in)
+├── main.py              # FastAPI entry point (lifespan: Alembic upgrade, legacy-key fold-in)
 ├── config.py            # Pydantic settings; encrypted API-key read/write
 ├── crypto.py            # Fernet encrypt/decrypt for API keys at rest
 ├── database.py          # Async SQLAlchemy/SQLite facade (returns plain dicts)
@@ -18,7 +18,6 @@ apps/backend/app/
 ├── routers/             # API endpoints (health, config, resumes, jobs, applications, enrichment)
 ├── services/            # parser.py, improver.py, cover_letter.py
 ├── schemas/             # Pydantic models (models.py, applications.py)
-├── scripts/             # migrate_tinydb_to_sqlite.py (one-time importer)
 └── prompts/templates.py # LLM prompts
 ```
 
@@ -138,12 +137,8 @@ claims and cached confirmation responses live in `tailoring_previews`.
 See [storage transactions](storage-transactions.md) and [confirmation](../features/preview-confirmation.md).
 `Application` dedupes on `(job_id, resume_id)` via a `UniqueConstraint`.
 
-### Migration & encrypted keys
+### Encrypted keys
 
-- **One-time importer** (`app/scripts/migrate_tinydb_to_sqlite.py`): runs on lifespan
-  startup. If a legacy `data/database.json` (TinyDB) exists and SQLite is empty, it
-  imports the rows, then renames the file `database.json.migrated` (rollback artifact).
-  Idempotent: skips if SQLite already has rows.
 - **Encrypted API keys** (`app/crypto.py`): Fernet symmetric encrypt/decrypt. The
   secret lives at `data/.secret_key` (auto-generated, `chmod 600`, gitignored, atomic
   write); plaintext exists only in memory. Per-provider ciphertexts live in the

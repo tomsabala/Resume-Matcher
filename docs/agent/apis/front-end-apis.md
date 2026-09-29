@@ -338,10 +338,10 @@ createInitialResumeWizardState() → ResumeWizardState
 
 Backend endpoints:
 
-- `POST /api/v1/resume-wizard/turn` — one adaptive turn. `action` is `start | answer | skip | back | review`. A turn targets `intro`, `contact`, `review`, or one section of the document as `section:<section_key>` (e.g. `section:military_service`) — the wizard has no built-in section enum, so a section the user added is a legitimate target. `answer`/`skip` run one AI call that updates `resume_data` (a full `ResumeDocument`), returns the next `current_question`, `inferred_skills`, and a strict boolean `is_complete` flag; `back`/`review`/`start` are deterministic (no LLM). The service validates the complete model envelope before advancing history or progress. Invalid envelopes return a recoverable `422` and leave the client state unchanged. Entries are merged back by their stable `Entry.id`, falling back to a `(title, subtitle, period)` signature when the model omits or invents one; a new entry is allocated a fresh id. Partial model echoes preserve entries they omit. Deterministic fallback questions and review copy use the configured content language. The full `ResumeWizardState` round-trips in the request and response.
+- `POST /api/v1/resume-wizard/turn` — one adaptive turn. `action` is `start | answer | skip | back | review`. A turn targets `intro`, `contact`, `review`, or one section of the document as `section:<section_key>` (e.g. `section:military_service`) — the wizard has no built-in section enum, so a section the user added is a legitimate target. `answer`/`skip` run one AI call that updates `resume_data` (a full `ResumeDocument`), returns the next `current_question`, `inferred_skills`, and a strict boolean `is_complete` flag; `back`/`review`/`start` are deterministic (no LLM). The service validates the complete model envelope before advancing history or progress. Invalid envelopes return a recoverable `422` and leave the client state unchanged. Entries are merged back by their stable `Entry.id`, falling back to a `(title, subtitle, period)` signature when the model omits or invents one; a new entry is allocated a fresh id. Partial model echoes preserve entries they omit. Deterministic fallback questions and review copy come from `services/resume_wizard_copy.py`. The full `ResumeWizardState` round-trips in the request and response.
 - `POST /api/v1/resume-wizard/finalize` — creates the single master resume from the draft (`processing_status: "ready"`), or `409` if a master already exists. Creation is not the only way a workspace gets its master: an existing `ready` resume can be promoted later with [`POST /resumes/{id}/master`](#the-master-resume-post-resumesidmaster).
 
-The wizard is an AI-led, one-question-at-a-time flow that builds a general master resume; it does not require a job description and does not replace the upload parser. Question and content text are produced in the configured **content language**; static UI chrome uses the `resumeWizard.*` i18n keys.
+The wizard is an AI-led, one-question-at-a-time flow that builds a general master resume; it does not require a job description and does not replace the upload parser. Question and content text are English, like everything the app generates; static UI chrome uses the `resumeWizard.*` copy keys.
 
 ## AI enrichment and regenerate (`lib/api/enrichment.ts`)
 
@@ -504,7 +504,7 @@ default workspace (the Playwright print route sends no app headers, and a stored
 browser id can outlive a deleted workspace).
 
 Both mutations have a UI: the header switcher's per-row pencil opens
-`components/common/workspace-manage-dialog.tsx` (rename, content language,
+`components/common/workspace-manage-dialog.tsx` (rename,
 promote to default, delete). Deleting the default workspace or the only
 workspace is refused server-side with `409` and the dialog shows that message
 verbatim — the rule has one owner. Deleting the active workspace makes the
@@ -557,10 +557,6 @@ clearAllApiKeys() → void
 // Feature flags
 fetchFeatureConfig() → FeatureConfig
 updateFeatureConfig(config: FeatureConfigUpdate) → FeatureConfig
-
-// Language
-fetchLanguageConfig() → LanguageConfig
-updateLanguageConfig(language: string) → LanguageConfig
 ```
 
 > `updateLlmApiKey` (`PUT /config/llm-api-key`) no longer persists a key — keys are managed per-provider via the encrypted `/config/api-keys` endpoints above.

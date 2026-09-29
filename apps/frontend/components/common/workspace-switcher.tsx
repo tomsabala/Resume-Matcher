@@ -113,7 +113,6 @@ export function WorkspaceSwitcher() {
                 }`}
               >
                 <span className="truncate">{workspace.name}</span>
-                <span className="shrink-0 text-xs opacity-80">{workspace.content_language}</span>
               </button>
               <button
                 type="button"

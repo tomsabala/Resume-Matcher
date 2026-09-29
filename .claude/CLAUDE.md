@@ -45,14 +45,14 @@ Before exploring code, read [docs/agent/README.md](../docs/agent/README.md) for 
 cd apps/backend
 uv sync --extra dev                                  # Install Python deps (incl. test deps)
 uv run uvicorn app.main:app --reload --port 8000     # FastAPI on :8000
-uv run pytest                                        # Run backend tests (~1187; LLM evals excluded)
+uv run pytest                                        # Run backend tests (~1533; LLM evals excluded)
 uv run alembic upgrade head && uv run alembic check  # Schema is Alembic-owned; keep models/revisions in step
 
 # Frontend (from repo root, in a separate terminal)
 cd apps/frontend
 npm install                                          # Install Node.js dependencies
 npm run dev                                          # Next.js on :3030
-npm run test                                         # Run frontend tests (~476; vitest)
+npm run test                                         # Run frontend tests (~542; vitest)
 
 # Quality checks (from apps/frontend)
 npm run lint          # Lint frontend
@@ -105,8 +105,7 @@ apps/
 │   │   ├── routers/         # API endpoints (incl. applications.py = tracker)
 │   │   ├── services/        # Business logic (incl. document_walk.py traversal)
 │   │   ├── schemas/         # Pydantic models — document.py = THE resume contract
-│   │   ├── prompts/         # LLM prompt templates
-│   │   └── scripts/         # One-time TinyDB→SQLite migration (runs on startup)
+│   │   └── prompts/         # LLM prompt templates
 │   └── data/                # resume_matcher.db (SQLite) + encrypted API keys + .secret_key
 │
 └── frontend/                # Next.js + React
@@ -116,7 +115,7 @@ apps/
     │                        #   tracker/, enrichment/, resume-wizard/)
     ├── lib/                 # API client, types/document.ts, utils/section-helpers.ts
     ├── hooks/               # Custom React hooks
-    └── messages/            # i18n translations (en, es, zh, ja, pt, fr, ko)
+    └── messages/            # en.json — the sole UI copy bundle (English-only app)
 ```
 
 ---
@@ -154,7 +153,6 @@ There are two render targets: Chromium HTML (1-3) and LaTeX (4).
 | Resume sections (kinds, keys, headings, visibility, column) | [custom-sections.md](../docs/agent/features/custom-sections.md) |
 | Resume templates | [resume-templates.md](../docs/agent/features/resume-templates.md) |
 | LaTeX export | [latex-export.md](../docs/agent/features/latex-export.md) |
-| i18n | [i18n.md](../docs/agent/features/i18n.md) |
 | AI enrichment | [enrichment.md](../docs/agent/features/enrichment.md) |
 | JD matching | [jd-match.md](../docs/agent/features/jd-match.md) |
 
@@ -197,7 +195,7 @@ Both apps have real test suites, and **tests are in scope** (deliberate testing 
 | Frontend | vitest + Testing Library (jsdom) | `cd apps/frontend && npm run test` |
 
 - **Backend layers:** `tests/unit` (pure logic), `tests/service` (mocked LLM), `tests/integration` (real routers via httpx ASGI), `tests/evals` (prompt-quality scorers + a gated LLM-judge — excluded by default; run with `uv run pytest -m eval`).
-- **Local push gate (not CI):** a `pre-push` hook (`.githooks/pre-push`) runs the backend suite + a locale-parity check and **blocks red pushes**. Activate once per clone: `git config core.hooksPath .githooks`. We deliberately avoid a GitHub Actions PR gate (high external-PR volume) — see [`.githooks/README.md`](../.githooks/README.md).
+- **CI is the only gate:** `.github/workflows/tests.yml` runs both suites plus `tsc --noEmit` and eslint on pushes to `main`/`dev` (not on `pull_request`). There is no pre-push hook.
 - Keep tests **deterministic and anti-theater**: a test must fail when its target breaks, and the default suites make no real network/LLM calls.
 
 ---

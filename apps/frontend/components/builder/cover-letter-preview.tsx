@@ -22,8 +22,8 @@ export function CoverLetterPreview({
   pageSize = 'A4',
   className,
 }: CoverLetterPreviewProps) {
-  const { t, locale } = useTranslations();
-  const today = new Intl.DateTimeFormat(locale, {
+  const { t } = useTranslations();
+  const today = new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',

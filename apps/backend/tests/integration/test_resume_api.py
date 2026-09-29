@@ -201,11 +201,10 @@ class TestUpdateOutreachMessage:
 class TestGenerateInterviewPrep:
     """POST /api/v1/resumes/{resume_id}/generate-interview-prep"""
 
-    @patch("app.routers.resumes.get_content_language", return_value="en")
     @patch("app.routers.resumes.generate_interview_prep", new_callable=AsyncMock)
     @patch("app.routers.resumes.db", new_callable=AsyncMock)
     async def test_success_saves_structured_json(
-        self, mock_db, mock_generate, _mock_language, client, mock_resume_record, sample_resume
+        self, mock_db, mock_generate, client, mock_resume_record, sample_resume
     ):
         tailored = {
             **mock_resume_record,
@@ -226,7 +225,7 @@ class TestGenerateInterviewPrep:
         assert data["interview_prep"]["role_fit_analysis"] == SAMPLE_INTERVIEW_PREP[
             "role_fit_analysis"
         ]
-        mock_generate.assert_awaited_once_with(sample_resume, "Need FastAPI", "en")
+        mock_generate.assert_awaited_once_with(sample_resume, "Need FastAPI")
         update_payload = mock_db.update_resume.await_args.args[1]
         saved_payload = json.loads(update_payload["interview_prep"])
         assert saved_payload == SAMPLE_INTERVIEW_PREP

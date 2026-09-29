@@ -38,10 +38,6 @@ OVERRIDABLE_CONFIG_KEYS: frozenset[str] = frozenset(
         "enable_cover_letter",
         "enable_outreach_message",
         "enable_interview_prep",
-        # Language
-        "ui_language",
-        "content_language",
-        "language",
         # Prompt selection and custom prompts
         "default_prompt_id",
         "cover_letter_prompt",
@@ -141,8 +137,3 @@ def load_config(workspace_id: str | None = None) -> dict[str, Any]:
     _config_cache_time[cache_key] = now
     return copy.deepcopy(merged)
 
-
-def get_content_language() -> str:
-    """Get configured content language from cached config."""
-    config = load_config()
-    return config.get("content_language", config.get("language", "en"))

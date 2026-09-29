@@ -14,7 +14,7 @@ Stack: FastAPI 0.128 · Python **3.13+** · Pydantic v2 / pydantic-settings · S
 | Entry / wiring | App, lifespan, CORS, router mounting (all under `/api/v1`) | `app/main.py` |
 | Settings | Env vars via `pydantic-settings`; `settings` singleton; API keys read from the encrypted SQLite store | `app/config.py` |
 | Crypto | Fernet encrypt/decrypt for API keys at rest (`data/.secret_key`, `chmod 600`, gitignored) | `app/crypto.py` |
-| Config cache | Shared, TTL-cached (5 min) read of `data/config.json`; `get_content_language()` | `app/config_cache.py` |
+| Config cache | Shared, TTL-cached (5 min) read of `data/config.json` | `app/config_cache.py` |
 | Database | Async SQLAlchemy/SQLite facade; tables `workspaces`/`resumes`/`resume_versions`/`jobs`/`improvements`/`applications`/`tailoring_previews`/`api_keys`; returns plain dicts; global `db` singleton | `app/database.py`, `app/models.py`, `app/db_engine.py` |
 | Tracker | Kanban application-tracker endpoints | `app/routers/applications.py`, `app/schemas/applications.py` |
 | LLM | LiteLLM wrapper: Router, retries, JSON extraction, timeouts, provider quirks | `app/llm.py` |
@@ -24,11 +24,11 @@ Stack: FastAPI 0.128 · Python **3.13+** · Pydantic v2 / pydantic-settings · S
 | Prompts | All LLM prompt templates + placeholder validation | `app/prompts/*.py` |
 | Schemas | Pydantic request/response models. **`app/schemas/document.py` is the resume contract** (`ResumeDocument`) — see below | `app/schemas/*.py` |
 
-`data/` holds `resume_matcher.db` (SQLite; primary store), `config.json` (non-secret config), `.secret_key` (Fernet secret for encrypted API keys), an `uploads/` dir, and possibly a legacy `database.json` (TinyDB — imported into SQLite on first startup, then renamed `database.json.migrated`). `.gitignore` ignores `*.db*`, `data/*.json`, and `data/.secret_key` (DB + config + secret never get committed), but **`uploads/` is NOT git-ignored** — don't commit user uploads. `db.reset_database()` truncates the document tables + `applications` (preserving `api_keys`) and wipes `uploads/`.
+`data/` holds `resume_matcher.db` (SQLite; primary store), `config.json` (non-secret config), `.secret_key` (Fernet secret for encrypted API keys) and an `uploads/` dir. `.gitignore` ignores `*.db*`, `data/*.json`, and `data/.secret_key` (DB + config + secret never get committed), but **`uploads/` is NOT git-ignored** — don't commit user uploads. `db.reset_database()` truncates the document tables + `applications` (preserving `api_keys`) and wipes `uploads/`.
 
 ### Routers (all prefixed `/api/v1`)
 - `health.py` — `GET /health` (liveness, no LLM call), `GET /status` (LLM health + DB stats).
-- `config.py` — `/config/llm-api-key` (GET/PUT), `/config/llm-test` (POST live health check), `/config/features`, `/config/language`, `/config/prompts`, `/config/feature-prompts`, `/config/api-keys` (per-provider CRUD), `/config/reset` (POST; confirmation token `{"confirm": "RESET_ALL_DATA"}` in the JSON **body**, not a query param).
+- `config.py` — `/config/llm-api-key` (GET/PUT), `/config/llm-test` (POST live health check), `/config/features`, `/config/prompts`, `/config/feature-prompts`, `/config/api-keys` (per-provider CRUD), `/config/reset` (POST; confirmation token `{"confirm": "RESET_ALL_DATA"}` in the JSON **body**, not a query param).
 - `resumes.py` — the biggest router: `/resumes/upload`, `GET /resumes`, `/resumes/list`, `/resumes/improve` + `/improve/preview` + `/improve/confirm`, `PATCH /resumes/{id}`, `/{id}/pdf`, `/{id}/retry-processing`, cover-letter/outreach/title PATCH + on-demand generate, `/{id}/job-description`, `/{id}/cover-letter/pdf`.
 - `jobs.py` — `/jobs/upload` (batch JD text → job_ids), `GET /jobs/{id}`.
 - `enrichment.py` — `/enrichment/analyze/{id}`, `/enhance`, `/apply/{id}`, `/regenerate`, `/apply-regenerated/{id}`.
@@ -51,7 +51,7 @@ Stack: FastAPI 0.128 · Python **3.13+** · Pydantic v2 / pydantic-settings · S
 ## Request / Data Flow (improve = core pipeline)
 
 `POST /resumes/improve/preview` is the canonical path:
-1. Load resume + job from `db`; resolve content language (`config_cache`) and `prompt_id`.
+1. Load resume + job from `db`; resolve `prompt_id`.
 2. `extract_job_keywords(jd)` (LLM, cached on the job by content hash).
 3. If structured `processed_data` exists → **diff mode**: skill-target plan → `generate_resume_diffs` → `apply_diffs` → `verify_diff_result`. Else → fallback `improve_resume` (full-output).
 4. **Local safety nets** (always run, defense-in-depth): `_preserve_header`, `_restore_original_dates`, `restore_dates_from_markdown`, `_preserve_original_skills`, `_trim_hallucinated_entries` (all in `routers/resumes.py`).
@@ -121,7 +121,7 @@ Prompts are **plain Python string constants** — no Jinja, no external prompt f
 
 **Custom feature prompts (user-editable):** cover-letter & outreach prompts can be overridden in `config.json` (`cover_letter_prompt`, `outreach_message_prompt`). On save (`PUT /config/feature-prompts`) they are validated by `validate_prompt_placeholders()` to contain all of `REQUIRED_FEATURE_PROMPT_PLACEHOLDERS` = `{job_description}`, `{resume_data}`, `{output_language}`; missing → HTTP 422. Empty string = "use default". At runtime `cover_letter.py::_resolve_feature_prompt` picks custom-or-default and falls back to the built-in default (with a warning) if a custom prompt fails `.format()`.
 
-**Language:** every generative prompt takes `{output_language}` (full name from `get_language_name(code)`), so all output is produced in the configured content language (`en`/`es`/`zh`/`ja`/`pt`/`fr`/`ko`).
+**Language:** every generative prompt still carries the `{output_language}` placeholder, but it is always filled with the module constant `OUTPUT_LANGUAGE = "English"` (`app/prompts/templates.py`). The placeholder stays because saved custom feature prompts are validated against it; the app is English-in / English-out and there is no language setting.
 
 ---
 
@@ -142,7 +142,8 @@ Prompts are **plain Python string constants** — no Jinja, no external prompt f
 
 ```bash
 cd apps/backend
-uv sync                                              # install deps (creates .venv)
+uv sync --extra dev                                  # install deps incl. test deps (creates .venv)
+uv run alembic upgrade head                          # Alembic owns the schema; run before first start
 uv run uvicorn app.main:app --reload --port 8000     # dev server on :8000
 uv run app                                           # console script (app.main:main, uses HOST/PORT/RELOAD)
 uv run playwright install chromium                   # one-time, required for PDF endpoints
@@ -168,7 +169,7 @@ Config via `.env` (see `.env.example`). Interactive API docs at `/docs`.
 
 ## Key Gotchas
 
-- **uv.lock is gitignored** (`.gitignore`), so dependency resolution isn't reproducible from VCS — rely on the exact pins in `pyproject.toml` / `requirements.txt`.
+- **uv.lock is gitignored** (`.gitignore`), so dependency resolution isn't reproducible from VCS — rely on the exact pins in `pyproject.toml`.
 - **litellm ↔ python-dotenv trap:** litellm `<1.84.0` hard-pinned `python-dotenv==1.0.1`, which used to fight other pins. Resolved at the current pins (`litellm==1.86.2`, `python-dotenv==1.2.2`); do **not** downgrade litellm below 1.84 without re-checking dotenv.
 - **Keys vs non-secret config:** API **keys** live ONLY in the encrypted `api_keys` SQLite table (per-provider, via `_PROVIDER_KEY_MAP`); `load_config_file()` injects the decrypted keys into the returned dict and `save_config_file()` strips them, so secrets never round-trip to `config.json`. Non-secret provider/model/base/features stay in `config.json`. `PUT /config/llm-api-key` no longer writes any key; keys go through `PUT /config/api-keys`. `migrate_legacy_keys()` folds any legacy plaintext keys into the encrypted store (idempotent, non-clobbering). After any write to `config.json`, call `invalidate_config_cache()`.
 - **Master resume invariant:** exactly one resume per **workspace** has `is_master=True` (partial unique index `ux_resumes_workspace_master`). Concurrent uploads use `create_resume_atomic_master` (an `asyncio.Lock`, not threading) and auto-promote if the current master is stuck `failed`/`processing`.
@@ -186,14 +187,11 @@ Config via `.env` (see `.env.example`). Interactive API docs at `/docs`.
 | Project orientation | [`docs/agent/README.md`](../../docs/agent/README.md) |
 | Backend architecture / modules | [`backend-guide.md`](../../docs/agent/architecture/backend-guide.md) · [`backend-architecture.md`](../../docs/agent/architecture/backend-architecture.md) |
 | LLM / multi-provider | [`llm-integration.md`](../../docs/agent/llm-integration.md) |
-| Prompt pipeline (diff/retry design) | [`prompt-workflow-design.md`](../../docs/agent/architecture/prompt-workflow-design.md) |
 | API contracts | [`apis/front-end-apis.md`](../../docs/agent/apis/front-end-apis.md) · [`apis/api-flow-maps.md`](../../docs/agent/apis/api-flow-maps.md) · [`apis/backend-requirements.md`](../../docs/agent/apis/backend-requirements.md) |
 | Coding standards | [`coding-standards.md`](../../docs/agent/coding-standards.md) |
-| Scope / principles | [`scope-and-principles.md`](../../docs/agent/scope-and-principles.md) · [`workflow.md`](../../docs/agent/workflow.md) |
 | AI enrichment | [`features/enrichment.md`](../../docs/agent/features/enrichment.md) |
 | JD matching | [`features/jd-match.md`](../../docs/agent/features/jd-match.md) |
 | Resume sections / document contract | [`features/custom-sections.md`](../../docs/agent/features/custom-sections.md) |
-| i18n | [`features/i18n.md`](../../docs/agent/features/i18n.md) |
 | PDF / templates | [`design/pdf-template-guide.md`](../../docs/agent/design/pdf-template-guide.md) · [`design/template-system.md`](../../docs/agent/design/template-system.md) |
 
 ---
@@ -213,7 +211,7 @@ Layout (`apps/backend/tests/`):
 
 Key fixtures/tools: `conftest.py::isolated_db` swaps the global `db` singleton for a disposable temp-file SQLite database across **all** router modules (for real-DB endpoint/e2e tests); `respx` mocks the HTTP transport so `llm.py`'s real routing runs against a fake Ollama / OpenAI server (gotcha: litellm 1.86 needs `disable_aiohttp_transport=True` for respx to intercept). Keep every test **anti-theater** — it must fail when its target breaks.
 
-**Local push gate:** `.githooks/pre-push` runs this suite + a locale-parity check and blocks red pushes (`git config core.hooksPath .githooks`; see [`.githooks/README.md`](../../.githooks/README.md)). We avoid a GitHub Actions PR gate (high external-PR volume).
+**CI gate:** `.github/workflows/tests.yml` runs this suite (plus the frontend's vitest/tsc/eslint job) on pushes to `main`/`dev`, never on `pull_request`. There is no pre-push hook.
 
 ## Out of Scope
 

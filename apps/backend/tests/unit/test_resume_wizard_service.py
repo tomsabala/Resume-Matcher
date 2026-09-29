@@ -146,19 +146,17 @@ def test_merge_unique_skills_dedupes_case_insensitively_and_keeps_order() -> Non
 def test_section_prompt_uses_heading_for_any_section() -> None:
     assert section_prompt("intro").startswith("Hi")
     assert "Military Service" in section_prompt(
-        "section:military_service", "en", "Military Service"
+        "section:military_service", "Military Service"
     )
     # No heading to name (the target is gone) -> the generic next prompt.
     assert section_prompt("section:gone") == "What would you like to add next?"
 
 
-def test_wizard_copy_covers_every_locale_and_key() -> None:
-    assert set(_COPY) == {"en", "es", "fr", "ja", "ko", "pt", "zh"}
-    for locale, copy in _COPY.items():
-        assert set(copy) == set(WIZARD_COPY_KEYS), f"{locale} key drift"
-        assert all(value.strip() for value in copy.values()), locale
-        assert "{heading}" in copy["section_generic"], locale
-        assert "{heading}" in copy["warning_section_empty"], locale
+def test_wizard_copy_has_every_key_with_its_placeholders() -> None:
+    assert set(_COPY) == set(WIZARD_COPY_KEYS)
+    assert all(value.strip() for value in _COPY.values())
+    assert "{heading}" in _COPY["section_generic"]
+    assert "{heading}" in _COPY["warning_section_empty"]
 
 
 def test_valid_section_clamps_to_this_documents_sections() -> None:
@@ -584,7 +582,7 @@ async def test_ai_turn_rejects_malformed_complete_envelope_without_advancing(
     assert state.model_dump() == before
 
 
-async def test_ai_turn_localizes_missing_question_fallback_to_content_language() -> None:
+async def test_ai_turn_falls_back_to_the_next_gap_when_the_model_omits_a_question() -> None:
     state = _identified(_state_on_section("section:experience"))
     result_without_question = {
         "resume_data": _AI_EXPERIENCE_RESULT["resume_data"],
@@ -593,15 +591,12 @@ async def test_ai_turn_localizes_missing_question_fallback_to_content_language()
         "is_complete": False,
     }
 
-    with (
-        patch("app.services.resume_wizard.get_content_language", return_value="ja"),
-        _reply(result_without_question),
-    ):
-        result = await run_ai_turn(state, "Acmeでエンジニアをしていました", skip=False)
+    with _reply(result_without_question):
+        result = await run_ai_turn(state, "I was an engineer at Acme", skip=False)
 
     assert result.current_question.section == "section:education"
     assert result.current_question.text == (
-        "「Education」について教えてください。このセクションには何を含めますか？"
+        "Tell me about Education: what should this section include?"
     )
 
 
@@ -806,12 +801,12 @@ def test_apply_review_builds_warnings_without_llm() -> None:
     assert result.warnings  # thin resume -> at least one note
 
 
-def test_apply_review_localizes_deterministic_review_copy() -> None:
+def test_apply_review_uses_the_deterministic_review_copy() -> None:
     state = _identified(_state_on_section("section:skills"))
 
-    with patch("app.services.resume_wizard.get_content_language", return_value="ja"):
-        result = apply_review(state)
+    result = apply_review(state)
 
-    assert result.current_question.text == "マスター履歴書を作成する前に、内容を確認しましょう。"
+    assert result.current_question.text == (
+        "Let's review what's here before we create your master resume."
+    )
     assert result.warnings
-    assert all("Add" not in warning for warning in result.warnings)

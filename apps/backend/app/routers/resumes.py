@@ -21,7 +21,7 @@ from app.ai_budget import (
     AIOperationRoute,
     remaining_timeout,
 )
-from app.config_cache import get_content_language, load_config as _load_config
+from app.config_cache import load_config as _load_config
 from app.database import DatabaseBusyError, ProcessingFinishOutcome, ResumeNotFoundError, db
 from app.deps import ActiveTenantDep, WorkspaceId
 from app.tenancy import ActiveTenant
@@ -604,7 +604,6 @@ def _validate_confirm_payload(
 async def _generate_auxiliary_messages(
     improved_data: dict[str, Any],
     job_content: str,
-    language: str,
     enable_cover_letter: bool,
     enable_outreach: bool,
     enable_interview_prep: bool,
@@ -626,23 +625,17 @@ async def _generate_auxiliary_messages(
     task_labels: list[str] = []
 
     # Title generation is always on (no feature flag)
-    generation_tasks.append(generate_resume_title(job_content, language))
+    generation_tasks.append(generate_resume_title(job_content))
     task_labels.append("title")
 
     if enable_cover_letter:
-        generation_tasks.append(
-            generate_cover_letter(improved_data, job_content, language)
-        )
+        generation_tasks.append(generate_cover_letter(improved_data, job_content))
         task_labels.append("cover_letter")
     if enable_outreach:
-        generation_tasks.append(
-            generate_outreach_message(improved_data, job_content, language)
-        )
+        generation_tasks.append(generate_outreach_message(improved_data, job_content))
         task_labels.append("outreach")
     if enable_interview_prep:
-        generation_tasks.append(
-            generate_interview_prep(improved_data, job_content, language)
-        )
+        generation_tasks.append(generate_interview_prep(improved_data, job_content))
         task_labels.append("interview_prep")
 
     async def bounded_generation(
@@ -1227,7 +1220,6 @@ async def improve_resume_preview_endpoint(
         raise HTTPException(status_code=404, detail="Job description not found")
 
     _validate_ai_sources(resume, job)
-    language = get_content_language()
     prompt_id = request.prompt_id or _get_default_prompt_id()
 
     progress = {"stage": "load_job_keywords"}
@@ -1239,7 +1231,6 @@ async def improve_resume_preview_endpoint(
                 workspace_id=workspace_id,
                 resume=resume,
                 job=job,
-                language=language,
                 prompt_id=prompt_id,
                 progress=progress,
             ),
@@ -1279,7 +1270,6 @@ async def _improve_preview_flow(
     workspace_id: str,
     resume: dict[str, Any],
     job: dict[str, Any],
-    language: str,
     prompt_id: str,
     progress: dict[str, str] | None = None,
 ) -> ImproveResumeResponse:
@@ -1340,7 +1330,6 @@ async def _improve_preview_flow(
                 original_resume_data=original_resume_data,
                 job_description=job["content"],
                 job_keywords=job_keywords,
-                language=language,
             )
             verified_skill_plan = verify_skill_target_plan(
                 raw_skill_plan,
@@ -1369,7 +1358,6 @@ async def _improve_preview_flow(
             original_resume=resume["content"],
             job_description=job["content"],
             job_keywords=job_keywords,
-            language=language,
             prompt_id=prompt_id,
             original_resume_data=original_resume_data,
             skill_targets=skill_targets,
@@ -1412,7 +1400,6 @@ async def _improve_preview_flow(
             original_resume=resume["content"],
             job_description=job["content"],
             job_keywords=job_keywords,
-            language=language,
             prompt_id=prompt_id,
             original_resume_data=original_resume_data,
         )
@@ -1589,7 +1576,6 @@ async def improve_resume_confirm_endpoint(
             return ImproveResumeResponse(request_id=data.request_id, data=data)
 
         feature_config = _load_config()
-        language = get_content_language()
 
         try:
             original = _get_original_resume_data(resume)
@@ -1648,7 +1634,6 @@ async def improve_resume_confirm_endpoint(
                 _generate_auxiliary_messages(
                     improved_data,
                     job["content"],
-                    language,
                     feature_config.get("enable_cover_letter", False),
                     feature_config.get("enable_outreach_message", False),
                     feature_config.get("enable_interview_prep", False),
@@ -1768,19 +1753,18 @@ async def improve_resume_endpoint(
     if not job:
         raise HTTPException(status_code=404, detail="Job description not found")
 
-    # Load feature configuration and content language
+    # Load feature configuration
     feature_config = _load_config()
     enable_cover_letter = feature_config.get("enable_cover_letter", False)
     enable_outreach = feature_config.get("enable_outreach_message", False)
     enable_interview_prep = feature_config.get("enable_interview_prep", False)
     _validate_ai_sources(resume, job)
-    language = get_content_language()
 
     try:
         # Extract keywords from job description
         job_keywords = await extract_job_keywords(job["content"])
 
-        # Generate improved resume in the configured language
+        # Generate the improved resume
         prompt_id = request.prompt_id or _get_default_prompt_id()
 
         original_resume_data = _get_original_resume_data(resume)
@@ -1794,7 +1778,6 @@ async def improve_resume_endpoint(
                 original_resume=resume["content"],
                 job_description=job["content"],
                 job_keywords=job_keywords,
-                language=language,
                 prompt_id=prompt_id,
                 original_resume_data=original_resume_data,
             )
@@ -1833,7 +1816,6 @@ async def improve_resume_endpoint(
                 original_resume=resume["content"],
                 job_description=job["content"],
                 job_keywords=job_keywords,
-                language=language,
                 prompt_id=prompt_id,
                 original_resume_data=original_resume_data,
             )
@@ -1934,7 +1916,6 @@ async def improve_resume_endpoint(
         ) = await _generate_auxiliary_messages(
             improved_data,
             job["content"],
-            language,
             enable_cover_letter,
             enable_outreach,
             enable_interview_prep,
@@ -2197,7 +2178,6 @@ async def download_resume_pdf(
     compactMode: bool = Query(False),
     showContactIcons: bool = Query(False),
     accentColor: str = Query("blue", pattern="^(blue|green|orange|red)$"),
-    lang: str | None = Query(None, pattern="^[a-z]{2}(-[A-Z]{2})?$"),
 ) -> Response:
     """Generate a PDF for a resume using headless Chromium.
 
@@ -2216,7 +2196,6 @@ async def download_resume_pdf(
     - bodyFont: serif, sans-serif, or mono
     - compactMode: enable tighter spacing
     - showContactIcons: show icons in contact info
-    - lang: locale used for print page translations
     """
     # This endpoint is the Chromium renderer. A Query(pattern=...) would return
     # a 422 with no explanation, and accepting any string silently rendered
@@ -2252,8 +2231,6 @@ async def download_resume_pdf(
         f"&showContactIcons={str(showContactIcons).lower()}"
         f"&accentColor={accentColor}"
     )
-    if lang:
-        params = f"{params}&lang={lang}"
     url = f"{settings.frontend_base_url}/print/resumes/{resume_id}?{params}"
 
     # Use the exact margins provided; compact mode only affects spacing.
@@ -2492,14 +2469,12 @@ async def generate_cover_letter_endpoint(
             detail="Resume has no processed data. Please re-upload the resume.",
         )
 
-    # Get language setting
     _validate_ai_sources(resume, job)
-    language = get_content_language()
 
     # Generate cover letter
     try:
         cover_letter_content = await generate_cover_letter(
-            resume_data, job["content"], language
+            resume_data, job["content"]
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -2572,14 +2547,12 @@ async def generate_outreach_endpoint(
             detail="Resume has no processed data. Please re-upload the resume.",
         )
 
-    # Get language setting
     _validate_ai_sources(resume, job)
-    language = get_content_language()
 
     # Generate outreach message
     try:
         outreach_content = await generate_outreach_message(
-            resume_data, job["content"], language
+            resume_data, job["content"]
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -2645,13 +2618,11 @@ async def generate_interview_prep_endpoint(
         )
 
     _validate_ai_sources(resume, job)
-    language = get_content_language()
 
     try:
         interview_prep = await generate_interview_prep(
             resume_data,
             job["content"],
-            language,
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -2726,14 +2697,12 @@ async def download_cover_letter_pdf(
     workspace_id: WorkspaceId,
     tenant: ActiveTenantDep,
     pageSize: str = Query("A4", pattern="^(A4|LETTER)$"),
-    lang: str | None = Query(None, pattern="^[a-z]{2}(-[A-Z]{2})?$"),
 ) -> Response:
     """Generate a PDF for a cover letter using headless Chromium.
 
     Args:
         resume_id: The ID of the resume containing the cover letter
         pageSize: A4 or LETTER
-        lang: locale used for print page translations
     """
     resume = await db.get_resume(resume_id, workspace_id=workspace_id)
     if not resume:
@@ -2747,8 +2716,6 @@ async def download_cover_letter_pdf(
 
     # Build print URL (same pattern as resume PDF)
     url = f"{settings.frontend_base_url}/print/cover-letter/{resume_id}?pageSize={pageSize}"
-    if lang:
-        url = f"{url}&lang={lang}"
 
     render_headers = _render_identity_headers(tenant, workspace_id)
 

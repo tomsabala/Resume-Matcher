@@ -18,11 +18,10 @@ from pydantic import (
     field_validator,
 )
 
-from app.config_cache import get_content_language
 from app.llm import _scrub_secrets, complete_json
 from app.prompts.resume_wizard import RESUME_WIZARD_TURN_PROMPT
 from app.prompts.schema import describe_document_schema
-from app.prompts.templates import get_language_name
+from app.prompts.templates import OUTPUT_LANGUAGE
 from app.schemas.document import (
     Bullet,
     Contact,
@@ -143,13 +142,13 @@ def section_is_empty(section: Section) -> bool:
     return not any(group.values for group in section.groups)
 
 
-def section_prompt(section: str, language: str = "en", heading: str = "") -> str:
+def section_prompt(section: str, heading: str = "") -> str:
     """Deterministic fallback question text for a wizard target."""
     if section in FIXED_WIZARD_SECTIONS:
-        return wizard_copy(language, section)
+        return wizard_copy(section)
     if heading.strip():
-        return section_question(language, heading.strip())
-    return wizard_copy(language, "next")
+        return section_question(heading.strip())
+    return wizard_copy("next")
 
 
 def valid_section(section: str, doc: ResumeDocument) -> str:
@@ -170,12 +169,11 @@ def section_heading(doc: ResumeDocument, target: str) -> str:
 
 def build_initial_wizard_state() -> ResumeWizardState:
     """Build the first state shown to a user entering the wizard."""
-    language = get_content_language()
     return ResumeWizardState(
         step="intro",
         resume_data=build_starter_document(),
         current_question=ResumeWizardQuestion(
-            text=section_prompt("intro", language), section="intro"
+            text=section_prompt("intro"), section="intro"
         ),
         progress=ResumeWizardProgress(current=0, total=_PROGRESS_BASELINE),
     )
@@ -203,18 +201,18 @@ def merge_unique_skills(existing: list[str], inferred: list[str]) -> list[str]:
     return merged
 
 
-def build_review_warnings(doc: ResumeDocument, language: str = "en") -> list[str]:
+def build_review_warnings(doc: ResumeDocument) -> list[str]:
     """Deterministic, gentle notes about useful resume facts that are missing."""
     warnings: list[str] = []
     # Name is the one HARD requirement for finalize (the request 422s without it),
     # so surface it at review rather than letting the user hit a generic failure.
     if not doc.header.name.strip():
-        warnings.append(wizard_copy(language, "warning_name"))
+        warnings.append(wizard_copy("warning_name"))
     if not any(contact.value.strip() for contact in doc.header.contacts):
-        warnings.append(wizard_copy(language, "warning_contact"))
+        warnings.append(wizard_copy("warning_contact"))
     for section in doc.sections:
         if section.visible and section_is_empty(section):
-            warnings.append(section_empty_warning(language, section.heading))
+            warnings.append(section_empty_warning(section.heading))
     return warnings
 
 
@@ -599,17 +597,16 @@ def _next_gap_section(doc: ResumeDocument) -> str:
     return "review"
 
 
-def _fallback_question(doc: ResumeDocument, language: str) -> ResumeWizardQuestion:
+def _fallback_question(doc: ResumeDocument) -> ResumeWizardQuestion:
     gap = _next_gap_section(doc)
     return ResumeWizardQuestion(
-        text=section_prompt(gap, language, section_heading(doc, gap)), section=gap
+        text=section_prompt(gap, section_heading(doc, gap)), section=gap
     )
 
 
 def _next_question(
     candidate: dict[str, Any] | None,
     doc: ResumeDocument,
-    language: str,
 ) -> ResumeWizardQuestion:
     """Use the model's next_question, or fall back to the next empty target."""
     if isinstance(candidate, dict):
@@ -620,7 +617,7 @@ def _next_question(
                 text=text.strip()[:_MAX_QUESTION_CHARS],
                 section=valid_section(section, doc),
             )
-    return _fallback_question(doc, language)
+    return _fallback_question(doc)
 
 
 def _section_tokens(doc: ResumeDocument) -> str:
@@ -653,7 +650,6 @@ async def run_ai_turn(
 ) -> ResumeWizardState:
     """Run one adaptive AI turn (answer or skip) and validate the result."""
     section = state.current_question.section
-    language = get_content_language()
     document = state.resume_data
     resume_json = json.dumps(document.model_dump(mode="json"), ensure_ascii=False)
     prompt_answer = (
@@ -665,7 +661,7 @@ async def run_ai_turn(
         else _scrub_secrets(_sanitize_user_input(answer_text))
     )
     prompt = RESUME_WIZARD_TURN_PROMPT.format(
-        output_language=get_language_name(language),
+        output_language=OUTPUT_LANGUAGE,
         current_target=_describe_target(document, section),
         document_schema=describe_document_schema(document),
         section_tokens=_section_tokens(document),
@@ -713,7 +709,7 @@ async def run_ai_turn(
     return ResumeWizardState(
         step="question",
         resume_data=data,
-        current_question=_next_question(envelope.next_question, data, language),
+        current_question=_next_question(envelope.next_question, data),
         history=history,
         asked_count=asked_count,
         inferred_skills=inferred,
@@ -748,11 +744,10 @@ def apply_back(state: ResumeWizardState) -> ResumeWizardState:
 
 def apply_review(state: ResumeWizardState) -> ResumeWizardState:
     """Move to the review step (no LLM call) and compute gentle warnings."""
-    language = get_content_language()
     next_state = state.model_copy(deep=True)
     next_state.step = "review"
     next_state.current_question = ResumeWizardQuestion(
-        text=section_prompt("review", language), section="review"
+        text=section_prompt("review"), section="review"
     )
-    next_state.warnings = build_review_warnings(next_state.resume_data, language)
+    next_state.warnings = build_review_warnings(next_state.resume_data)
     return next_state

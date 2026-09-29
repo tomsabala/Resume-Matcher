@@ -53,7 +53,6 @@ class Workspace(Base):
     workspace_id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String)
     slug: Mapped[str] = mapped_column(String)
-    content_language: Mapped[str] = mapped_column(String, default="en")
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     tenant_ref: Mapped[str] = mapped_column(String, default="", server_default="")
     is_anonymous: Mapped[bool] = mapped_column(
@@ -280,9 +279,9 @@ class WorkspaceSetting(Base):
     """One workspace's override of an instance-wide ``config.json`` key.
 
     Only the keys a tenant may own are ever written here (``llm``,
-    ``features``, ``language``, ``content_language``, ``prompts``,
-    ``feature_prompts``). An absent row means "use the instance default", so
-    an empty table is exactly right for a fresh tenant.
+    ``features``, ``prompts``, ``feature_prompts``). An absent row means "use
+    the instance default", so an empty table is exactly right for a fresh
+    tenant.
     """
 
     __tablename__ = "workspace_settings"

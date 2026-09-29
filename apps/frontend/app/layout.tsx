@@ -14,12 +14,14 @@ const geist = Geist({
   display: 'swap',
 });
 
-// CJK fallbacks for Chinese/Japanese/Korean resume content.
+// CJK fallbacks for non-Latin text inside an *uploaded* resume — a name,
+// employer or school that survives parsing verbatim. The app's own UI and all
+// generated content are English.
 //
 // `preload: false` because the CJK unicode-ranges are not preloadable anyway
 // (Google exposes no `chinese-simplified` subset to next/font) and we don't
-// want to ship a large font to users who never render CJK. Turbopack already
-// skips preloading these, but the legacy webpack font path errors on a
+// want to ship a large font to users whose resumes are pure Latin. Turbopack
+// already skips preloading these, but the legacy webpack font path errors on a
 // preloaded font declared without `subsets`, so this keeps both building.
 //
 // No `weight` array: Google serves these as variable fonts, so listing four
@@ -28,7 +30,7 @@ const geist = Geist({
 //
 // All three regional faces are loaded because Noto Sans SC covers only 0.7% of
 // Hangul (Korean rendered as tofu) while covering ~93% of kana (hijacking
-// Japanese with Simplified-Chinese glyph forms). The per-locale ordering lives
+// Japanese with Simplified-Chinese glyph forms). The fallback ordering lives
 // in lib/types/template-settings.ts.
 const notoSansSC = Noto_Sans_SC({
   variable: '--font-noto-sans-sc',

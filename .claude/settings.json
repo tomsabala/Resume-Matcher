@@ -9,7 +9,6 @@
       "Bash(npm run build:*)",
       "Bash(cd:*)",
       "Bash(npx tsc:*)",
-      "Bash(export PATH=\"/usr/local/bin:/opt/homebrew/bin:$PATH\")",
       "Bash(wc:*)",
       "Bash(cat:*)",
       "Bash(head:*)",
@@ -18,7 +17,6 @@
       "Bash(gh pr view:*)",
       "Bash(gh pr diff:*)",
       "Bash(gh issue view:*)",
-      "Bash(export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\")",
       "Bash(node:*)",
       "Bash(npm --version)",
       "Bash(source:*)"

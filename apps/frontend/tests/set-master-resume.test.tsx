@@ -22,7 +22,6 @@ vi.mock('next/navigation', () => ({
   useParams: () => ({ id: route.resumeId }),
 }));
 vi.mock('@/lib/i18n', () => ({ useTranslations: () => ({ t: translate, locale: 'en' }) }));
-vi.mock('@/lib/context/language-context', () => ({ useLanguage: () => ({ uiLanguage: 'en' }) }));
 vi.mock('@/lib/context/status-cache', () => ({
   useStatusCache: () => ({
     status: { llm_configured: true },

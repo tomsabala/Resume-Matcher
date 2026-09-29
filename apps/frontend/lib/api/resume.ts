@@ -5,7 +5,6 @@ import type {
 import type { ResumeDocument } from '@/lib/types/document';
 import { isTexTemplate, type TemplateSettings } from '@/lib/types/template-settings';
 import { compileTexPdf, type TexTemplateId } from '@/lib/api/tex';
-import { type Locale } from '@/i18n/config';
 import { clearResumeWizardCompletion } from '@/lib/utils/resume-wizard-storage';
 import {
   API_BASE,
@@ -225,11 +224,7 @@ export async function saveResumeTemplateSettings(
  * emitting a `/pdf` link for it is what used to make Download PDF silently
  * render the wrong document.
  */
-export function getResumePdfUrl(
-  resumeId: string,
-  settings?: TemplateSettings,
-  locale?: Locale
-): string {
+export function getResumePdfUrl(resumeId: string, settings?: TemplateSettings): string {
   if (settings && isTexTemplate(settings.template)) {
     throw new Error(`${settings.template} is a LaTeX template; use compileTexPdf`);
   }
@@ -257,9 +252,6 @@ export function getResumePdfUrl(
     params.set('template', 'swiss-single');
     params.set('pageSize', 'A4');
   }
-  if (locale) {
-    params.set('lang', locale);
-  }
 
   return `${API_BASE}/resumes/${encodeURIComponent(normalizedId)}/pdf?${params.toString()}`;
 }
@@ -267,8 +259,7 @@ export function getResumePdfUrl(
 /** Export the resume with the renderer its selected template belongs to. */
 export async function downloadResumePdf(
   resumeId: string,
-  settings?: TemplateSettings,
-  locale?: Locale
+  settings?: TemplateSettings
 ): Promise<Blob> {
   if (settings && isTexTemplate(settings.template)) {
     return await compileTexPdf(
@@ -277,7 +268,7 @@ export async function downloadResumePdf(
       settings
     );
   }
-  const url = getResumePdfUrl(resumeId, settings, locale);
+  const url = getResumePdfUrl(resumeId, settings);
   const res = await apiFetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -344,25 +335,17 @@ export async function setMasterResume(resumeId: string): Promise<SetMasterResume
 }
 
 /** Downloads cover letter as PDF */
-export function getCoverLetterPdfUrl(
-  resumeId: string,
-  pageSize: 'A4' | 'LETTER' = 'A4',
-  locale?: Locale
-): string {
+export function getCoverLetterPdfUrl(resumeId: string, pageSize: 'A4' | 'LETTER' = 'A4'): string {
   const normalizedId = normalizeResumeId(resumeId);
   const params = new URLSearchParams({ pageSize });
-  if (locale) {
-    params.set('lang', locale);
-  }
   return `${API_BASE}/resumes/${encodeURIComponent(normalizedId)}/cover-letter/pdf?${params.toString()}`;
 }
 
 export async function downloadCoverLetterPdf(
   resumeId: string,
-  pageSize: 'A4' | 'LETTER' = 'A4',
-  locale?: Locale
+  pageSize: 'A4' | 'LETTER' = 'A4'
 ): Promise<Blob> {
-  const url = getCoverLetterPdfUrl(resumeId, pageSize, locale);
+  const url = getCoverLetterPdfUrl(resumeId, pageSize);
   const res = await apiFetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => '');

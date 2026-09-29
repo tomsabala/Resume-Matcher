@@ -5,7 +5,6 @@ import Resume from '@/components/dashboard/resume-component';
 import type { ResumeDocument } from '@/lib/types/document';
 import { type TemplateSettings } from '@/lib/types/template-settings';
 import { useTranslations } from '@/lib/i18n';
-import { useLanguage } from '@/lib/context/language-context';
 
 export interface ReadingPreviewProps {
   doc: ResumeDocument;
@@ -25,8 +24,6 @@ export interface ReadingPreviewProps {
  */
 export function ReadingPreview({ doc, settings }: ReadingPreviewProps) {
   const { t } = useTranslations();
-  // Orders the CJK font fallback so the reading view matches the generated PDF.
-  const { contentLanguage } = useLanguage();
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#D5D5D0] p-2 sm:p-6">
@@ -35,7 +32,6 @@ export function ReadingPreview({ doc, settings }: ReadingPreviewProps) {
           doc={doc}
           template={settings.template}
           settings={settings}
-          locale={contentLanguage}
           translate={t}
           fallbackName={t('resume.defaults.name')}
         />

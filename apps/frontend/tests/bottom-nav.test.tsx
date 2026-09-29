@@ -42,8 +42,8 @@ describe('bottom tab bar', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('renders nothing on detail routes, the landing page and print routes', () => {
-    for (const route of ['/builder', '/resumes/abc', '/compare', '/resume-wizard', '/']) {
+  it('renders nothing on detail routes and print routes', () => {
+    for (const route of ['/builder', '/resumes/abc', '/compare', '/resume-wizard']) {
       pathname.value = route;
       const { container, unmount } = render(<BottomNav />);
       expect(container, `expected no tab bar on ${route}`).toBeEmptyDOMElement();

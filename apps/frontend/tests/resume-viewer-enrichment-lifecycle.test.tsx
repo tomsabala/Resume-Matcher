@@ -19,9 +19,6 @@ vi.mock('@/lib/i18n', () => ({
 vi.mock('@/lib/context/status-cache', () => ({
   useStatusCache: () => ({ decrementResumes: vi.fn(), setHasMasterResume: vi.fn() }),
 }));
-vi.mock('@/lib/context/language-context', () => ({
-  useLanguage: () => ({ uiLanguage: 'en' }),
-}));
 vi.mock('@/components/dashboard/resume-component', () => ({
   default: ({ doc }: { doc: ResumeDocument }) => (
     <div data-testid="resume-name">{doc.header.name}</div>

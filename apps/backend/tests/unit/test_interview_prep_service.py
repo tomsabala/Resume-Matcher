@@ -63,7 +63,7 @@ async def test_generate_interview_prep_validates_successful_json():
     ) as mock_complete, _patched_llm_token_helpers() as token_helpers:
         mock_complete.return_value = _valid_payload()
 
-        result = await generate_interview_prep(SAMPLE_RESUME, "Need FastAPI", "en")
+        result = await generate_interview_prep(SAMPLE_RESUME, "Need FastAPI")
 
     mock_get_llm_config, mock_get_model_name, mock_get_safe_max_tokens = token_helpers
     assert result.role_fit_analysis == ["Python API experience is relevant."]
@@ -94,7 +94,6 @@ async def test_generate_interview_prep_bounds_prompt_inputs():
         await generate_interview_prep(
             large_resume,
             "Need FastAPI. " + ("Detailed requirement. " * 1500),
-            "en",
         )
 
     prompt = mock_complete.await_args.kwargs["prompt"]
@@ -114,4 +113,4 @@ async def test_generate_interview_prep_rejects_malformed_llm_json():
         }
 
         with pytest.raises(ValidationError):
-            await generate_interview_prep(SAMPLE_RESUME, "Need FastAPI", "en")
+            await generate_interview_prep(SAMPLE_RESUME, "Need FastAPI")

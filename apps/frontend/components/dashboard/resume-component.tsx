@@ -45,11 +45,6 @@ interface ResumeProps {
   translate?: (key: string) => string;
   /** Placeholder for an empty `header.name`, already localized by the caller. */
   fallbackName?: string;
-  /**
-   * Content locale ("zh" | "ja" | "ko" | ...). Orders the CJK font fallback
-   * stack so a shared codepoint resolves to the right regional face.
-   */
-  locale?: string;
 }
 
 /**
@@ -65,7 +60,6 @@ const Resume: React.FC<ResumeProps> = ({
   settings,
   translate,
   fallbackName,
-  locale,
 }) => {
   const mergedSettings: TemplateSettings = {
     ...DEFAULT_TEMPLATE_SETTINGS,
@@ -80,7 +74,7 @@ const Resume: React.FC<ResumeProps> = ({
     mergedSettings.template = template;
   }
 
-  const cssVars = settingsToCssVars(mergedSettings, locale);
+  const cssVars = settingsToCssVars(mergedSettings);
   const Template = TEMPLATE_COMPONENTS[mergedSettings.template] ?? ResumeSingleColumn;
 
   return (

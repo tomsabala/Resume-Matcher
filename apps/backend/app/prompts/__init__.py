@@ -10,9 +10,9 @@ from app.prompts.templates import (
     IMPROVE_PROMPT_OPTIONS,
     IMPROVE_RESUME_PROMPTS,
     INTERVIEW_PREP_PROMPT,
+    OUTPUT_LANGUAGE,
     PARSE_RESUME_PROMPT,
     SKILL_TARGET_PLAN_PROMPT,
-    get_language_name,
 )
 
 # Placeholders every user-supplied cover-letter / outreach prompt must contain.
@@ -53,5 +53,5 @@ __all__ = [
     "INTERVIEW_PREP_PROMPT",
     "REQUIRED_FEATURE_PROMPT_PLACEHOLDERS",
     "validate_prompt_placeholders",
-    "get_language_name",
+    "OUTPUT_LANGUAGE",
 ]

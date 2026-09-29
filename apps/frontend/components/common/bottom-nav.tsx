@@ -13,7 +13,7 @@ const TAB_ROOTS = ['/dashboard', '/tracker', '/settings'] as const;
 const DETAIL_ROUTES = ['/builder', '/resumes', '/tailor', '/compare', '/resume-wizard'] as const;
 
 export function isTabRoute(pathname: string): boolean {
-  if (pathname === '/' || pathname.startsWith('/print')) return false;
+  if (pathname.startsWith('/print')) return false;
   if (DETAIL_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))) {
     return false;
   }

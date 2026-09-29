@@ -1,4 +1,4 @@
-# .gitignore (in your-project-root/apps/backend/)
+# Repository-wide ignores (backend, frontend and tooling).
 
 # Virtual Environment
 venv/
@@ -47,11 +47,7 @@ htmlcov/
 
 # Local instance or config files specific to backend
 instance/
-.env # Backend specific environment variables
-
-# Config file with API keys - NEVER COMMIT
-**/config.json
-apps/backend/data/config.json
+.env
 
 # cursor related files
 .cursor/
@@ -64,34 +60,10 @@ apps/backend/data/config.json
 !.claude/settings.json
 skills-lock.json
 
-# AI assistant tool folders (personal workflow, not tracked)
-.agents/
-.github/agents/
-.github/skills/
-.github/prompts/
-.github/copilot-instructions.md
-.kilocode/
-.gemini/
-.codex/
-.firecrawl/
-AGENTS.md
-GEMINI.md
-CODEX.md
-
-.DS_Store
-
-
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
 /node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
 
 # testing
 /coverage
@@ -115,9 +87,6 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
-
-# vercel
-.vercel
 
 # typescript
 *.tsbuildinfo

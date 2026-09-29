@@ -47,10 +47,6 @@ vi.mock('@/lib/i18n', () => ({
   useTranslations: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock('@/lib/context/language-context', () => ({
-  useLanguage: () => ({ uiLanguage: 'en', contentLanguage: 'en' }),
-}));
-
 vi.mock('@/components/common/resume_previewer_context', () => ({
   useResumePreview: () => ({ improvedData: null }),
 }));

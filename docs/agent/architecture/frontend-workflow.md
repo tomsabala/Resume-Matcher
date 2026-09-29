@@ -247,4 +247,4 @@ round-trip what you were given instead of constructing a partial payload.
 
 The tailor page records a confirmed server response before navigation and optimistic counters. Retrying navigation reuses that acknowledgement. Confirmation failure retries the same stored job and preview; the Generate action intentionally uploads a new job before making a new preview. Closing/rejecting the preview or leaving the route prevents late results from updating the current UI.
 
-See the [reliability map](reliability-map.md) for file ownership, deterministic checks and the actual browser script. The browser fixture covers Next navigation and per-tab draft separation with synthetic API responses; backend transaction tests cover persistence separately.
+The browser fixture covers Next navigation and per-tab draft separation with synthetic API responses; backend transaction tests cover persistence separately.

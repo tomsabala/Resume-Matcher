@@ -12,7 +12,7 @@ from app.prompts.templates import (
     GENERATE_TITLE_PROMPT,
     OUTREACH_MESSAGE_PROMPT,
 )
-from app.prompts import get_language_name
+from app.prompts import OUTPUT_LANGUAGE
 
 
 def _resolve_feature_prompt(
@@ -37,20 +37,17 @@ def _resolve_feature_prompt(
 async def generate_cover_letter(
     resume_data: dict[str, Any],
     job_description: str,
-    language: str = "en",
 ) -> str:
     """Generate a cover letter based on resume and job description.
 
     Args:
         resume_data: Structured resume data (ResumeData format)
         job_description: Target job description text
-        language: Output language code (en, es, zh, ja)
 
     Returns:
         Generated cover letter as plain text
     """
     validate_source_size(job_description, MAX_JOB_CHARACTERS)
-    output_language = get_language_name(language)
 
     template, is_custom = _resolve_feature_prompt(
         "cover_letter_prompt", COVER_LETTER_PROMPT
@@ -59,7 +56,7 @@ async def generate_cover_letter(
         prompt = template.format(
             job_description=job_description,
             resume_data=json.dumps(resume_data),
-            output_language=output_language,
+            output_language=OUTPUT_LANGUAGE,
         )
     except (KeyError, IndexError, ValueError) as e:
         # str.format() raises KeyError for unknown placeholders, IndexError for
@@ -77,7 +74,7 @@ async def generate_cover_letter(
         prompt = COVER_LETTER_PROMPT.format(
             job_description=job_description,
             resume_data=json.dumps(resume_data),
-            output_language=output_language,
+            output_language=OUTPUT_LANGUAGE,
         )
 
     result = await complete(
@@ -92,20 +89,17 @@ async def generate_cover_letter(
 async def generate_outreach_message(
     resume_data: dict[str, Any],
     job_description: str,
-    language: str = "en",
 ) -> str:
     """Generate a cold outreach message for networking.
 
     Args:
         resume_data: Structured resume data (ResumeData format)
         job_description: Target job description text
-        language: Output language code (en, es, zh, ja)
 
     Returns:
         Generated outreach message as plain text
     """
     validate_source_size(job_description, MAX_JOB_CHARACTERS)
-    output_language = get_language_name(language)
 
     template, is_custom = _resolve_feature_prompt(
         "outreach_message_prompt", OUTREACH_MESSAGE_PROMPT
@@ -114,7 +108,7 @@ async def generate_outreach_message(
         prompt = template.format(
             job_description=job_description,
             resume_data=json.dumps(resume_data),
-            output_language=output_language,
+            output_language=OUTPUT_LANGUAGE,
         )
     except (KeyError, IndexError, ValueError) as e:
         # See generate_cover_letter for rationale on the exception set.
@@ -127,7 +121,7 @@ async def generate_outreach_message(
         prompt = OUTREACH_MESSAGE_PROMPT.format(
             job_description=job_description,
             resume_data=json.dumps(resume_data),
-            output_language=output_language,
+            output_language=OUTPUT_LANGUAGE,
         )
 
     result = await complete(
@@ -141,23 +135,20 @@ async def generate_outreach_message(
 
 async def generate_resume_title(
     job_description: str,
-    language: str = "en",
 ) -> str:
     """Generate a short descriptive title from a job description.
 
     Args:
         job_description: Target job description text
-        language: Output language code (en, es, zh, ja)
 
     Returns:
         Generated title like "Senior Frontend Engineer @ Stripe"
     """
     validate_source_size(job_description, MAX_JOB_CHARACTERS)
-    output_language = get_language_name(language)
 
     prompt = GENERATE_TITLE_PROMPT.format(
         job_description=job_description,
-        output_language=output_language,
+        output_language=OUTPUT_LANGUAGE,
     )
 
     result = await complete(

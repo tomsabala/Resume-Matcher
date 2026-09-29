@@ -14,8 +14,8 @@ from app.prompts import (
     DIFF_STRATEGY_INSTRUCTIONS,
     EXTRACT_KEYWORDS_PROMPT,
     IMPROVE_RESUME_PROMPTS,
+    OUTPUT_LANGUAGE,
     SKILL_TARGET_PLAN_PROMPT,
-    get_language_name,
 )
 from app.prompts.schema import describe_editable_paths
 from app.prompts.templates import IMPROVE_SCHEMA_EXAMPLE
@@ -608,7 +608,6 @@ async def generate_resume_diffs(
     original_resume: str,
     job_description: str,
     job_keywords: dict[str, Any],
-    language: str = "en",
     prompt_id: str | None = None,
     original_resume_data: dict[str, Any] | None = None,
     skill_targets: list[dict[str, Any]] | None = None,
@@ -622,7 +621,6 @@ async def generate_resume_diffs(
         original_resume: Resume content (markdown)
         job_description: Target job description
         job_keywords: Extracted job keywords
-        language: Output language code (en, es, zh, ja)
         prompt_id: Strategy id (nudge/keywords/full)
         original_resume_data: Structured resume JSON
         skill_targets: Verified skill targets from the planning pass
@@ -631,7 +629,6 @@ async def generate_resume_diffs(
         ImproveDiffResult with list of changes and strategy notes
     """
     keywords_str = _prepare_keywords_for_prompt(job_keywords)
-    output_language = get_language_name(language)
 
     selected_id = prompt_id or DEFAULT_IMPROVE_PROMPT_ID
     if selected_id not in DIFF_STRATEGY_INSTRUCTIONS:
@@ -657,7 +654,7 @@ async def generate_resume_diffs(
 
     prompt = DIFF_IMPROVE_PROMPT.format(
         strategy_instruction=strategy_instruction,
-        output_language=output_language,
+        output_language=OUTPUT_LANGUAGE,
         job_keywords=keywords_str,
         skill_targets=_prepare_skill_targets_for_prompt(skill_targets),
         job_description=sanitized_jd,
@@ -906,14 +903,12 @@ async def generate_skill_target_plan(
     original_resume_data: dict[str, Any],
     job_description: str,
     job_keywords: dict[str, Any],
-    language: str = "en",
 ) -> dict[str, Any]:
     """Ask the LLM for a compact skill target plan before editing diffs."""
-    output_language = get_language_name(language)
     existing_skills = skill_values(migrate_document(original_resume_data))
     sanitized_jd = _sanitize_user_input(job_description)
     prompt = SKILL_TARGET_PLAN_PROMPT.format(
-        output_language=output_language,
+        output_language=OUTPUT_LANGUAGE,
         existing_skills=json.dumps(existing_skills, ensure_ascii=False),
         job_keywords=_prepare_keywords_for_prompt(job_keywords),
         job_description=sanitized_jd,
@@ -955,7 +950,6 @@ async def improve_resume(
     original_resume: str,
     job_description: str,
     job_keywords: dict[str, Any],
-    language: str = "en",
     prompt_id: str | None = None,
     original_resume_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -965,7 +959,6 @@ async def improve_resume(
         original_resume: Original resume content (markdown)
         job_description: Target job description
         job_keywords: Extracted job keywords
-        language: Output language code (en, es, zh, ja)
         prompt_id: Which tailor prompt to use
         original_resume_data: Structured resume JSON; used instead of
             markdown when available for higher-fidelity LLM input
@@ -977,7 +970,6 @@ async def improve_resume(
     LLM-011: Sanitizes job description to prevent prompt injection.
     """
     keywords_str = _prepare_keywords_for_prompt(job_keywords)
-    output_language = get_language_name(language)
 
     selected_prompt_id = prompt_id or DEFAULT_IMPROVE_PROMPT_ID
     prompt_template = IMPROVE_RESUME_PROMPTS.get(
@@ -1015,7 +1007,7 @@ async def improve_resume(
         job_keywords=keywords_str,
         original_resume=resume_input,
         schema=IMPROVE_SCHEMA_EXAMPLE,
-        output_language=output_language,
+        output_language=OUTPUT_LANGUAGE,
         critical_truthfulness_rules=truthfulness_rules,
     )
 

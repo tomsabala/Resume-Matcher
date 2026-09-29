@@ -35,7 +35,6 @@ async def confirmation_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[AsyncClient]:
     monkeypatch.setattr(resumes, "_load_config", lambda: {})
-    monkeypatch.setattr(resumes, "get_content_language", lambda: "en")
     monkeypatch.setattr(
         resumes,
         "extract_job_keywords",

@@ -37,7 +37,7 @@ interface WorkspaceContextValue {
   /** Changing the active workspace bumps `revision`; pages refetch on it. */
   revision: number;
   selectWorkspace: (workspaceId: string) => void;
-  createWorkspace: (name: string, contentLanguage?: string) => Promise<Workspace>;
+  createWorkspace: (name: string) => Promise<Workspace>;
   updateWorkspace: (workspaceId: string, payload: WorkspaceUpdate) => Promise<Workspace>;
   deleteWorkspace: (workspaceId: string) => Promise<void>;
 }
@@ -129,11 +129,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   );
 
   const createWorkspace = useCallback(
-    async (name: string, contentLanguage?: string) => {
-      const created = await createWorkspaceRequest({
-        name,
-        content_language: contentLanguage,
-      });
+    async (name: string) => {
+      const created = await createWorkspaceRequest({ name });
       setWorkspaces((rows) => [...rows, created]);
       selectWorkspace(created.workspace_id);
       return created;

@@ -26,8 +26,6 @@ _REPO_ROOT = _REPO_BACKEND.parents[1]
 # re-encrypted for this run, and removed when the owned processes stop.
 _RUN_SETTINGS = frozenset(
     {
-        "content_language",
-        "ui_language",
         "enable_cover_letter",
         "enable_outreach_message",
         "enable_interview_prep",

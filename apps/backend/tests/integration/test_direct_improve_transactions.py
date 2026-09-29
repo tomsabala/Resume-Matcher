@@ -40,7 +40,6 @@ async def direct_case(
         "Python engineer at Synthetic Co", workspace_id=workspace_id
     )
     monkeypatch.setattr(resumes, "_load_config", lambda: {})
-    monkeypatch.setattr(resumes, "get_content_language", lambda: "en")
     monkeypatch.setattr(resumes, "_get_default_prompt_id", lambda: "nudge")
     monkeypatch.setattr(
         resumes,

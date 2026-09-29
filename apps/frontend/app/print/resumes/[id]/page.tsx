@@ -14,7 +14,6 @@ import {
 import { emptyDocument, type ResumeDocument } from '@/lib/types/document';
 import { API_BASE } from '@/lib/api/client';
 import { translate } from '@/lib/i18n/server';
-import { resolveLocale } from '@/lib/i18n/locale';
 import { headers } from 'next/headers';
 
 type PageProps = {
@@ -204,9 +203,7 @@ export default async function PrintResumePage({ params, searchParams }: PageProp
   const resolvedParams = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const doc = await fetchResumeDocument(resolvedParams.id);
-  const locale = resolveLocale(resolvedSearchParams?.lang);
-  const t = (key: string, params?: Record<string, string | number>) =>
-    translate(locale, key, params);
+  const t = (key: string, params?: Record<string, string | number>) => translate('en', key, params);
 
   // Parse template settings from query params
   const settings: TemplateSettings = {
@@ -272,14 +269,11 @@ export default async function PrintResumePage({ params, searchParams }: PageProp
   };
 
   return (
-    // `lang` also drives Chromium's own font fallback during PDF render, which
-    // matters for the CJK faces (L-08).
-    <div className="resume-print bg-white" lang={locale}>
+    <div className="resume-print bg-white" lang="en">
       <Resume
         doc={doc}
         template={settings.template}
         settings={printSettings}
-        locale={locale}
         translate={t}
         fallbackName={t('resume.defaults.name')}
       />

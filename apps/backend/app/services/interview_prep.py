@@ -9,7 +9,7 @@ from app.llm import (
     get_model_name,
     get_safe_max_tokens,
 )
-from app.prompts import INTERVIEW_PREP_PROMPT, get_language_name
+from app.prompts import INTERVIEW_PREP_PROMPT, OUTPUT_LANGUAGE
 from app.schemas import InterviewPrepData
 
 
@@ -101,7 +101,6 @@ def _serialize_resume_data_for_prompt(resume_data: dict[str, Any]) -> str:
 async def generate_interview_prep(
     resume_data: dict[str, Any],
     job_description: str,
-    language: str = "en",
 ) -> InterviewPrepData:
     """Generate structured interview preparation for a tailored resume."""
     prompt = INTERVIEW_PREP_PROMPT.format(
@@ -110,7 +109,7 @@ async def generate_interview_prep(
             _JOB_DESCRIPTION_PROMPT_CHAR_LIMIT,
         ),
         resume_data=_serialize_resume_data_for_prompt(resume_data),
-        output_language=get_language_name(language),
+        output_language=OUTPUT_LANGUAGE,
     )
     config = get_llm_config()
     max_tokens = get_safe_max_tokens(

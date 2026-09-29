@@ -17,7 +17,7 @@
 
 ```
 apps/backend/app/
-├── main.py         # Entry point (lifespan: Alembic upgrade, TinyDB→SQLite import, legacy-key fold-in)
+├── main.py         # Entry point (lifespan: Alembic upgrade, legacy-key fold-in)
 ├── config.py       # Settings from env/file; encrypted API-key read/write
 ├── crypto.py       # Fernet encrypt/decrypt for API keys at rest
 ├── database.py     # Async SQLAlchemy/SQLite facade (returns plain dicts)
@@ -38,7 +38,6 @@ apps/backend/app/
 ├── schemas/        # Pydantic models (document.py = the resume contract,
 │                   #   models.py, enrichment.py, applications.py, versions.py,
 │                   #   workspaces.py, refinement.py, resume_wizard.py, tex.py)
-├── scripts/        # migrate_tinydb_to_sqlite.py (one-time importer)
 └── prompts/        # templates.py, schema.py (document shape + allowed paths),
                     #   enrichment.py, refinement.py, resume_wizard.py
 
@@ -73,8 +72,8 @@ get_api_key_ciphertexts(ws) / replace_api_keys(ws, …)        # sync; encrypted
 
 There is no unscoped variant and no default: a missing scope is a `TypeError` at the call
 site. `db.default_workspace_id()` is the *instance* default (the standalone tenant's
-workspace) for the paths that run outside a request — the legacy key migration, the TinyDB
-import, the synchronous config reader — never a request fallback.
+workspace) for the paths that run outside a request — the legacy key migration and the
+synchronous config reader — never a request fallback.
 
 **Tables:** `workspaces`, `workspace_settings`, `resumes`, `resume_versions`, `jobs`, `improvements`, `applications`, `tailoring_previews`, `api_keys` (encrypted, PK `(workspace_id, provider)`).
 DB file: `data/resume_matcher.db`. **There are no foreign keys**, so nothing cascades —
@@ -185,10 +184,9 @@ See [storage transactions](storage-transactions.md) and [confirmation](../featur
   `config.py` injects decrypted keys at read time and strips them on save, so secrets
   never reach `config.json`. Set via `POST /config/api-keys`; `PUT /config/llm-api-key` no
   longer persists a key.
-- **Migration** (`scripts/migrate_tinydb_to_sqlite.py`): runs on lifespan startup. Imports
-  a legacy `data/database.json` (TinyDB) into SQLite if present, then renames it
-  `database.json.migrated`. Idempotent. `migrate_legacy_keys()` likewise folds legacy
-  plaintext keys into the encrypted store.
+- **Legacy key fold-in** (`config.migrate_legacy_keys()`): runs on lifespan startup and folds
+  any plaintext keys left in `config.json` into the encrypted store, then strips them from the
+  file. Idempotent and non-clobbering.
 
 ## The resume document (schema version 2)
 

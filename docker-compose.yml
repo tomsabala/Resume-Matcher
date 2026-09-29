@@ -1,6 +1,6 @@
 services:
   resume-matcher:
-    image: ghcr.io/srbhr/resume-matcher
+    image: ghcr.io/tomsabala/resume-matcher
     build:
       context: .
       args:

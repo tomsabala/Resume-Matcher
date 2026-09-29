@@ -16,7 +16,6 @@ from app.ai_budget import (
     AIOperationRoute,
     remaining_timeout,
 )
-from app.config_cache import get_content_language
 from app.database import DatabaseBusyError, db
 from app.deps import WorkspaceId
 from app.llm import complete_json
@@ -26,7 +25,7 @@ from app.prompts.enrichment import (
     REGENERATE_ITEM_PROMPT,
     REGENERATE_SKILLS_PROMPT,
 )
-from app.prompts.templates import get_language_name
+from app.prompts.templates import OUTPUT_LANGUAGE
 from app.schemas.document import (
     Bullet,
     Entry,
@@ -209,17 +208,13 @@ async def analyze_resume(
 
     require_source_size(processed_data)
 
-    # Build prompt with content language
     resume_json = json.dumps(processed_data)
-    language = get_content_language()
-    output_language = get_language_name(language)
     prompt = ANALYZE_RESUME_PROMPT.format(
         resume_json=resume_json,
-        output_language=output_language
+        output_language=OUTPUT_LANGUAGE,
     )
 
     try:
-        # Call LLM with increased max_tokens for non-English languages
         result = await asyncio.wait_for(
             complete_json(
                 prompt,
@@ -330,11 +325,9 @@ async def generate_enhancements(
     else:
         # Legacy path — re-analyze to get question-to-item mapping
         resume_json = json.dumps(processed_data)
-        language = get_content_language()
-        output_language = get_language_name(language)
         analysis_prompt = ANALYZE_RESUME_PROMPT.format(
             resume_json=resume_json,
-            output_language=output_language,
+            output_language=OUTPUT_LANGUAGE,
         )
 
         try:
@@ -409,12 +402,9 @@ async def generate_enhancements(
             else:
                 answers_text += f"Additional info: {answer.answer}\n\n"
 
-        # Build enhancement prompt with content language
+        # Build the enhancement prompt
         current_desc = item.get("current_description", [])
         current_desc_text = "\n".join(f"- {d}" for d in current_desc) if current_desc else "(No description)"
-
-        language = get_content_language()
-        output_language = get_language_name(language)
 
         prompt = ENHANCE_DESCRIPTION_PROMPT.format(
             # The prompt wants a human label ("Military Service"), not the
@@ -424,7 +414,7 @@ async def generate_enhancements(
             subtitle=item.get("subtitle", ""),
             current_description=current_desc_text,
             answers=answers_text.strip(),
-            output_language=output_language,
+            output_language=OUTPUT_LANGUAGE,
         )
 
         try:
@@ -550,7 +540,6 @@ async def apply_enhancements(
 async def _regenerate_experience_or_project(
     item: RegenerateItemInput,
     instruction: str,
-    output_language: str,
 ) -> RegeneratedItem:
     """Regenerate a single experience or project item."""
     current_desc_text = (
@@ -560,7 +549,7 @@ async def _regenerate_experience_or_project(
     )
 
     prompt = REGENERATE_ITEM_PROMPT.format(
-        output_language=output_language,
+        output_language=OUTPUT_LANGUAGE,
         item_type=item.item_type,
         title=item.title,
         subtitle=item.subtitle or "",
@@ -594,13 +583,12 @@ async def _regenerate_experience_or_project(
 async def _regenerate_skills(
     item: RegenerateItemInput,
     instruction: str,
-    output_language: str,
 ) -> RegeneratedItem:
     """Regenerate the skills section."""
     current_skills_text = ", ".join(item.current_content) if item.current_content else "(No skills)"
 
     prompt = REGENERATE_SKILLS_PROMPT.format(
-        output_language=output_language,
+        output_language=OUTPUT_LANGUAGE,
         current_skills=current_skills_text,
         user_instruction=instruction,
     )
@@ -645,21 +633,14 @@ async def regenerate_items(
     if not request.items:
         raise HTTPException(status_code=400, detail="No items selected for regeneration")
 
-    # Get language name for LLM
-    output_language = get_language_name(request.output_language)
-
     # A bounded collection may queue work, but at most four items call AI.
     semaphore = asyncio.Semaphore(MAX_ITEM_WORKERS)
 
     async def regenerate_one(item: RegenerateItemInput) -> RegeneratedItem:
         async with semaphore:
             if item.item_type == "values":
-                return await _regenerate_skills(
-                    item, request.instruction, output_language
-                )
-            return await _regenerate_experience_or_project(
-                item, request.instruction, output_language
-            )
+                return await _regenerate_skills(item, request.instruction)
+            return await _regenerate_experience_or_project(item, request.instruction)
 
     results = await asyncio.gather(
         *(regenerate_one(item) for item in request.items), return_exceptions=True

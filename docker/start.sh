@@ -5,7 +5,6 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
-CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 BOLD='\033[1m'
@@ -13,33 +12,6 @@ BOLD='\033[1m'
 # Internal port configuration for single-port deployment.
 FRONTEND_PORT="3000"
 BACKEND_PORT="8000"
-
-# Print banner
-print_banner() {
-    echo -e "${CYAN}"
-    cat << 'EOF'
-
- ██████╗ ███████╗███████╗██╗   ██╗███╗   ███╗███████╗
- ██╔══██╗██╔════╝██╔════╝██║   ██║████╗ ████║██╔════╝
- ██████╔╝█████╗  ███████╗██║   ██║██╔████╔██║█████╗
- ██╔══██╗██╔══╝  ╚════██║██║   ██║██║╚██╔╝██║██╔══╝
- ██║  ██║███████╗███████║╚██████╔╝██║ ╚═╝ ██║███████╗
- ╚═╝  ╚═╝╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝
-
- ███╗   ███╗ █████╗ ████████╗ ██████╗██╗  ██╗███████╗██████╗
- ████╗ ████║██╔══██╗╚══██╔══╝██╔════╝██║  ██║██╔════╝██╔══██╗
- ██╔████╔██║███████║   ██║   ██║     ███████║█████╗  ██████╔╝
- ██║╚██╔╝██║██╔══██║   ██║   ██║     ██╔══██║██╔══╝  ██╔══██╗
- ██║ ╚═╝ ██║██║  ██║   ██║   ╚██████╗██║  ██║███████╗██║  ██║
- ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
-
-EOF
-    echo -e "${NC}"
-    echo -e "${BOLD}        Crazy Stuff with Resumes and Cover letters${NC}"
-    echo ""
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-}
 
 # Print status message
 status() {
@@ -136,9 +108,6 @@ FRONTEND_PID=""
 
 # Set up signal handlers
 trap cleanup SIGTERM SIGINT SIGQUIT
-
-# Print banner
-print_banner
 
 # Display routing configuration
 info "Routing configuration:"

@@ -46,18 +46,17 @@ describe('resume export routing', () => {
       pageSize: 'LETTER' as const,
     };
 
-    await downloadResumePdf('r-1', settings, 'en');
+    await downloadResumePdf('r-1', settings);
 
     expect(compile).toHaveBeenCalledWith('r-1', 'tex-compact', settings);
     expect(fetchApi).not.toHaveBeenCalled();
   });
 
   it('still renders an HTML selection through the print route', async () => {
-    await downloadResumePdf(
-      'r-1',
-      { ...DEFAULT_TEMPLATE_SETTINGS, template: 'swiss-single' },
-      'en'
-    );
+    await downloadResumePdf('r-1', {
+      ...DEFAULT_TEMPLATE_SETTINGS,
+      template: 'swiss-single',
+    });
 
     expect(compile).not.toHaveBeenCalled();
     const url = fetchApi.mock.calls[0][0];
