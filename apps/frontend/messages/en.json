@@ -1278,6 +1278,10 @@
     "noEngine": "No LaTeX engine on this server. Download the .tex and compile it locally.",
     "previewLabel": "Compiled preview",
     "previewCompiling": "Compiling preview...",
+    "previewPages": "Pages: {count}",
+    "previewZoomIn": "Zoom in",
+    "previewZoomOut": "Zoom out",
+    "previewFitWidth": "Fit to width",
     "sourceLabel": "LaTeX source",
     "lineCount": "{count} lines",
     "downloadTex": "Download .tex",
@@ -1292,7 +1296,8 @@
       "load": "Failed to load LaTeX source",
       "save": "Failed to save LaTeX source",
       "reset": "Failed to reset LaTeX source",
-      "compile": "LaTeX compilation failed"
+      "compile": "LaTeX compilation failed",
+      "render": "Could not render the compiled PDF"
     },
     "htmlTemplateNotice": "An HTML template is selected, so this source is shown for reference. Switch to a LaTeX template to make it the resume you export."
   }

@@ -144,6 +144,72 @@
      global rule was leaking into nested text inside <button> elements. */
 }
 
+/* pdf.js preview (components/latex/tex-pdf-preview.tsx).
+
+   The app runs inside a sandboxed iframe, where the browser's built-in PDF
+   viewer is unavailable, so LaTeX previews are rasterised by pdf.js onto a
+   canvas with a transparent text layer over it for selection and find.
+   These class names are written by that component and by pdf.js itself
+   (`.markedContent`), so they are global rather than a CSS module. The text
+   layer block mirrors `pdfjs-dist/web/pdf_viewer.css`: the spans are
+   positioned in unscaled PDF units and multiplied by `--total-scale-factor`,
+   which the component sets per page to match the raster scale. */
+.pdf-page {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid #000000;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.2);
+}
+
+.pdf-page canvas {
+  display: block;
+}
+
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.pdf-text-layer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.pdf-text-layer > :not(.markedContent),
+.pdf-text-layer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-text-layer .markedContent {
+  display: contents;
+}
+
+.pdf-text-layer ::selection {
+  background: color-mix(in srgb, #1d4ed8, transparent 65%);
+  color: transparent;
+}
+
 @media print {
   html,
   body {
