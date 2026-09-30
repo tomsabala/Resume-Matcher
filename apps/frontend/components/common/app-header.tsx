@@ -1,11 +1,13 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Settings } from 'lucide-react';
 
 import { WorkspaceSwitcher } from '@/components/common/workspace-switcher';
 import { isDetailRoute } from '@/components/common/bottom-nav';
 import { useTranslations } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 /** Route title key, resolved against keys that already exist in every locale. */
 function routeTitleKey(pathname: string): string | null {
@@ -21,7 +23,8 @@ function routeTitleKey(pathname: string): string | null {
 }
 
 /**
- * Route-aware top bar: back chevron on detail routes, the route title, and the
+ * Route-aware top bar: back chevron on detail routes, the route title, the
+ * settings link (desktop only — the tab bar owns it below `lg`), and the
  * workspace switcher.
  *
  * Hidden on print routes, which are full-bleed surfaces with no chrome.
@@ -50,7 +53,21 @@ export function AppHeader() {
       <span className="min-w-0 flex-1 truncate font-mono text-xs font-bold uppercase tracking-wider lg:hidden">
         {titleKey ? t(titleKey) : ''}
       </span>
-      <div className="ml-auto shrink-0">
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <Link
+          href="/settings"
+          aria-label={t('nav.goToSettings')}
+          title={t('nav.settings')}
+          aria-current={pathname.startsWith('/settings') ? 'page' : undefined}
+          className={cn(
+            'hidden h-11 w-11 items-center justify-center border border-black lg:flex',
+            pathname.startsWith('/settings')
+              ? 'bg-black text-white'
+              : 'bg-white text-black hover:bg-paper-tint'
+          )}
+        >
+          <Settings className="h-5 w-5" />
+        </Link>
         <WorkspaceSwitcher />
       </div>
     </header>
