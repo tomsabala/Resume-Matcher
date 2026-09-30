@@ -104,7 +104,7 @@ not a narrowed desktop. Desktop at `lg` and above is unchanged.
 | --- | --- | --- |
 | Breakpoint check | `hooks/use-is-mobile.ts` | `useIsMobile()` over `matchMedia('(max-width: 1023.98px)')`. `false` during SSR and the first hydration frame, so **every runtime branch is also CSS-gated** (`lg:hidden` / `hidden lg:block`) — that frame paints nothing rather than the desktop tree |
 | Tab bar | `components/common/bottom-nav.tsx` | Four slots (Resumes / Tracker / ⊕ Create / Settings), `sticky bottom-0` flex sibling of `<main>`. Shown on `/dashboard`, `/tracker`, `/settings`; absent on the detail routes and `/print*`. Never `fixed` — sticky occupies flow space, so no page needs bottom padding |
-| Top bar | `components/common/app-header.tsx` | Back chevron on detail routes, route title, workspace switcher |
+| Top bar | `components/common/app-header.tsx` | Back chevron on detail routes, route title, the `hidden lg:flex` Tracker + Settings links (the tab bar owns them below `lg`, so the two layers never overlap), workspace switcher |
 | Thumb-zone actions | `components/common/mobile-action-bar.tsx` | `aboveNav` on tab routes (`bottom-[var(--mobile-nav-h)]`), plain `bottom-0` + safe-area padding on detail routes |
 | Sheets | `components/ui/dialog.tsx`, `components/ui/action-sheet.tsx` | Below `sm` every `DialogContent` is a bottom sheet (grab handle, `max-h-[92dvh]`). `ActionSheet` replaces crowded icon clusters |
 | Rows | `components/ui/list-row.tsx` | Replaces aspect-square cards. `trailing` is a **sibling** of the tappable area, never a child — a button inside a button is a hydration error |

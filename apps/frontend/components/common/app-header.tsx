@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronLeft, Settings } from 'lucide-react';
+import { ChevronLeft, KanbanSquare, Settings } from 'lucide-react';
 
 import { WorkspaceSwitcher } from '@/components/common/workspace-switcher';
 import { isDetailRoute } from '@/components/common/bottom-nav';
@@ -23,9 +23,18 @@ function routeTitleKey(pathname: string): string | null {
 }
 
 /**
+ * Routes whose only other link is the `lg:hidden` tab bar, so above `lg` this
+ * header is the sole way in. Keep it the exact complement of `bottom-nav`.
+ */
+const DESKTOP_LINKS = [
+  { href: '/tracker', icon: KanbanSquare, labelKey: 'nav.applicationTracker' },
+  { href: '/settings', icon: Settings, labelKey: 'nav.settings' },
+] as const;
+
+/**
  * Route-aware top bar: back chevron on detail routes, the route title, the
- * settings link (desktop only — the tab bar owns it below `lg`), and the
- * workspace switcher.
+ * desktop links to Tracker and Settings (the tab bar owns them below `lg`),
+ * and the workspace switcher.
  *
  * Hidden on print routes, which are full-bleed surfaces with no chrome.
  */
@@ -54,20 +63,24 @@ export function AppHeader() {
         {titleKey ? t(titleKey) : ''}
       </span>
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        <Link
-          href="/settings"
-          aria-label={t('nav.goToSettings')}
-          title={t('nav.settings')}
-          aria-current={pathname.startsWith('/settings') ? 'page' : undefined}
-          className={cn(
-            'hidden h-11 w-11 items-center justify-center border border-black lg:flex',
-            pathname.startsWith('/settings')
-              ? 'bg-black text-white'
-              : 'bg-white text-black hover:bg-paper-tint'
-          )}
-        >
-          <Settings className="h-5 w-5" />
-        </Link>
+        {DESKTOP_LINKS.map(({ href, icon: Icon, labelKey }) => {
+          const active = pathname.startsWith(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              aria-label={t(labelKey)}
+              title={t(labelKey)}
+              aria-current={active ? 'page' : undefined}
+              className={cn(
+                'hidden h-11 w-11 items-center justify-center border border-black lg:flex',
+                active ? 'bg-black text-white' : 'bg-white text-black hover:bg-paper-tint'
+              )}
+            >
+              <Icon className="h-5 w-5" />
+            </Link>
+          );
+        })}
         <WorkspaceSwitcher />
       </div>
     </header>

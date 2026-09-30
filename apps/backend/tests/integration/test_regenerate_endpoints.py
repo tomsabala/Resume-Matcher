@@ -95,7 +95,6 @@ class TestRegenerateSchemas(unittest.TestCase):
             resume_id="resume_1",
             items=[item],
             instruction="x" * 2000,
-            output_language="en",
         )
 
         with self.assertRaises(ValidationError):
@@ -103,7 +102,6 @@ class TestRegenerateSchemas(unittest.TestCase):
                 resume_id="resume_1",
                 items=[item],
                 instruction="x" * 2001,
-                output_language="en",
             )
 
 
@@ -127,7 +125,6 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
                 ),
             ],
             instruction="Improve wording",
-            output_language="en",
         )
 
         mock_db = AsyncMock()
@@ -192,7 +189,6 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
                 ),
             ],
             instruction="Improve wording",
-            output_language="en",
         )
 
         mock_db = AsyncMock()
@@ -255,7 +251,6 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
                 )
             ],
             instruction="Quantify the impact",
-            output_language="en",
         )
 
         with (

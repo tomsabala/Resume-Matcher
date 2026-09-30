@@ -9,8 +9,9 @@ export const SwissGrid = ({ children }: { children: React.ReactNode }) => {
 
   return (
     // 1. Outer Wrapper: Fixed height with grid background.
-    // Desktop-only: below `lg` the dashboard renders a list and the bottom tab bar
-    // carries the navigation this frame's header and footer used to provide.
+    // Desktop-only: below `lg` the dashboard renders a list instead. The Tracker
+    // and Settings links this frame's footer used to carry live in `app-header`
+    // above `lg` and in the `lg:hidden` tab bar below it — do not put them here.
     <div
       className="min-h-0 flex-1 w-full hidden lg:flex justify-center items-start py-6 px-4 md:py-12 md:px-8 overflow-hidden bg-background"
       style={{

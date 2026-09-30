@@ -127,8 +127,6 @@ async def check_flow(base_url: str, output: Path) -> None:
             elif "/config" in url.path:
                 data = {
                     "llm_configured": True,
-                    "ui_language": "en",
-                    "content_language": "en",
                     "provider": "openai",
                     "model": "synthetic",
                 }

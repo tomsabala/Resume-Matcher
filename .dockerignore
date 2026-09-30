@@ -32,7 +32,6 @@
 *.md
 !README.md
 docs/
-assets/
 
 # Build artifacts
 dist/

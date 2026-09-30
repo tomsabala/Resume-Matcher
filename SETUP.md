@@ -174,7 +174,8 @@ injects `X-Apps-Tenant`, `X-Apps-Role` and `X-Apps-Proxy-Secret`, and refuses to
 
 ### Secrets
 
-Any of `LOG_LEVEL`, `LOG_LLM`, `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_API_BASE` can be
+Any of `LOG_LEVEL`, `LOG_LLM`, `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_API_BASE`,
+`GATEWAY_SECRET` can be
 supplied as a `*_FILE` variant pointing at a mounted Docker secret:
 
 ```bash
@@ -258,6 +259,8 @@ From `apps/backend/.env.example`:
 | `FRONTEND_BASE_URL` | `http://localhost:3030` | Where the PDF renderer loads the print route from |
 | `CORS_ORIGINS` | `["http://localhost:3030", ...]` | JSON array |
 | `REQUEST_TIMEOUT_SECONDS` | `240` | Bounded to [30, 1800] |
+| `ANONYMOUS_RETENTION_HOURS` | `24` | `header` mode only: idle anonymous workspaces are purged after this long. Bounded to [1, 8760] |
+| `PREVIEW_TTL_SECONDS` | `86400` | How long a tailoring preview stays claimable. Bounded to [60, 604800] |
 
 `REQUEST_TIMEOUT_SECONDS` must be kept in step with the frontend's
 `NEXT_PUBLIC_REQUEST_TIMEOUT_MS` (= this × 1000). The Next.js proxy and the browser client abort

@@ -66,7 +66,7 @@ async def create_workspace(
 async def update_workspace(
     workspace_id: str, request: WorkspaceUpdateRequest, tenant: ActiveTenantDep
 ) -> WorkspaceResponse:
-    """Rename a workspace, change its content language, or make it the default."""
+    """Rename a workspace or make it the default."""
     # The id comes from the path rather than from the resolved tenant, so
     # without this another tenant's profile would be renamable by anyone who
     # learns its id.

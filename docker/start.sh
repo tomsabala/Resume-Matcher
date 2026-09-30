@@ -135,6 +135,12 @@ fi
 if [ -n "${LLM_API_BASE:-}" ] || [ -n "${LLM_API_BASE_FILE:-}" ]; then
     file_env "LLM_API_BASE"
 fi
+
+# The gateway shared secret is the one real credential in header mode, so it
+# gets the same *_FILE treatment as the provider key.
+if [ -n "${GATEWAY_SECRET:-}" ] || [ -n "${GATEWAY_SECRET_FILE:-}" ]; then
+    file_env "GATEWAY_SECRET"
+fi
 APP_LOG_LEVEL="$(normalize_log_level "${LOG_LEVEL}" "INFO" "LOG_LEVEL")"
 LLM_LOG_LEVEL="$(normalize_log_level "${LOG_LLM}" "WARNING" "LOG_LLM")"
 export LOG_LEVEL="${APP_LOG_LEVEL}"
