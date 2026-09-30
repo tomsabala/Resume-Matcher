@@ -24,8 +24,8 @@ are not optional:
 
 1. The test suite is the boundary. `tests/integration/test_tenancy.py` denies cross-tenant
    access per table; `tests/unit/test_database_scoping.py` is the structural tripwire.
-2. Upstream is deliberately single-user, so every merge from `srbhr/Resume-Matcher` has to
-   re-verify scoping. Keep the tripwire green.
+2. Any merged-in code that predates tenancy is single-user by assumption, so every such merge
+   has to re-verify scoping. Keep the tripwire green.
 
 ## 1. Identity comes from the gateway, never from the client
 
