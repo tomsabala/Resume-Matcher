@@ -33,6 +33,7 @@ import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
 import Star from 'lucide-react/dist/esm/icons/star';
 import MoreVertical from 'lucide-react/dist/esm/icons/more-vertical';
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
+import Layers from 'lucide-react/dist/esm/icons/layers';
 
 import {
   fetchResume,
@@ -676,7 +677,8 @@ export default function DashboardPage() {
     return Math.abs(hash);
   };
 
-  const totalCards = 1 + tailoredResumes.length + 1;
+  // Master + tailored + Settings + Interview Prep tiles.
+  const totalCards = 1 + tailoredResumes.length + 2;
   const fillerCount = Math.max(0, (5 - (totalCards % 5)) % 5);
   const extraFillerCount = 5;
   // Use Tailwind classes for fillers now that we have them in config or use specific hex if needed
@@ -880,6 +882,12 @@ export default function DashboardPage() {
                 />
               );
             })}
+            <ListRow
+              title={t('nav.interviewPrep')}
+              subtitle={t('prepDeck.subtitle')}
+              trailing={<ChevronRight className="h-5 w-5" />}
+              onClick={() => router.push('/interview-prep')}
+            />
           </>
         )}
       </div>
@@ -1109,7 +1117,27 @@ export default function DashboardPage() {
               </div>
             </Card>
 
-            {/* 4. Fillers */}
+            {/* 4. Interview Prep */}
+            <Link href="/interview-prep" className="block h-full">
+              <Card variant="interactive" className="aspect-square h-full">
+                <div className="flex-1 flex flex-col justify-between">
+                  <div className="w-14 h-14 border-2 border-current flex items-center justify-center mb-4">
+                    <Layers className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg uppercase mb-2">
+                      {t('nav.interviewPrep')}
+                    </CardTitle>
+                    <CardDescription className="text-xs uppercase">
+                      {'// '}
+                      {t('prepDeck.subtitle')}
+                    </CardDescription>
+                  </div>
+                </div>
+              </Card>
+            </Link>
+
+            {/* 5. Fillers */}
             {Array.from({ length: fillerCount }).map((_, index) => (
               <Card
                 key={`filler-${index}`}

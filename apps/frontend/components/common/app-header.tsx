@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronLeft, KanbanSquare, Settings } from 'lucide-react';
+import { ChevronLeft, KanbanSquare, Layers, Settings } from 'lucide-react';
 
 import { WorkspaceSwitcher } from '@/components/common/workspace-switcher';
 import { isDetailRoute } from '@/components/common/bottom-nav';
@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 function routeTitleKey(pathname: string): string | null {
   if (pathname.startsWith('/dashboard')) return 'nav.dashboard';
   if (pathname.startsWith('/tracker')) return 'nav.applicationTracker';
+  if (pathname.startsWith('/interview-prep')) return 'nav.interviewPrep';
   if (pathname.startsWith('/settings')) return 'nav.settings';
   if (pathname.startsWith('/builder')) return 'nav.builder';
   if (pathname.startsWith('/tailor')) return 'nav.tailor';
@@ -27,14 +28,15 @@ function routeTitleKey(pathname: string): string | null {
  * header is the sole way in. Keep it the exact complement of `bottom-nav`.
  */
 const DESKTOP_LINKS = [
+  { href: '/interview-prep', icon: Layers, labelKey: 'nav.interviewPrep' },
   { href: '/tracker', icon: KanbanSquare, labelKey: 'nav.applicationTracker' },
   { href: '/settings', icon: Settings, labelKey: 'nav.settings' },
 ] as const;
 
 /**
  * Route-aware top bar: back chevron on detail routes, the route title, the
- * desktop links to Tracker and Settings (the tab bar owns them below `lg`),
- * and the workspace switcher.
+ * desktop links to Interview Prep, Tracker and Settings (the tab bar owns them
+ * below `lg`), and the workspace switcher.
  *
  * Hidden on print routes, which are full-bleed surfaces with no chrome.
  */

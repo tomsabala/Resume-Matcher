@@ -35,6 +35,18 @@ describe('bottom tab bar', () => {
     expect(resumes).not.toHaveClass('bg-black');
   });
 
+  it('marks the interview prep tab active on its own route', () => {
+    pathname.value = '/interview-prep';
+    render(<BottomNav />);
+
+    const prep = screen.getByRole('link', { name: /nav\.tabs\.prep/ });
+    expect(prep).toHaveAttribute('aria-current', 'page');
+    expect(prep).toHaveClass('bg-black');
+
+    const tracker = screen.getByRole('link', { name: /nav\.tabs\.tracker/ });
+    expect(tracker).not.toHaveAttribute('aria-current');
+  });
+
   it('keeps the Create slot an action, never an active tab', () => {
     pathname.value = '/tailor';
     const { container } = render(<BottomNav />);

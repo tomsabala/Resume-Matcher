@@ -49,8 +49,10 @@
     "backToDashboard": "Back to Dashboard",
     "goToSettings": "Go to Settings",
     "applicationTracker": "Application Tracker",
+    "interviewPrep": "Interview Prep",
     "tabs": {
       "resumes": "Resumes",
+      "prep": "Prep",
       "tracker": "Tracker",
       "create": "Create",
       "settings": "Settings"
@@ -1134,6 +1136,96 @@
       "deleteFailed": "Could not delete the application(s)."
     },
     "stageFilter": "Filter by stage"
+  },
+  "prepDeck": {
+    "title": "Interview Prep",
+    "subtitle": "Rehearse the questions you will actually be asked",
+    "categories": {
+      "technical": "Technical",
+      "personal": "Personal"
+    },
+    "addCard": "Add card",
+    "generate": "Generate",
+    "studyAction": "Study",
+    "empty": {
+      "technical": "No technical cards yet. Add one, or generate a set from your master resume.",
+      "personal": "No personal cards yet. Add one, or generate a set from your master resume."
+    },
+    "confidence": {
+      "unrated": "Unrated",
+      "again": "Again",
+      "good": "Good",
+      "easy": "Easy"
+    },
+    "source": {
+      "manual": "Manual",
+      "generated": "Generated",
+      "imported": "Imported"
+    },
+    "card": {
+      "reveal": "Reveal",
+      "hide": "Hide",
+      "noAnswer": "No answer yet",
+      "generateAnswer": "Generate answer",
+      "examples": "Examples",
+      "explanation": "Why this works"
+    },
+    "study": {
+      "progress": "Card {current} of {total}",
+      "rate": "How did that go?",
+      "done": "Done",
+      "next": "Next",
+      "previous": "Previous"
+    },
+    "personal": {
+      "myAnswer": "Your answer",
+      "save": "Save",
+      "saved": "Saved",
+      "getFeedback": "Get feedback",
+      "critiqueScore": "Score",
+      "strengths": "Strengths",
+      "gaps": "Gaps",
+      "suggestedRewrite": "Suggested rewrite",
+      "noFeedback": "No feedback yet. Write an answer and ask for a review."
+    },
+    "form": {
+      "title": "Add card",
+      "editTitle": "Edit card",
+      "category": "Category",
+      "question": "Question",
+      "answer": "Answer",
+      "questionRequired": "A question is required.",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "generateDialog": {
+      "title": "Generate cards",
+      "review": "Review before adding",
+      "selectAll": "Select all",
+      "accept": "Add to deck",
+      "empty": "No questions were generated. Try again."
+    },
+    "sendToDeck": {
+      "action": "Send to deck",
+      "title": "Send to deck",
+      "description": "Pick the questions to add to your interview prep deck.",
+      "accept": "Add to deck"
+    },
+    "delete": {
+      "title": "Delete card",
+      "description": "This card and its answer will be removed.",
+      "confirm": "Delete"
+    },
+    "edit": "Edit",
+    "errors": {
+      "loadFailed": "Could not load cards.",
+      "saveFailed": "Could not save the card.",
+      "deleteFailed": "Could not delete the card.",
+      "generateFailed": "Could not generate cards.",
+      "answerFailed": "Could not generate an answer.",
+      "critiqueFailed": "Could not review the answer.",
+      "noMasterResume": "Create a master resume first so answers can be grounded in it."
+    }
   },
   "interviewPrep": {
     "title": "Interview Prep",

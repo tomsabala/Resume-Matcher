@@ -33,6 +33,7 @@ from app.models import (
     Application,
     Improvement,
     Job,
+    PrepCard,
     Resume,
     ResumeVersion,
     TailoringPreview,
@@ -318,6 +319,26 @@ class Database:
         }
 
     @staticmethod
+    def _prep_card_to_dict(row: PrepCard) -> dict[str, Any]:
+        return {
+            "card_id": row.card_id,
+            "workspace_id": row.workspace_id,
+            "category": row.category,
+            "question": row.question,
+            "answer": row.answer,
+            "explanation": row.explanation,
+            "examples": row.examples,
+            "my_answer": row.my_answer,
+            "critique": row.critique,
+            "confidence": row.confidence,
+            "source": row.source,
+            "application_id": row.application_id,
+            "reviewed_at": row.reviewed_at,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    @staticmethod
     def _workspace_to_dict(row: Workspace) -> dict[str, Any]:
         return {
             "workspace_id": row.workspace_id,
@@ -554,6 +575,7 @@ class Database:
         """
         counts: dict[str, int] = {}
         for model in (
+            PrepCard,
             TailoringPreview,
             Improvement,
             Application,
@@ -2307,6 +2329,161 @@ class Database:
             await session.commit()
         return deleted
 
+    # -- Prep card operations -----------------------------------------------
+
+    async def list_prep_cards(
+        self, *, workspace_id: str, category: str | None = None
+    ) -> list[dict[str, Any]]:
+        """List one workspace's prep cards, newest first."""
+        async with self._session() as session:
+            stmt = select(PrepCard).where(PrepCard.workspace_id == workspace_id)
+            if category is not None:
+                stmt = stmt.where(PrepCard.category == category)
+            stmt = stmt.order_by(PrepCard.created_at.desc())
+            result = await session.execute(stmt)
+            return [self._prep_card_to_dict(row) for row in result.scalars().all()]
+
+    async def get_prep_card(
+        self, card_id: str, *, workspace_id: str
+    ) -> dict[str, Any] | None:
+        """Get a prep card by ID."""
+        async with self._session() as session:
+            row = (
+                await session.execute(
+                    select(PrepCard).where(
+                        PrepCard.card_id == card_id,
+                        PrepCard.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            return self._prep_card_to_dict(row) if row else None
+
+    @staticmethod
+    def _new_prep_card(workspace_id: str, card: dict[str, Any]) -> PrepCard:
+        """Build one unsaved row from the facade's keyword contract."""
+        now = _now()
+        return PrepCard(
+            card_id=str(uuid4()),
+            workspace_id=workspace_id,
+            category=card.get("category", "technical"),
+            question=card["question"],
+            answer=card.get("answer"),
+            explanation=card.get("explanation"),
+            examples=card.get("examples"),
+            confidence="unrated",
+            source=card.get("source", "manual"),
+            application_id=card.get("application_id"),
+            created_at=now,
+            updated_at=now,
+        )
+
+    async def create_prep_card(
+        self,
+        *,
+        workspace_id: str,
+        category: str,
+        question: str,
+        answer: str | None = None,
+        explanation: str | None = None,
+        examples: list[str] | None = None,
+        application_id: str | None = None,
+        source: str = "manual",
+    ) -> dict[str, Any]:
+        """Create one prep card."""
+        async with self._write_session() as session:
+            row = self._new_prep_card(
+                workspace_id,
+                {
+                    "category": category,
+                    "question": question,
+                    "answer": answer,
+                    "explanation": explanation,
+                    "examples": examples,
+                    "application_id": application_id,
+                    "source": source,
+                },
+            )
+            session.add(row)
+            await session.commit()
+            return self._prep_card_to_dict(row)
+
+    async def create_prep_cards(
+        self, cards: list[dict[str, Any]], *, workspace_id: str
+    ) -> list[dict[str, Any]]:
+        """Create many prep cards in one transaction (all-or-nothing)."""
+        async with self._write_session() as session:
+            rows = [self._new_prep_card(workspace_id, card) for card in cards]
+            session.add_all(rows)
+            await session.commit()
+            return [self._prep_card_to_dict(row) for row in rows]
+
+    #: Columns a PATCH (or an LLM endpoint) may assign.
+    _PREP_CARD_UPDATABLE = frozenset(
+        {
+            "category",
+            "question",
+            "answer",
+            "explanation",
+            "examples",
+            "my_answer",
+            "critique",
+            "confidence",
+            "application_id",
+        }
+    )
+
+    async def update_prep_card(
+        self, card_id: str, updates: dict[str, Any], *, workspace_id: str
+    ) -> dict[str, Any] | None:
+        """Update a prep card. Rating it also stamps ``reviewed_at``."""
+        async with self._write_session() as session:
+            row = (
+                await session.execute(
+                    select(PrepCard).where(
+                        PrepCard.card_id == card_id,
+                        PrepCard.workspace_id == workspace_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            for key in self._PREP_CARD_UPDATABLE:
+                if key in updates:
+                    setattr(row, key, updates[key])
+            now = _now()
+            # Nothing else writes reviewed_at: a rating *is* the review event.
+            if "confidence" in updates:
+                row.reviewed_at = now
+            row.updated_at = now
+            await session.commit()
+            return self._prep_card_to_dict(row)
+
+    async def delete_prep_card(self, card_id: str, *, workspace_id: str) -> bool:
+        """Delete one prep card. False when it does not exist here."""
+        async with self._write_session() as session:
+            result = await session.execute(
+                delete(PrepCard).where(
+                    PrepCard.card_id == card_id,
+                    PrepCard.workspace_id == workspace_id,
+                )
+            )
+            await session.commit()
+            return int(result.rowcount or 0) > 0
+
+    async def bulk_delete_prep_cards(
+        self, card_ids: list[str], *, workspace_id: str
+    ) -> int:
+        """Delete many prep cards. Returns the number actually removed."""
+        async with self._write_session() as session:
+            result = await session.execute(
+                delete(PrepCard).where(
+                    PrepCard.card_id.in_(card_ids),
+                    PrepCard.workspace_id == workspace_id,
+                )
+            )
+            await session.commit()
+            return int(result.rowcount or 0)
+
     # -- Encrypted API key store (sync; read on the LLM hot path) -----------
 
     def get_api_key_ciphertexts(self, workspace_id: str) -> dict[str, str]:
@@ -2430,13 +2607,15 @@ class Database:
         """Truncate one workspace's documents, keeping its credentials.
 
         Clears resumes, their version history, jobs, improvements, preview
-        replay data and tracker cards (leaving orphaned cards after a reset
-        would be a bug). Encrypted ``api_keys`` and ``workspace_settings`` are
-        preserved — a reset has never wiped the user's stored credentials, and
-        wiping their provider choice with them would be a surprise.
+        replay data, interview-prep cards and tracker cards (leaving orphaned
+        cards after a reset would be a bug). Encrypted ``api_keys`` and
+        ``workspace_settings`` are preserved — a reset has never wiped the
+        user's stored credentials, and wiping their provider choice with them
+        would be a surprise.
         """
         async with self._write_session() as session:
             for model in (
+                PrepCard,
                 TailoringPreview,
                 Application,
                 Improvement,

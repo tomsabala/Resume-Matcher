@@ -29,6 +29,7 @@ from app.routers import (
     enrichment_router,
     health_router,
     jobs_router,
+    prep_cards_router,
     resume_wizard_router,
     resumes_router,
     tex_router,
@@ -222,6 +223,7 @@ app.include_router(tex_router, prefix="/api/v1")
 app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(enrichment_router, prefix="/api/v1")
 app.include_router(applications_router, prefix="/api/v1")
+app.include_router(prep_cards_router, prefix="/api/v1")
 app.include_router(resume_wizard_router, prefix="/api/v1")
 app.include_router(diff_router, prefix="/api/v1")
 app.include_router(versions_router, prefix="/api/v1")

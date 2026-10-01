@@ -57,6 +57,7 @@ Generic, reusable guides (Swiss design system, Next.js performance) live in [`..
 | [preview-confirmation](features/preview-confirmation.md)       | Durable preview identity, atomic confirmation and replay |
 | [multi-tenancy](features/multi-tenancy.md)                     | Tenant modes, gateway headers, workspace ownership       |
 | [application-tracker](features/application-tracker.md)         | Kanban tracker: columns, cards, bulk operations          |
+| [interview-prep-deck](features/interview-prep-deck.md)         | Prep cards: technical flip-card study, personal rehearsal + critique |
 
 ### LLM Integration
 

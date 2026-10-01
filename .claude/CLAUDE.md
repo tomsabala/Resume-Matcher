@@ -150,6 +150,7 @@ There are two render targets: Chromium HTML (1-3) and LaTeX (4).
 | Feature | Documentation |
 |---------|---------------|
 | Application tracker | [application-tracker.md](../docs/agent/features/application-tracker.md) |
+| Interview prep deck | [interview-prep-deck.md](../docs/agent/features/interview-prep-deck.md) |
 | Resume sections (kinds, keys, headings, visibility, column) | [custom-sections.md](../docs/agent/features/custom-sections.md) |
 | Resume templates | [resume-templates.md](../docs/agent/features/resume-templates.md) |
 | LaTeX export | [latex-export.md](../docs/agent/features/latex-export.md) |

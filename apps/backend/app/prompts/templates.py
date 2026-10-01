@@ -522,6 +522,116 @@ Content requirements:
 - Keep all suggested answer points factual and resume-grounded.
 - Do NOT use markdown fences or commentary outside the JSON."""
 
+PREP_CARD_GENERATE_PROMPT = """Generate interview-prep flashcard questions for this candidate.
+
+IMPORTANT: Write in {output_language}.
+Do NOT translate JSON property names. Keep every JSON key exactly as shown in the schema; translate only string values.
+
+Question focus:
+{category_instruction}
+
+Candidate Resume (JSON):
+{resume_data}
+
+Job context:
+{job_context}
+
+Truthfulness guardrails:
+- Use only evidence from the resume JSON and job context.
+- Do NOT invent experience, tools, employers, metrics, certifications, skills, responsibilities, education, projects, or claims beyond the provided evidence.
+- Do NOT imply the candidate has a skill or background unless it is present in the resume.
+- If a job requirement is not evidenced by the resume, present it as something to prepare for or explain honestly.
+
+Return ONLY a valid JSON object with exactly these top-level keys:
+{{
+  "proposals": [
+    {{
+      "question": "One interview question the candidate should be able to answer",
+      "explanation": "Why this question is worth rehearsing, grounded in the evidence"
+    }}
+  ]
+}}
+
+Content requirements:
+- Return exactly {count} proposals.
+- Each question stands alone; do not number them or reference another question.
+- Keep every question to a single sentence.
+- Do NOT use markdown fences or commentary outside the JSON."""
+
+PREP_CARD_ANSWER_PROMPT = """Write a model answer to one interview question for this candidate.
+
+IMPORTANT: Write in {output_language}.
+Do NOT translate JSON property names. Keep every JSON key exactly as shown in the schema; translate only string values.
+
+Question focus:
+{category_instruction}
+
+Interview question:
+{question}
+
+Candidate Resume (JSON):
+{resume_data}
+
+Job context:
+{job_context}
+
+Truthfulness guardrails:
+- Use only evidence from the resume JSON and job context.
+- Do NOT invent experience, tools, employers, metrics, certifications, skills, responsibilities, education, projects, or claims beyond the provided evidence.
+- Do NOT imply the candidate has a skill or background unless it is present in the resume.
+- If the question asks about something the resume does not evidence, answer honestly about how the candidate would approach it.
+
+Return ONLY a valid JSON object with exactly these top-level keys:
+{{
+  "answer": "The model answer, as it would be spoken",
+  "explanation": "Why this answer works and how to structure it",
+  "examples": ["A concrete illustration supporting the answer"]
+}}
+
+Content requirements:
+- answer: spoken length, 3-6 sentences.
+- explanation: why the answer works and how to structure it when delivering it.
+- examples: 1-3 concrete illustrations. For a question about the candidate, draw them from the resume. For a technical question, draw them from general engineering practice.
+- Do NOT use markdown fences or commentary outside the JSON."""
+
+PREP_CARD_CRITIQUE_PROMPT = """Critique the candidate's own answer to one interview question.
+
+IMPORTANT: Write in {output_language}.
+Do NOT translate JSON property names. Keep every JSON key exactly as shown in the schema; translate only string values.
+
+Interview question:
+{question}
+
+The candidate's answer:
+{my_answer}
+
+Reference model answer (may be empty):
+{model_answer}
+
+Candidate Resume (JSON):
+{resume_data}
+
+Truthfulness guardrails:
+- Judge only what the candidate actually wrote. Do NOT credit them for anything they did not say.
+- Use only evidence from the resume JSON.
+- Do NOT invent experience, tools, employers, metrics, certifications, skills, responsibilities, education, projects, or claims beyond the provided evidence.
+- The suggested rewrite must keep the candidate's own facts and must NOT introduce experience the resume does not evidence.
+
+Return ONLY a valid JSON object with exactly these top-level keys:
+{{
+  "score": 3,
+  "strengths": ["What the answer already does well"],
+  "gaps": ["What is missing, vague, or unconvincing"],
+  "suggested_rewrite": "The candidate's answer, improved"
+}}
+
+Content requirements:
+- score: an integer from 1 to 5.
+- strengths: 1-4 points. Omit entirely (empty list) if the answer has none.
+- gaps: 1-4 points.
+- suggested_rewrite: spoken length, built from the candidate's own answer.
+- Do NOT use markdown fences or commentary outside the JSON."""
+
 GENERATE_TITLE_PROMPT = """Extract the job title and company name from this job description.
 
 IMPORTANT: Write in {output_language}.

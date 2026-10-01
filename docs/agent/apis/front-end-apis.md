@@ -539,6 +539,25 @@ deleteApplication(id: string) → void
 bulkDeleteApplications(applicationIds: string[]) → ApplicationActionResponse
 ```
 
+## Interview Prep Deck (`lib/api/prep-cards.ts`)
+
+Workspace-global cards, distinct from the per-resume `interview_prep` builder tab (see [interview-prep-deck](../features/interview-prep-deck.md)). `generatePrepCards` persists nothing — it returns proposals the user accepts through `bulkCreatePrepCards`. A PATCH carrying `confidence` is the only thing that stamps `reviewed_at`. The three LLM calls are grounded in the workspace's master resume and return `400` when there is none.
+
+```typescript
+// Deck (categories: technical | personal)
+listPrepCards(category?: PrepCardCategory) → { cards: PrepCard[] }
+createPrepCard(payload: PrepCardCreate) → PrepCard                 // source="manual"
+bulkCreatePrepCards(cards: PrepCardCreate[]) → { cards: PrepCard[] }  // source="generated"
+updatePrepCard(cardId: string, payload: PrepCardUpdate) → PrepCard
+deletePrepCard(cardId: string) → void
+bulkDeletePrepCards(cardIds: string[]) → PrepCardActionResponse
+
+// LLM paths (400 without a master resume; 504/422 via AIOperationRoute)
+generatePrepCards({ category, count?, application_id? }) → { proposals: PrepCardProposal[] }
+answerPrepCard(cardId: string) → PrepCard          // stores answer/explanation/examples
+critiquePrepCard(cardId: string, myAnswer: string) → PrepCard   // stores my_answer + critique
+```
+
 ## Config Operations (`lib/api/config.ts`)
 
 ```typescript

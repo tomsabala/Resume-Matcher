@@ -255,6 +255,35 @@ class Application(Base):
     updated_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
 
 
+class PrepCard(Base):
+    """One interview-prep flashcard: a question plus its verified answer."""
+
+    __tablename__ = "prep_cards"
+    __table_args__ = (Index("ix_prep_cards_workspace", "workspace_id"),)
+
+    card_id: Mapped[str] = mapped_column(String, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String, default="")
+    # "technical" (the flip-card deck) or "personal" (questions about the owner).
+    category: Mapped[str] = mapped_column(String, default="technical", index=True)
+    question: Mapped[str] = mapped_column(Text)
+    # The model answer and its supporting material; null until the LLM fills them.
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    examples: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # The owner's own attempt and the LLM's critique of it.
+    my_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    critique: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # "unrated" | "again" | "good" | "easy" — set by hand after a flip.
+    confidence: Mapped[str] = mapped_column(String, default="unrated")
+    # "manual" | "generated" | "imported" — provenance, shown as a row badge.
+    source: Mapped[str] = mapped_column(String, default="manual")
+    # Optional tracker link, so a card can be filtered to one interview.
+    application_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    reviewed_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
+    updated_at: Mapped[str] = mapped_column(String, default=_utcnow_iso)
+
+
 class ApiKey(Base):
     """One workspace's encrypted LLM provider API key.
 

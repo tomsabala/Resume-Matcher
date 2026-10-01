@@ -566,6 +566,35 @@ async def test_dedicated_ai_failures_reach_api_boundary(
         assert response.json()["detail"].startswith("AI prompt exceeds")
 
 
+@pytest.mark.parametrize("failure,expected", [("deadline", 504), ("prompt", 422)])
+@pytest.mark.parametrize("boundary", ["generate", "answer", "critique"])
+async def test_prep_card_ai_failures_reach_api_boundary(
+    monkeypatch: pytest.MonkeyPatch, isolated_db: Any,
+    failure: str, expected: int, boundary: str,
+) -> None:
+    from app.ai_budget import AIOperationDeadlineExceeded
+    from app.ai_limits import PromptSizeError
+    from app.routers import prep_cards
+
+    error = AIOperationDeadlineExceeded("expired") if failure == "deadline" else PromptSizeError("AI prompt exceeds the 512000-character limit")
+    workspace_id = await isolated_db.default_workspace_id()
+    await isolated_db.create_resume(content="# Resume", is_master=True, processed_data={"header": {}, "sections": []}, processing_status="ready", workspace_id=workspace_id)
+    card = await isolated_db.create_prep_card(workspace_id=workspace_id, category="technical", question="What is WAL?")
+    service = {"generate": "generate_prep_cards", "answer": "answer_prep_card", "critique": "critique_prep_answer"}[boundary]
+    monkeypatch.setattr(prep_cards, service, AsyncMock(side_effect=error))
+    if boundary == "generate":
+        path, payload = "/prep-cards/generate", {"category": "technical"}
+    elif boundary == "answer":
+        path, payload = f"/prep-cards/{card['card_id']}/answer", {}
+    else:
+        path, payload = f"/prep-cards/{card['card_id']}/critique", {"my_answer": "Because."}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(f"/api/v1{path}", json=payload)
+    assert response.status_code == expected, response.text
+    if failure == "prompt":
+        assert response.json()["detail"].startswith("AI prompt exceeds")
+
+
 @pytest.mark.parametrize("retry", [False, True])
 @pytest.mark.parametrize("failure,expected", [("deadline", 504), ("prompt", 422)])
 async def test_explicit_parse_boundary_failure_retires_owned_attempt(

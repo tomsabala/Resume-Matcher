@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { AlertTriangle, Lightbulb, ListChecks, MessageSquareText, Target } from 'lucide-react';
 import { GeneratePrompt } from './generate-prompt';
+import { Button } from '@/components/ui/button';
 import type {
   InterviewPrepData,
   InterviewPrepQuestion,
@@ -19,6 +20,8 @@ interface InterviewPrepViewProps {
   isTailoredResume: boolean;
   canGenerate?: boolean;
   unavailableMessage?: string | null;
+  /** Opens the deck-import dialog; the view stays presentational. */
+  onSendToDeck?: () => void;
   className?: string;
 }
 
@@ -121,6 +124,7 @@ export function InterviewPrepView({
   isTailoredResume,
   canGenerate = true,
   unavailableMessage,
+  onSendToDeck,
   className,
 }: InterviewPrepViewProps) {
   const { t } = useTranslations();
@@ -172,6 +176,14 @@ export function InterviewPrepView({
           <p className="text-sm font-mono leading-relaxed">
             {unavailableMessage ?? t('interviewPrep.missingContextDescription')}
           </p>
+        </div>
+      )}
+
+      {onSendToDeck && (
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onSendToDeck}>
+            {t('prepDeck.sendToDeck.action')}
+          </Button>
         </div>
       )}
 

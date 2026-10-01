@@ -12,6 +12,9 @@ import { CoverLetterPreview } from './cover-letter-preview';
 import { OutreachPreview } from './outreach-preview';
 import { GeneratePrompt } from './generate-prompt';
 import { InterviewPrepView } from './interview-prep-view';
+import { ProposalReviewDialog } from '@/components/prep/proposal-review-dialog';
+import { proposalsFromInterviewPrep } from '@/components/prep/proposals';
+import { bulkCreatePrepCards } from '@/lib/api/prep-cards';
 import { Button } from '@/components/ui/button';
 import { RetroTabs, type Tab } from '@/components/ui/retro-tabs';
 import { Segmented } from '@/components/ui/segmented';
@@ -323,6 +326,8 @@ const ResumeBuilderContent = () => {
   const [isGeneratingOutreach, setIsGeneratingOutreach] = useState(false);
   const [isGeneratingInterviewPrep, setIsGeneratingInterviewPrep] = useState(false);
   const [interviewPrepError, setInterviewPrepError] = useState<string | null>(null);
+  // Owns the deck-import dialog; `InterviewPrepView` only raises the request.
+  const [sendToDeckOpen, setSendToDeckOpen] = useState(false);
   const [showRegenerateDialog, setShowRegenerateDialog] = useState<
     'cover-letter' | 'outreach' | 'interview-prep' | null
   >(null);
@@ -1867,6 +1872,7 @@ const ResumeBuilderContent = () => {
                   isTailoredResume={isTailoredResume}
                   canGenerate={canGenerateInterviewPrep}
                   unavailableMessage={interviewPrepUnavailableMessage}
+                  onSendToDeck={() => setSendToDeckOpen(true)}
                   className="p-0"
                 />
               )}
@@ -2042,6 +2048,7 @@ const ResumeBuilderContent = () => {
                   isTailoredResume={isTailoredResume}
                   canGenerate={canGenerateInterviewPrep}
                   unavailableMessage={interviewPrepUnavailableMessage}
+                  onSendToDeck={() => setSendToDeckOpen(true)}
                 />
               )}
 
@@ -2189,6 +2196,20 @@ const ResumeBuilderContent = () => {
         cancelLabel={t('common.cancel')}
         variant="warning"
         onConfirm={handleConfirmRegenerate}
+      />
+
+      {/* Send to deck: turns the generated prep into interview-prep cards. */}
+      <ProposalReviewDialog
+        open={sendToDeckOpen}
+        onOpenChange={setSendToDeckOpen}
+        proposals={interviewPrep ? proposalsFromInterviewPrep(interviewPrep) : []}
+        loading={false}
+        title={t('prepDeck.sendToDeck.title')}
+        description={t('prepDeck.sendToDeck.description')}
+        onAccept={async (accepted) => {
+          await bulkCreatePrepCards(accepted);
+          setSendToDeckOpen(false);
+        }}
       />
 
       {/* Local Draft Recovery Dialog */}
