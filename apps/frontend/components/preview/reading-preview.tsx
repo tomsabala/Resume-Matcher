@@ -6,7 +6,7 @@ import type { ResumeDocument } from '@/lib/types/document';
 import { type TemplateSettings } from '@/lib/types/template-settings';
 import { useTranslations } from '@/lib/i18n';
 import { useContentLanguage } from '@/lib/context/workspace-context';
-import { directionFor } from '@/lib/utils/content-direction';
+import { directionForContent } from '@/lib/utils/content-direction';
 
 export interface ReadingPreviewProps {
   doc: ResumeDocument;
@@ -26,7 +26,7 @@ export interface ReadingPreviewProps {
  */
 export function ReadingPreview({ doc, settings }: ReadingPreviewProps) {
   const { t } = useTranslations();
-  const dir = directionFor(useContentLanguage());
+  const dir = directionForContent(doc, useContentLanguage());
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#D5D5D0] p-2 sm:p-6">

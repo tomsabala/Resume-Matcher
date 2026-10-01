@@ -14,7 +14,7 @@ import {
 import { emptyDocument, type ResumeDocument } from '@/lib/types/document';
 import { API_BASE } from '@/lib/api/client';
 import { translate } from '@/lib/i18n/server';
-import { directionFor } from '@/lib/utils/content-direction';
+import { directionForContent } from '@/lib/utils/content-direction';
 import { headers } from 'next/headers';
 
 type PageProps = {
@@ -204,12 +204,13 @@ export default async function PrintResumePage({ params, searchParams }: PageProp
   const resolvedParams = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const doc = await fetchResumeDocument(resolvedParams.id);
-  // The content language comes from the workspace, server-side, via the PDF
-  // route's `&lang=`. `translate('en', …)` stays English on purpose: it only
+  // `&lang=` carries the workspace's content language server-side, but the
+  // document decides: a Hebrew resume in an English workspace still prints
+  // right-to-left. `translate('en', …)` stays English on purpose: it only
   // resolves v1-projected heading keys and the empty-name placeholder, and the
   // UI bundle is English-only.
   const contentLang = resolvedSearchParams?.lang === 'he' ? 'he' : 'en';
-  const dir = directionFor(contentLang);
+  const dir = directionForContent(doc, contentLang);
   const t = (key: string, params?: Record<string, string | number>) => translate('en', key, params);
 
   // Parse template settings from query params

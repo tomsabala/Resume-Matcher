@@ -23,7 +23,7 @@ from app.ai_budget import (
 )
 from app.config_cache import load_config as _load_config
 from app.database import DatabaseBusyError, ProcessingFinishOutcome, ResumeNotFoundError, db
-from app.deps import ActiveTenantDep, ContentLanguage, OutputLanguage, WorkspaceId
+from app.deps import ActiveTenantDep, ContentLanguage, WorkspaceId
 from app.tenancy import ActiveTenant
 from app.pdf import render_resume_pdf, PDFRenderError
 from app.config import settings
@@ -111,6 +111,7 @@ from app.services.cover_letter import (
     generate_resume_title,
 )
 from app.services.interview_prep import generate_interview_prep
+from app.services.language import output_language_for
 from app.prompts import DEFAULT_IMPROVE_PROMPT_ID, IMPROVE_PROMPT_OPTIONS
 
 logger = logging.getLogger(__name__)
@@ -608,7 +609,7 @@ async def _generate_auxiliary_messages(
     enable_cover_letter: bool,
     enable_outreach: bool,
     enable_interview_prep: bool,
-    output_language: str,
+    content_language: str,
 ) -> tuple[str | None, str | None, str | None, InterviewPrepData | None, list[str]]:
     """Generate cover letter, outreach, interview prep, and resume title.
 
@@ -619,6 +620,14 @@ async def _generate_auxiliary_messages(
     title = None
     interview_prep = None
     warnings: list[str] = []
+    # The title names the job, so it follows the job description; the letter,
+    # the outreach note and the prep deck accompany the resume and speak its
+    # language. ``content_language`` is the workspace's code, used only when a
+    # text carries too few letters to judge.
+    resume_language = output_language_for(
+        improved_data, job_content, default=content_language
+    )
+    job_language = output_language_for(job_content, default=content_language)
     # Finish optional work before the operation deadline so successful outputs
     # can still be persisted if one provider call stalls. The remaining slice is
     # reserved for the resume/improvement transaction.
@@ -628,28 +637,28 @@ async def _generate_auxiliary_messages(
 
     # Title generation is always on (no feature flag)
     generation_tasks.append(
-        generate_resume_title(job_content, output_language=output_language)
+        generate_resume_title(job_content, output_language=job_language)
     )
     task_labels.append("title")
 
     if enable_cover_letter:
         generation_tasks.append(
             generate_cover_letter(
-                improved_data, job_content, output_language=output_language
+                improved_data, job_content, output_language=resume_language
             )
         )
         task_labels.append("cover_letter")
     if enable_outreach:
         generation_tasks.append(
             generate_outreach_message(
-                improved_data, job_content, output_language=output_language
+                improved_data, job_content, output_language=resume_language
             )
         )
         task_labels.append("outreach")
     if enable_interview_prep:
         generation_tasks.append(
             generate_interview_prep(
-                improved_data, job_content, output_language=output_language
+                improved_data, job_content, output_language=resume_language
             )
         )
         task_labels.append("interview_prep")
@@ -1226,7 +1235,7 @@ async def list_resumes(
 async def improve_resume_preview_endpoint(
     request: ImproveResumeRequest,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> ImproveResumeResponse:
     """Preview a tailored resume without persisting it.
 
@@ -1254,7 +1263,7 @@ async def improve_resume_preview_endpoint(
                 job=job,
                 prompt_id=prompt_id,
                 progress=progress,
-                output_language=output_language,
+                content_language=content_language,
             ),
             timeout=remaining_timeout(),
         )
@@ -1294,18 +1303,25 @@ async def _improve_preview_flow(
     job: dict[str, Any],
     prompt_id: str,
     progress: dict[str, str] | None = None,
-    output_language: str,
+    content_language: str,
 ) -> ImproveResumeResponse:
     """Inner flow for improve/preview, extracted so it can be wrapped in wait_for."""
     if progress is None:
         progress = {}
+    # Each artifact follows the text it is generated from: keyword extraction
+    # reads the job description, every rewrite writes into the resume. The
+    # workspace's ``content_language`` only decides a text too short to judge.
+    resume_language = output_language_for(
+        resume["content"], job["content"], default=content_language
+    )
+    job_language = output_language_for(job["content"], default=content_language)
     progress["stage"] = "load_job_keywords"
     job_keywords = job.get("job_keywords")
     job_keywords_hash = job.get("job_keywords_hash")
     content_hash = _hash_job_content(job["content"])
     if not job_keywords or job_keywords_hash != content_hash:
         job_keywords = await extract_job_keywords(
-            job["content"], output_language=output_language
+            job["content"], output_language=job_language
         )
         # Cache extracted keywords with a content hash for basic invalidation.
         # Also surface company/role to the job's top level so the tracker's
@@ -1355,7 +1371,7 @@ async def _improve_preview_flow(
                 original_resume_data=original_resume_data,
                 job_description=job["content"],
                 job_keywords=job_keywords,
-                output_language=output_language,
+                output_language=resume_language,
             )
             verified_skill_plan = verify_skill_target_plan(
                 raw_skill_plan,
@@ -1387,7 +1403,7 @@ async def _improve_preview_flow(
             prompt_id=prompt_id,
             original_resume_data=original_resume_data,
             skill_targets=skill_targets,
-            output_language=output_language,
+            output_language=resume_language,
         )
 
         progress["stage"] = "apply_resume_diffs"
@@ -1429,7 +1445,7 @@ async def _improve_preview_flow(
             job_keywords=job_keywords,
             prompt_id=prompt_id,
             original_resume_data=original_resume_data,
-            output_language=output_language,
+            output_language=resume_language,
         )
 
     progress["stage"] = "preserve_source_fields"
@@ -1470,7 +1486,7 @@ async def _improve_preview_flow(
                 job_description=job["content"],
                 job_keywords=job_keywords,
                 config=RefinementConfig(),
-                output_language=output_language,
+                output_language=resume_language,
             )
             improved_data = refinement_result.refined_data
             refinement_stats = refinement_result.to_stats(initial_match)
@@ -1573,7 +1589,7 @@ async def _improve_preview_flow(
 async def improve_resume_confirm_endpoint(
     request: ImproveResumeConfirmRequest,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> ImproveResumeResponse:
     """Confirm an accepted input snapshot once, with durable replay semantics."""
     resume = await db.get_resume(request.resume_id, workspace_id=workspace_id)
@@ -1668,7 +1684,7 @@ async def improve_resume_confirm_endpoint(
                     feature_config.get("enable_cover_letter", False),
                     feature_config.get("enable_outreach_message", False),
                     feature_config.get("enable_interview_prep", False),
-                    output_language,
+                    content_language,
                 ),
                 timeout=remaining_timeout(),
             )
@@ -1768,7 +1784,7 @@ async def improve_resume_confirm_endpoint(
 async def improve_resume_endpoint(
     request: ImproveResumeRequest,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> ImproveResumeResponse:
     """Improve/tailor a resume for a specific job description.
 
@@ -1793,11 +1809,17 @@ async def improve_resume_endpoint(
     enable_outreach = feature_config.get("enable_outreach_message", False)
     enable_interview_prep = feature_config.get("enable_interview_prep", False)
     _validate_ai_sources(resume, job)
+    # Keywords describe the job and are written in its language; the rewritten
+    # resume keeps the language of the document being rewritten.
+    resume_language = output_language_for(
+        resume["content"], job["content"], default=content_language
+    )
+    job_language = output_language_for(job["content"], default=content_language)
 
     try:
         # Extract keywords from job description
         job_keywords = await extract_job_keywords(
-            job["content"], output_language=output_language
+            job["content"], output_language=job_language
         )
 
         # Generate the improved resume
@@ -1816,7 +1838,7 @@ async def improve_resume_endpoint(
                 job_keywords=job_keywords,
                 prompt_id=prompt_id,
                 original_resume_data=original_resume_data,
-                output_language=output_language,
+                output_language=resume_language,
             )
 
             improved_data, applied_changes, rejected_changes = apply_diffs(
@@ -1855,7 +1877,7 @@ async def improve_resume_endpoint(
                 job_keywords=job_keywords,
                 prompt_id=prompt_id,
                 original_resume_data=original_resume_data,
-                output_language=output_language,
+                output_language=resume_language,
             )
 
         # Safety nets (defense in depth)
@@ -1896,7 +1918,7 @@ async def improve_resume_endpoint(
                     job_description=job["content"],
                     job_keywords=job_keywords,
                     config=RefinementConfig(),
-                    output_language=output_language,
+                    output_language=resume_language,
                 )
                 improved_data = refinement_result.refined_data
                 refinement_stats = refinement_result.to_stats(initial_match)
@@ -1958,7 +1980,7 @@ async def improve_resume_endpoint(
             enable_cover_letter,
             enable_outreach,
             enable_interview_prep,
-            output_language,
+            content_language,
         )
         response_warnings.extend(aux_warnings)
 
@@ -2467,7 +2489,7 @@ async def update_title(
 async def generate_cover_letter_endpoint(
     resume_id: str,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> GenerateContentResponse:
     """Generate a cover letter on-demand for an existing tailored resume.
 
@@ -2521,7 +2543,11 @@ async def generate_cover_letter_endpoint(
     # Generate cover letter
     try:
         cover_letter_content = await generate_cover_letter(
-            resume_data, job["content"], output_language=output_language
+            resume_data,
+            job["content"],
+            output_language=output_language_for(
+                resume_data, job["content"], default=content_language
+            ),
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -2547,7 +2573,7 @@ async def generate_cover_letter_endpoint(
 async def generate_outreach_endpoint(
     resume_id: str,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> GenerateContentResponse:
     """Generate an outreach message on-demand for an existing tailored resume.
 
@@ -2601,7 +2627,11 @@ async def generate_outreach_endpoint(
     # Generate outreach message
     try:
         outreach_content = await generate_outreach_message(
-            resume_data, job["content"], output_language=output_language
+            resume_data,
+            job["content"],
+            output_language=output_language_for(
+                resume_data, job["content"], default=content_language
+            ),
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -2630,7 +2660,7 @@ async def generate_outreach_endpoint(
 async def generate_interview_prep_endpoint(
     resume_id: str,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> GenerateInterviewPrepResponse:
     """Generate interview preparation on-demand for an existing tailored resume."""
     resume = await db.get_resume(resume_id, workspace_id=workspace_id)
@@ -2674,7 +2704,9 @@ async def generate_interview_prep_endpoint(
         interview_prep = await generate_interview_prep(
             resume_data,
             job["content"],
-            output_language=output_language,
+            output_language=output_language_for(
+                resume_data, job["content"], default=content_language
+            ),
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise

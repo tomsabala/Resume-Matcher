@@ -454,14 +454,20 @@ async def test_the_chromium_route_refuses_a_latex_template(
     assert "/tex/pdf" in response.json()["detail"]
 
 
-async def test_a_hebrew_workspace_cannot_compile_a_latex_template(
-    isolated_db: Any, sample_resume: dict[str, Any]
+async def test_a_hebrew_resume_cannot_compile_a_latex_template(
+    isolated_db: Any, sample_resume_copy: dict[str, Any]
 ) -> None:
     """The preamble is Latin-only. Refusing by name beats an engine error that
-    names a missing font, and it does not depend on an engine being installed."""
-    resume_id = await _seed(isolated_db, sample_resume)
-    workspace_id = await isolated_db.default_workspace_id()
-    await isolated_db.update_workspace(workspace_id, {"content_language": "he"})
+    names a missing font, and it does not depend on an engine being installed.
+
+    The guard reads the document, not the workspace: generation now follows the
+    content's own language, so a Hebrew resume can sit in an English workspace.
+    """
+    resume = sample_resume_copy
+    next(s for s in resume["sections"] if s["kind"] == "text")["text"] = (
+        "מהנדס תוכנה עם שש שנות ניסיון בפיתוח מערכות צד שרת"
+    )
+    resume_id = await _seed(isolated_db, resume)
 
     async with _client() as client:
         response = await client.get(f"/api/v1/resumes/{resume_id}/tex/pdf")
@@ -473,3 +479,18 @@ async def test_a_hebrew_workspace_cannot_compile_a_latex_template(
     async with _client() as client:
         source = await client.get(f"/api/v1/resumes/{resume_id}/tex")
     assert source.status_code == 200
+
+
+async def test_a_latin_resume_in_a_hebrew_workspace_still_compiles(
+    isolated_db: Any, sample_resume: dict[str, Any]
+) -> None:
+    """The preamble only cares what is in the document. Without an engine this
+    is a 503 — the point is that the language guard did not fire."""
+    resume_id = await _seed(isolated_db, sample_resume)
+    workspace_id = await isolated_db.default_workspace_id()
+    await isolated_db.update_workspace(workspace_id, {"content_language": "he"})
+
+    async with _client() as client:
+        response = await client.get(f"/api/v1/resumes/{resume_id}/tex/pdf")
+
+    assert response.status_code != 400, response.text

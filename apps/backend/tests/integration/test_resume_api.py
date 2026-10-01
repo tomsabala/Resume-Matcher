@@ -1,8 +1,10 @@
 """Integration tests for resume CRUD endpoints."""
 
-from typing import Any
-
+import copy
 import json
+from contextlib import ExitStack
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch, AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -505,3 +507,88 @@ class TestUploadResume:
         assert "Could not extract text from the uploaded file" in resp.json()["detail"]
         mock_db.create_resume_atomic_master.assert_not_called()
         mock_parse_resume_to_json.assert_not_called()
+
+
+HEBREW_RESUME_MARKDOWN = (
+    "# תום לוי\n"
+    "מהנדס תוכנה בכיר עם שש שנות ניסיון בפיתוח מערכות צד שרת בקנה מידה גדול.\n"
+)
+
+
+async def test_each_artifact_follows_the_text_it_is_generated_from(
+    isolated_db: Any, sample_resume: dict[str, Any]
+) -> None:
+    """A Hebrew resume tailored to an English job in an English workspace.
+
+    Keywords describe the job and must come back English; the rewritten resume
+    is written into a Hebrew document and must come back Hebrew. One request,
+    two languages — which is exactly what the workspace setting cannot express.
+    """
+    workspace_id = await isolated_db.default_workspace_id()
+    document = copy.deepcopy(sample_resume)
+    next(s for s in document["sections"] if s["kind"] == "text")["text"] = (
+        "מהנדס תוכנה עם שש שנות ניסיון בפיתוח מערכות צד שרת"
+    )
+    resume = await isolated_db.create_resume(
+        content=HEBREW_RESUME_MARKDOWN,
+        is_master=True,
+        processed_data=document,
+        processing_status="ready",
+        workspace_id=workspace_id,
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        jobs = await http.post(
+            "/api/v1/jobs/upload",
+            json={
+                "job_descriptions": [
+                    "Backend Engineer at Example. We build Python services on "
+                    "Kubernetes and care deeply about reliability."
+                ]
+            },
+        )
+    job_id = jobs.json()["job_id"][0]
+
+    keywords = AsyncMock(
+        return_value={"keywords": ["Python"], "required_skills": [], "preferred_skills": []}
+    )
+    diffs = AsyncMock(return_value=SimpleNamespace(changes=[]))
+    with ExitStack() as stack:
+        stack.enter_context(patch("app.routers.resumes.extract_job_keywords", keywords))
+        stack.enter_context(patch("app.routers.resumes.generate_resume_diffs", diffs))
+        stack.enter_context(
+            patch(
+                "app.routers.resumes.generate_skill_target_plan",
+                new_callable=AsyncMock,
+                return_value={"accepted": [], "rejected": []},
+            )
+        )
+        stack.enter_context(
+            patch(
+                "app.routers.resumes.verify_skill_target_plan",
+                return_value={"accepted": [], "rejected": []},
+            )
+        )
+        stack.enter_context(
+            patch(
+                "app.routers.resumes.apply_diffs",
+                return_value=(copy.deepcopy(document), [], []),
+            )
+        )
+        stack.enter_context(patch("app.routers.resumes.verify_diff_result", return_value=[]))
+        stack.enter_context(
+            patch(
+                "app.routers.resumes.refine_resume",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("refinement is not under test"),
+            )
+        )
+        async with AsyncClient(transport=transport, base_url="http://test") as http:
+            preview = await http.post(
+                "/api/v1/resumes/improve/preview",
+                json={"resume_id": resume["resume_id"], "job_id": job_id},
+            )
+
+    assert preview.status_code == 200, preview.text
+    assert keywords.await_args.kwargs["output_language"] == "English"
+    assert diffs.await_args.kwargs["output_language"] == "Hebrew"

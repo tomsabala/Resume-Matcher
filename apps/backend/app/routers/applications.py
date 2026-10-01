@@ -6,8 +6,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from app.database import DatabaseBusyError, ResumeNotFoundError, db
-from app.deps import OutputLanguage, WorkspaceId
+from app.deps import ContentLanguage, WorkspaceId
 from app.services.improver import extract_job_keywords
+from app.services.language import output_language_for
 from app.schemas import (
     APPLICATION_STATUS_ORDER,
     ApplicationActionResponse,
@@ -59,7 +60,7 @@ async def list_applications(workspace_id: WorkspaceId) -> ApplicationListRespons
 async def create_application(
     request: ManualApplicationCreate,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> ApplicationResponse:
     """Manually add a card from a pasted job description.
 
@@ -70,7 +71,10 @@ async def create_application(
     role = request.role
     if not company or not role:
         extracted = await _extract_company_role(
-            request.job_description, output_language=output_language
+            request.job_description,
+            output_language=output_language_for(
+                request.job_description, default=content_language
+            ),
         )
         company = company or extracted.get("company")
         role = role or extracted.get("role")

@@ -19,7 +19,7 @@ const LEAD_IN_LABEL = 'builder.formatting.spacingBulletLeadIn:';
 function mountPanel(template: TemplateType) {
   const settings: TemplateSettings = { ...DEFAULT_TEMPLATE_SETTINGS, template };
   const onChange = vi.fn();
-  render(<FormattingControls settings={settings} onChange={onChange} />);
+  render(<FormattingControls settings={settings} onChange={onChange} hasNonLatinContent={false} />);
   const row = screen.getByText(LEAD_IN_LABEL).parentElement as HTMLElement;
   return {
     onChange,

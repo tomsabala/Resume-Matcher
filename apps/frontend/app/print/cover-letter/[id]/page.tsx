@@ -7,7 +7,7 @@
 
 import { API_BASE } from '@/lib/api/client';
 import { translate } from '@/lib/i18n/server';
-import { directionFor } from '@/lib/utils/content-direction';
+import { directionForContent } from '@/lib/utils/content-direction';
 import { emptyHeader, type Header, type ResumeDocument } from '@/lib/types/document';
 import { headers } from 'next/headers';
 
@@ -88,12 +88,13 @@ export default async function PrintCoverLetterPage({ params, searchParams }: Pag
 
   const pageSize = parsePageSize(resolvedSearchParams?.pageSize);
   const pageDims = PAGE_DIMENSIONS[pageSize];
-  // Workspace content language, resolved server-side by the PDF route.
+  // `&lang=` carries the workspace's content language, but the letter decides:
+  // a Hebrew letter in an English workspace still prints right-to-left.
   const contentLang = resolvedSearchParams?.lang === 'he' ? 'he' : 'en';
-  const dir = directionFor(contentLang);
 
   // Fetch cover letter data from API (same pattern as resume)
   const { coverLetter, header } = await fetchCoverLetterData(resolvedParams.id);
+  const dir = directionForContent(coverLetter, contentLang);
 
   // Standard cover letter margins
   const margins = { top: 25, right: 25, bottom: 25, left: 25 };

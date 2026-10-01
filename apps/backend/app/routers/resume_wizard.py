@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from app.ai_budget import AIOperationDeadlineExceeded, AIOperationRoute
 from app.ai_limits import PromptSizeError
 from app.database import db
-from app.deps import OutputLanguage, WorkspaceId
+from app.deps import ContentLanguage, WorkspaceId
 from app.schemas.document import ResumeDocument
 from app.schemas.resume_wizard import (
     ResumeWizardFinalizeRequest,
@@ -18,6 +18,7 @@ from app.schemas.resume_wizard import (
     ResumeWizardTurnRequest,
     ResumeWizardTurnResponse,
 )
+from app.services.language import output_language_for
 from app.services.resume_wizard import (
     RESUME_WIZARD_MAX_QUESTIONS,
     apply_back,
@@ -65,7 +66,7 @@ def _finalize_response(resume: dict[str, Any]) -> ResumeWizardFinalizeResponse:
 @router.post("/turn", response_model=ResumeWizardTurnResponse)
 async def resume_wizard_turn(
     request: ResumeWizardTurnRequest,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> ResumeWizardTurnResponse:
     """Advance the resume wizard by one structured turn."""
     try:
@@ -82,15 +83,27 @@ async def resume_wizard_turn(
         if request.state.asked_count >= RESUME_WIZARD_MAX_QUESTIONS:
             return ResumeWizardTurnResponse(state=apply_review(request.state))
 
+        # The user's own typed answer is the strongest signal there is, and on
+        # the first turns it is the only content that exists. The draft is the
+        # fallback; the workspace decides only while both are too short.
+        draft = request.state.resume_data.model_dump(mode="json")
         if action == "skip":
             state = await run_ai_turn(
-                request.state, "", skip=True, output_language=output_language
+                request.state,
+                "",
+                skip=True,
+                output_language=output_language_for(draft, default=content_language),
             )
             return ResumeWizardTurnResponse(state=state)
 
         answer_text = request.answer.text if request.answer else ""
         state = await run_ai_turn(
-            request.state, answer_text, skip=False, output_language=output_language
+            request.state,
+            answer_text,
+            skip=False,
+            output_language=output_language_for(
+                answer_text, draft, default=content_language
+            ),
         )
         return ResumeWizardTurnResponse(state=state)
     except (HTTPException, AIOperationDeadlineExceeded, PromptSizeError):

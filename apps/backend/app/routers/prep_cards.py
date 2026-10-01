@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.ai_budget import AIOperationDeadlineExceeded, AIOperationRoute
 from app.ai_limits import MAX_JOB_CHARACTERS, PromptSizeError, require_source_size
 from app.database import DatabaseBusyError, db
-from app.deps import OutputLanguage, WorkspaceId
+from app.deps import ContentLanguage, WorkspaceId
 from app.schemas import (
     PrepCardActionResponse,
     PrepCardBulkCreate,
@@ -27,6 +27,7 @@ from app.schemas import (
     PrepCardResponse,
     PrepCardUpdate,
 )
+from app.services.language import output_language_for
 from app.services.prep_cards import (
     answer_prep_card,
     critique_prep_answer,
@@ -181,7 +182,7 @@ async def bulk_delete_prep_cards(
 async def generate_prep_card_proposals(
     request: PrepCardGenerateRequest,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> PrepCardGenerateResponse:
     """Propose questions from the master resume. Persists nothing."""
     resume_data = await _require_resume_data(workspace_id)
@@ -193,7 +194,9 @@ async def generate_prep_card_proposals(
             resume_data=resume_data,
             job_description=job_description,
             count=request.count,
-            output_language=output_language,
+            output_language=output_language_for(
+                resume_data, job_description, default=content_language
+            ),
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -226,7 +229,7 @@ async def get_prep_card(card_id: str, workspace_id: WorkspaceId) -> PrepCardResp
 async def answer_prep_card_endpoint(
     card_id: str,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> PrepCardResponse:
     """Author the back of one card and store it."""
     card = await db.get_prep_card(card_id, workspace_id=workspace_id)
@@ -242,7 +245,9 @@ async def answer_prep_card_endpoint(
             question=card["question"],
             resume_data=resume_data,
             job_description=job_description,
-            output_language=output_language,
+            output_language=output_language_for(
+                card["question"], resume_data, default=content_language
+            ),
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -271,7 +276,7 @@ async def critique_prep_card_endpoint(
     card_id: str,
     request: PrepCardCritiqueRequest,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> PrepCardResponse:
     """Store the owner's own answer and the LLM's critique of it."""
     card = await db.get_prep_card(card_id, workspace_id=workspace_id)
@@ -286,7 +291,12 @@ async def critique_prep_card_endpoint(
             my_answer=request.my_answer,
             model_answer=card["answer"],
             resume_data=resume_data,
-            output_language=output_language,
+            output_language=output_language_for(
+                request.my_answer,
+                card["question"],
+                resume_data,
+                default=content_language,
+            ),
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise

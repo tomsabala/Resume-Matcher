@@ -31,8 +31,6 @@ import {
 import { TemplateThumbnail } from './template-selector';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { useTranslations } from '@/lib/i18n';
-import { useContentLanguage } from '@/lib/context/workspace-context';
-import { directionFor } from '@/lib/utils/content-direction';
 
 interface FormattingControlsProps {
   settings: TemplateSettings;
@@ -40,6 +38,13 @@ interface FormattingControlsProps {
   /** False when this deployment has no LaTeX engine: the tex templates would
    * 503 on every preview and download, so they are offered disabled. */
   texAvailable?: boolean;
+  /**
+   * True when the document carries one or more non-Latin letters. The LaTeX
+   * preamble is Latin-only, so those templates are offered disabled; the
+   * server refuses them too (routers/tex.py). *Any* such letter counts — one
+   * Hebrew word breaks the preamble, whatever the document's main language.
+   */
+  hasNonLatinContent: boolean;
   /**
    * `'plain'` drops the card chrome and the collapse toggle and renders the body
    * alone, always expanded — the shape the mobile formatting sheet needs.
@@ -63,14 +68,11 @@ interface FormattingControlsProps {
 export const FormattingControls: React.FC<FormattingControlsProps> = ({
   settings,
   onChange,
+  hasNonLatinContent,
   texAvailable = true,
   variant = 'card',
 }) => {
   const { t } = useTranslations();
-  // The LaTeX preamble is Latin-only, so a Hebrew workspace cannot compile one.
-  // The server refuses it too (routers/tex.py); this only stops the user
-  // picking a template that would 400.
-  const contentIsRtl = directionFor(useContentLanguage()) === 'rtl';
   // A LaTeX template is compiled by the engine, which reads page size,
   // margins, spacing, base font size, header scale and compact mode. Font
   // family, accent colour and contact icons are HTML-only, so those stay
@@ -207,7 +209,7 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
         </h4>
         <div className="flex flex-wrap gap-3">
           {TEMPLATE_OPTIONS.map((template) => {
-            const disabled = template.target === 'tex' && (!texAvailable || contentIsRtl);
+            const disabled = template.target === 'tex' && (!texAvailable || hasNonLatinContent);
             return (
               <button
                 key={template.id}

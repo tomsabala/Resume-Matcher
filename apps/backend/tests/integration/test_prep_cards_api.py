@@ -264,6 +264,38 @@ class TestAnswerAndCritique:
                 assert body["critique"]["score"] == 4
                 assert body["critique"]["suggested_rewrite"] == "Try this."
 
+    async def test_a_hebrew_card_is_critiqued_in_hebrew_in_an_english_workspace(
+        self, isolated_db
+    ):
+        """The deck's own card decides, not the workspace: an owner who prepares
+        in Hebrew beside an English resume gets a Hebrew critique."""
+        await _seed_master_resume(isolated_db)
+        critique = PrepCardCritique(
+            score=4, strengths=["ברור"], gaps=["קצר"], suggested_rewrite="נסה כך."
+        )
+        with patch(
+            "app.routers.prep_cards.critique_prep_answer",
+            new_callable=AsyncMock,
+            return_value=critique,
+        ) as mock_critique:
+            async with _client() as client:
+                card = await _create(
+                    client,
+                    category="technical",
+                    question="איך היית מתכנן מערכת תשלומים עמידה לכשלים?",
+                )
+                resp = await client.post(
+                    f"/api/v1/prep-cards/{card['card_id']}/critique",
+                    json={
+                        "my_answer": (
+                            "הייתי מפריד את שירות התשלומים לתור הודעות עם ניסיונות "
+                            "חוזרים ומפתח רעיון של אידמפוטנטיות בכל בקשה."
+                        )
+                    },
+                )
+                assert resp.status_code == 200, resp.text
+        assert mock_critique.await_args.kwargs["output_language"] == "Hebrew"
+
     async def test_answer_and_critique_require_a_master_resume(self, isolated_db):
         async with _client() as client:
             card = await _create(client)

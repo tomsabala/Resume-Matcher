@@ -14,7 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.database import DatabaseBusyError, db
-from app.deps import ContentLanguage, WorkspaceId
+from app.deps import WorkspaceId
 from app.latex.compile import (
     LatexCompileError,
     LatexUnavailableError,
@@ -24,6 +24,7 @@ from app.latex.compile import (
 from app.latex.render import LATEX_TEMPLATES, UnknownLatexTemplateError, render_document_tex
 from app.schemas.document import migrate_document
 from app.schemas.tex import TexCapabilities, TexSourceResponse, TexSourceUpdate
+from app.services.language import contains_script
 
 logger = logging.getLogger(__name__)
 
@@ -250,28 +251,29 @@ async def download_resume_tex(
 async def download_resume_tex_pdf(
     resume_id: str,
     workspace_id: WorkspaceId,
-    content_language: ContentLanguage,
     template: str = Query("tex-classic"),
     tex_settings: dict[str, object] = Depends(tex_format_settings),
 ) -> Response:
     """Compile the resume's LaTeX and return the PDF.
 
-    Refused outright for a non-English workspace: ``latex/escape.py`` passes
+    Refused outright when the source carries Hebrew: ``latex/escape.py`` passes
     non-Latin text through verbatim and the engine then rejects it with a
-    preamble error that names nothing useful. The ``.tex`` *source* endpoints
-    stay open — downloading source this deployment cannot compile is still
-    useful.
+    preamble error that names nothing useful. The check reads the text actually
+    being compiled, so it also catches a hand-edited ``tex_source`` override,
+    and a Latin-only resume compiles whatever the workspace is set to. The
+    ``.tex`` *source* endpoints stay open — downloading source this deployment
+    cannot compile is still useful.
     """
-    if content_language != "en":
+    resume = await _load(resume_id, workspace_id)
+    source, _ = _source_for(resume, template, tex_settings)
+    if contains_script(source, "he"):
         raise HTTPException(
             status_code=400,
             detail=(
                 "LaTeX templates compile under a Latin-only preamble and cannot "
-                "render this workspace's content language. Use an HTML template."
+                "render this resume's Hebrew text. Use an HTML template."
             ),
         )
-    resume = await _load(resume_id, workspace_id)
-    source, _ = _source_for(resume, template, tex_settings)
     try:
         pdf_bytes = await compile_tex_to_pdf(source)
     except LatexUnavailableError as error:

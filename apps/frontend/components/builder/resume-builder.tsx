@@ -65,6 +65,7 @@ import { RegenerateWizard } from './regenerate-wizard';
 import { useRegenerateWizard } from '@/hooks/use-regenerate-wizard';
 import { useTranslations } from '@/lib/i18n';
 import { useContentLanguage } from '@/lib/context/workspace-context';
+import { containsScript, detectContentLanguage } from '@/lib/utils/content-direction';
 import {
   type TemplateSettings,
   type TemplateType,
@@ -203,7 +204,7 @@ const clearResumeDraftStorageKey = (storageKey: string): void => {
 
 const ResumeBuilderContent = () => {
   const { t } = useTranslations();
-  const contentLanguage = useContentLanguage();
+  const workspaceLanguage = useContentLanguage();
   const [notificationDialog, setNotificationDialog] = useState<{
     title: string;
     description: string;
@@ -1818,6 +1819,7 @@ const ResumeBuilderContent = () => {
                         settings={templateSettings}
                         onChange={handleSettingsChange}
                         texAvailable={texAvailable}
+                        hasNonLatinContent={containsScript(doc, 'he')}
                       />
                     </div>
                     <ResumeForm
@@ -2204,7 +2206,14 @@ const ResumeBuilderContent = () => {
       <ProposalReviewDialog
         open={sendToDeckOpen}
         onOpenChange={setSendToDeckOpen}
-        proposals={interviewPrep ? proposalsFromInterviewPrep(interviewPrep, contentLanguage) : []}
+        proposals={
+          interviewPrep
+            ? proposalsFromInterviewPrep(
+                interviewPrep,
+                detectContentLanguage(interviewPrep) ?? workspaceLanguage
+              )
+            : []
+        }
         loading={false}
         title={t('prepDeck.sendToDeck.title')}
         description={t('prepDeck.sendToDeck.description')}
@@ -2304,6 +2313,7 @@ const ResumeBuilderContent = () => {
               settings={templateSettings}
               onChange={handleSettingsChange}
               texAvailable={texAvailable}
+              hasNonLatinContent={containsScript(doc, 'he')}
             />
           </div>
         </DialogContent>

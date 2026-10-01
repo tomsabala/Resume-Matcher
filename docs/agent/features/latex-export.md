@@ -76,7 +76,9 @@ quotes because no guillemet macro exists without `fontenc[T1]`, and switching
 encoding would move every glyph away from the reference's Computer Modern.
 Anything outside both tables (Hebrew, CJK, emoji) passes through and the
 engine rejects it by name — the panel shows that log line, which beats
-silently deleting content.
+silently deleting content. Hebrew never reaches the engine on `/tex/pdf`:
+that route refuses the document up front (see *Status codes*), so the
+pass-through is what the `.tex` *download* carries.
 
 **Backslash is escaped first.** Every other replacement *introduces*
 backslashes, so handling `\` last would re-escape them: `50%` → `50\%` →
@@ -488,7 +490,7 @@ and spaces underscored, falling back to `resume.tex` / `resume.pdf`.
 
 | Code | When |
 | ---- | ---- |
-| `400` | unknown `template` on a path that renders (`GET /tex`, `DELETE /tex`, the two downloads); the detail lists the valid ids |
+| `400` | unknown `template` on a path that renders (`GET /tex`, `DELETE /tex`, the two downloads); the detail lists the valid ids. Also **`/tex/pdf`** when the source about to be compiled carries Hebrew (`contains_script`, `app/services/language.py`) — refusing by name beats an engine error that names a missing font, and reading the *source* catches a hand-edited override too. The check is on the document, not the workspace: a Latin-only resume in a Hebrew workspace compiles |
 | `404` | unknown resume id |
 | `422` | **`/tex/pdf` only** — the engine ran and rejected the source. Detail is `{ message, log }`; the log is the user's own source failing, so it is theirs to read. Also the ordinary body-validation code for a `PUT` outside the 1–400,000-char range |
 | `500` | the version/override write failed |

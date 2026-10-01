@@ -11,7 +11,7 @@ import { usePagination } from './use-pagination';
 import { PAGE_DIMENSIONS, mmToPx, getContentAreaPx } from '@/lib/constants/page-dimensions';
 import { useTranslations } from '@/lib/i18n';
 import { useContentLanguage } from '@/lib/context/workspace-context';
-import { directionFor } from '@/lib/utils/content-direction';
+import { directionForContent } from '@/lib/utils/content-direction';
 
 interface PaginatedPreviewProps {
   doc: ResumeDocument;
@@ -29,7 +29,7 @@ const ZOOM_STEP = 0.1;
  */
 export function PaginatedPreview({ doc, settings }: PaginatedPreviewProps) {
   const { t } = useTranslations();
-  const dir = directionFor(useContentLanguage());
+  const dir = directionForContent(doc, useContentLanguage());
   const measurementRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(0.6);

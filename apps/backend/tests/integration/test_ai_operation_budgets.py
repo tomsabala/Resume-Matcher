@@ -191,7 +191,7 @@ async def test_regeneration_limits_active_workers_and_keeps_item_failures(
     request = RegenerateRequest(
         resume_id="r", items=[item(i) for i in range(10)], instruction="Clarify"
     )
-    task = asyncio.create_task(enrichment.regenerate_items(request, "w", "English"))
+    task = asyncio.create_task(enrichment.regenerate_items(request, "w", "en"))
     await asyncio.wait_for(ready.wait(), 1)
     await asyncio.sleep(0)
     release.set()
@@ -353,7 +353,7 @@ async def test_auxiliary_timeout_keeps_completed_output_and_returns_warning(
 
     cover, outreach, title_value, interview, warnings = (
         await resumes._generate_auxiliary_messages(
-            {}, "Engineer", True, False, False, "English"
+            {}, "Engineer", True, False, False, "en"
         )
     )
 
@@ -631,7 +631,7 @@ async def test_auxiliary_boundary_failure_is_not_an_optional_item_error(
     monkeypatch.setattr(resumes, "generate_resume_title", AsyncMock(side_effect=kind("synthetic boundary")))
     with pytest.raises(kind):
         await resumes._generate_auxiliary_messages(
-            {}, "Engineer", False, False, False, "English"
+            {}, "Engineer", False, False, False, "en"
         )
 
 

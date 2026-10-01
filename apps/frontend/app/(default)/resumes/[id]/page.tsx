@@ -44,13 +44,13 @@ import { readTemplateSettings } from '@/lib/utils/template-settings-storage';
 import { downloadBlobAsFile, openUrlInNewTab, sanitizeFilename } from '@/lib/utils/download';
 import { useOperationOwner } from '@/hooks/use-operation-owner';
 import { useContentLanguage } from '@/lib/context/workspace-context';
-import { directionFor } from '@/lib/utils/content-direction';
+import { directionForContent } from '@/lib/utils/content-direction';
 
 type ProcessingStatus = 'pending' | 'processing' | 'ready' | 'failed';
 
 export default function ResumeViewerPage() {
   const { t } = useTranslations();
-  const dir = directionFor(useContentLanguage());
+  const contentLanguage = useContentLanguage();
   const translationsRef = useRef(t);
   useLayoutEffect(() => {
     translationsRef.current = t;
@@ -672,7 +672,7 @@ export default function ResumeViewerPage() {
                   settings={templateSettings}
                   translate={t}
                   fallbackName={t('resume.defaults.name')}
-                  dir={dir}
+                  dir={directionForContent(doc, contentLanguage)}
                 />
               </div>
             )}

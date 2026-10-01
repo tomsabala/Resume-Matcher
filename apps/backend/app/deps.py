@@ -29,9 +29,9 @@ ActiveTenantDep = Annotated[ActiveTenant, Depends(active_tenant)]
 async def resolve_content_language() -> str:
     """The language this workspace's generated content is written in.
 
-    One ``get_workspace`` read per request: FastAPI caches a dependency's
-    result, so an endpoint injecting both this and ``OutputLanguage`` pays for
-    it once.
+    A default, not a verdict: each generated artifact detects its own language
+    from the text it is generated from (``app.services.language``) and falls
+    back to this only when that text is too short to judge.
     """
     # Imported here, not at module scope: app.database imports app.deps.
     from app.database import db
@@ -41,13 +41,3 @@ async def resolve_content_language() -> str:
 
 
 ContentLanguage = Annotated[str, Depends(resolve_content_language)]
-
-
-async def resolve_output_language(content_language: ContentLanguage) -> str:
-    """The language name prompts interpolate into ``{output_language}``."""
-    from app.prompts import get_language_name
-
-    return get_language_name(content_language)
-
-
-OutputLanguage = Annotated[str, Depends(resolve_output_language)]

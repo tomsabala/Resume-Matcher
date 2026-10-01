@@ -17,7 +17,7 @@ from app.ai_budget import (
     remaining_timeout,
 )
 from app.database import DatabaseBusyError, db
-from app.deps import OutputLanguage, WorkspaceId
+from app.deps import ContentLanguage, WorkspaceId
 from app.llm import complete_json
 from app.prompts.enrichment import (
     ANALYZE_RESUME_PROMPT,
@@ -35,6 +35,7 @@ from app.schemas.document import (
     migrate_document,
 )
 from app.services.document_diff import diff_value_lists
+from app.services.language import output_language_for
 from app.schemas.enrichment import (
     AnalysisResponse,
     AnswerInput,
@@ -185,7 +186,7 @@ def _extract_item_from_resume(processed_data: dict, item_id: str) -> dict:
 
 @router.post("/analyze/{resume_id}", response_model=AnalysisResponse)
 async def analyze_resume(
-    resume_id: str, workspace_id: WorkspaceId, output_language: OutputLanguage
+    resume_id: str, workspace_id: WorkspaceId, content_language: ContentLanguage
 ) -> AnalysisResponse:
     """Analyze a resume to identify items that need enrichment.
 
@@ -210,7 +211,7 @@ async def analyze_resume(
     resume_json = json.dumps(processed_data)
     prompt = ANALYZE_RESUME_PROMPT.format(
         resume_json=resume_json,
-        output_language=output_language,
+        output_language=output_language_for(processed_data, default=content_language),
     )
 
     try:
@@ -281,7 +282,7 @@ async def analyze_resume(
 async def generate_enhancements(
     request: EnhanceRequest,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> EnhancementPreview:
     """Generate enhanced descriptions from user answers.
 
@@ -301,6 +302,8 @@ async def generate_enhancements(
         )
 
     require_source_size(processed_data)
+    # Enhanced bullets are written *into* this document, so they follow it.
+    output_language = output_language_for(processed_data, default=content_language)
 
     # Group answers by item_id.
     # When all answers carry item_id (from the analysis step), we can skip
@@ -623,7 +626,7 @@ async def _regenerate_skills(
 async def regenerate_items(
     request: RegenerateRequest,
     workspace_id: WorkspaceId,
-    output_language: OutputLanguage,
+    content_language: ContentLanguage,
 ) -> RegenerateResponse:
     """Regenerate selected resume items based on user feedback.
 
@@ -642,6 +645,13 @@ async def regenerate_items(
     semaphore = asyncio.Semaphore(MAX_ITEM_WORKERS)
 
     async def regenerate_one(item: RegenerateItemInput) -> RegeneratedItem:
+        # Per item: a Hebrew bullet in a mixed resume stays Hebrew. The
+        # instruction is never a sample - it is a command, not content.
+        output_language = output_language_for(
+            item.current_content,
+            resume.get("processed_data"),
+            default=content_language,
+        )
         async with semaphore:
             if item.item_type == "values":
                 return await _regenerate_skills(
