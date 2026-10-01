@@ -15,6 +15,12 @@ interface SafeHtmlProps {
   className?: string;
   /** Render as a different element (default: span) */
   as?: 'span' | 'div' | 'p';
+  /**
+   * Bidi direction for this node. Bullets are the largest body of user prose
+   * in a resume, so `dir="auto"` here lets each one resolve from its own first
+   * strong character instead of inheriting the document's.
+   */
+  dir?: 'auto' | 'ltr' | 'rtl';
 }
 
 /**
@@ -25,7 +31,12 @@ interface SafeHtmlProps {
  *
  * Used in resume templates to render formatted bullet points.
  */
-export const SafeHtml: React.FC<SafeHtmlProps> = ({ html, className, as: Component = 'span' }) => {
+export const SafeHtml: React.FC<SafeHtmlProps> = ({
+  html,
+  className,
+  dir,
+  as: Component = 'span',
+}) => {
   // Handle empty or undefined content
   if (!html) {
     return null;
@@ -41,6 +52,7 @@ export const SafeHtml: React.FC<SafeHtmlProps> = ({ html, className, as: Compone
         '[&_a]:text-inherit [&_a]:underline',
         className
       )}
+      dir={dir}
       dangerouslySetInnerHTML={{ __html: cleanHtml }}
     />
   );

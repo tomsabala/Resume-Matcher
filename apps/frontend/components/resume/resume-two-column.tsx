@@ -34,12 +34,15 @@ export const ResumeTwoColumn: React.FC<ResumeTemplateProps> = ({
         style={{ borderColor: 'var(--resume-border-primary)' }}
       >
         {name && (
-          <h1 className={`${baseStyles['resume-name']} tracking-tight uppercase mb-1`}>{name}</h1>
+          <h1 className={`${baseStyles['resume-name']} tracking-tight uppercase mb-1`} dir="auto">
+            {name}
+          </h1>
         )}
 
         {header.headline && (
           <h2
             className={`${baseStyles['resume-title']} ${baseStyles['resume-meta']} tracking-wide uppercase mb-3`}
+            dir="auto"
           >
             {header.headline}
           </h2>

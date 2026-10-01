@@ -30,9 +30,15 @@ export const ResumeModernTwoColumn: React.FC<ResumeTemplateProps> = ({
   return (
     <>
       <div className={baseStyles['resume-header']}>
-        {name && <h1 className={`${baseStyles['resume-name']} ${styles.nameAccent}`}>{name}</h1>}
+        {name && (
+          <h1 className={`${baseStyles['resume-name']} ${styles.nameAccent}`} dir="auto">
+            {name}
+          </h1>
+        )}
         {header.headline && (
-          <div className={`${baseStyles['resume-title']} mt-1`}>{header.headline}</div>
+          <div className={`${baseStyles['resume-title']} mt-1`} dir="auto">
+            {header.headline}
+          </div>
         )}
         {header.contacts.length > 0 && (
           <div className={`${baseStyles['resume-meta']} flex flex-wrap gap-x-3 gap-y-1 mt-2`}>

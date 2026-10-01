@@ -200,3 +200,15 @@ export function useWorkspace() {
   }
   return context;
 }
+
+/**
+ * The active workspace's content language, or `'en'` outside a provider.
+ *
+ * Separate from `useWorkspace` on purpose: that hook throws because its
+ * mutators are meaningless without the provider, while a *render* only needs
+ * to know which way the text runs, and LTR English is the honest default for
+ * any surface mounted without workspace state (print routes, isolated tests).
+ */
+export function useContentLanguage(): string {
+  return useContext(WorkspaceContext)?.activeWorkspace?.content_language ?? 'en';
+}

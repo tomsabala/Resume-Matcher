@@ -95,7 +95,9 @@ export function StudyDialog({ cards, startIndex, open, onOpenChange, onRated }: 
         </DialogHeader>
 
         <div className="space-y-4">
-          <p className="font-serif text-2xl font-bold leading-tight">{card.question}</p>
+          <p className="font-serif text-2xl font-bold leading-tight" dir="auto">
+            {card.question}
+          </p>
 
           {!revealed ? (
             <Button onClick={() => setRevealed(true)}>{t('prepDeck.card.reveal')}</Button>
@@ -103,13 +105,15 @@ export function StudyDialog({ cards, startIndex, open, onOpenChange, onRated }: 
             <div className="space-y-4 border-t border-black pt-4">
               {card.answer ? (
                 <>
-                  <p className="whitespace-pre-wrap text-base leading-relaxed">{card.answer}</p>
+                  <p className="whitespace-pre-wrap text-base leading-relaxed" dir="auto">
+                    {card.answer}
+                  </p>
                   {card.explanation && (
                     <div className="space-y-1">
                       <p className="font-mono text-xs uppercase tracking-wide text-ink-soft">
                         {t('prepDeck.card.explanation')}
                       </p>
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed" dir="auto">
                         {card.explanation}
                       </p>
                     </div>
@@ -119,9 +123,11 @@ export function StudyDialog({ cards, startIndex, open, onOpenChange, onRated }: 
                       <p className="font-mono text-xs uppercase tracking-wide text-ink-soft">
                         {t('prepDeck.card.examples')}
                       </p>
-                      <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed">
+                      <ul className="list-disc space-y-1 ps-5 text-sm leading-relaxed">
                         {card.examples.map((example, i) => (
-                          <li key={i}>{example}</li>
+                          <li key={i} dir="auto">
+                            {example}
+                          </li>
                         ))}
                       </ul>
                     </div>

@@ -36,12 +36,16 @@ export const ResumeVivid: React.FC<ResumeTemplateProps> = ({
     <>
       <div className={baseStyles['resume-header']}>
         {fullName && (
-          <h1 className={baseStyles['resume-name']}>
+          <h1 className={baseStyles['resume-name']} dir="auto">
             <span className={styles.nameFirst}>{nameFirst}</span>
             {nameRest && <span className={styles.nameRest}> {nameRest}</span>}
           </h1>
         )}
-        {header.headline && <div className={styles.titleLine}>{header.headline}</div>}
+        {header.headline && (
+          <div className={styles.titleLine} dir="auto">
+            {header.headline}
+          </div>
+        )}
         {header.contacts.length > 0 && (
           <div className={`flex flex-wrap gap-x-4 gap-y-1 mt-2 ${styles.contactRow}`}>
             {header.contacts.map((contact) => (

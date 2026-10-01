@@ -1,8 +1,18 @@
 """LLM prompt templates for resume processing."""
 
-# Every prompt is written in English; the placeholder stays because saved
-# custom prompts are validated against it (see prompts/__init__.py).
-OUTPUT_LANGUAGE = "English"
+# The language name every prompt interpolates into ``{output_language}``.
+# Resolved per workspace from ``workspaces.content_language``; the placeholder
+# is also contractually required in saved custom feature prompts (see
+# prompts/__init__.py).
+LANGUAGE_NAMES: dict[str, str] = {
+    "en": "English",
+    "he": "Hebrew",
+}
+
+
+def get_language_name(code: str) -> str:
+    """Prompt-facing language name for a content-language code."""
+    return LANGUAGE_NAMES.get(code, "English")
 
 
 # A complete v2 document with example values - used for prompts that must show
@@ -267,6 +277,9 @@ Extract numeric years (e.g., "5+ years" → 5) and infer seniority level.
 Set "company" to the hiring company name and "role" to the job title exactly as
 written in the posting; use an empty string for either if it is not stated.
 
+IMPORTANT: Write in {output_language}.
+Do NOT translate JSON property names. Keep every JSON key exactly as shown in the schema; translate only string values.
+
 Job description:
 {job_description}"""
 
@@ -285,21 +298,32 @@ Violation of these rules could cause serious problems for the candidate in job i
 """
 
 
-def _build_truthfulness_rules(rule_7: str) -> str:
-    return CRITICAL_TRUTHFULNESS_RULES_TEMPLATE.format(rule_7=rule_7)
-
-
-CRITICAL_TRUTHFULNESS_RULES = {
-    "nudge": _build_truthfulness_rules(
-        "DO NOT add new bullet points or content - only rephrase existing content"
+#: Rule 7 varies by improve strategy; the other eight rules do not.
+_STRATEGY_RULE_7: dict[str, str] = {
+    "nudge": "DO NOT add new bullet points or content - only rephrase existing content",
+    "keywords": (
+        "You may rephrase existing bullet points to include keywords, but do NOT"
+        " add new bullet points"
     ),
-    "keywords": _build_truthfulness_rules(
-        "You may rephrase existing bullet points to include keywords, but do NOT add new bullet points"
-    ),
-    "full": _build_truthfulness_rules(
-        "You may expand existing bullet points or add new ones that elaborate on existing work, but DO NOT invent entirely new responsibilities"
+    "full": (
+        "You may expand existing bullet points or add new ones that elaborate on"
+        " existing work, but DO NOT invent entirely new responsibilities"
     ),
 }
+
+
+def critical_truthfulness_rules(strategy: str, output_language: str) -> str:
+    """Truthfulness block for one improve strategy, in ``output_language``.
+
+    A function rather than a pre-rendered dict: the language is per request,
+    and this block is the strongest place to state it — it sits directly above
+    the content the model rewrites.
+    """
+    rule_7 = _STRATEGY_RULE_7[strategy]
+    return CRITICAL_TRUTHFULNESS_RULES_TEMPLATE.format(rule_7=rule_7) + (
+        f"\n10. Write every value you emit in {output_language}.\n"
+    )
+
 
 IMPROVE_RESUME_PROMPT_NUDGE = """Lightly nudge this resume toward the job description. Output ONLY the JSON object, no other text.
 

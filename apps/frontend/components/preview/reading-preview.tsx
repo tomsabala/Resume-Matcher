@@ -5,6 +5,8 @@ import Resume from '@/components/dashboard/resume-component';
 import type { ResumeDocument } from '@/lib/types/document';
 import { type TemplateSettings } from '@/lib/types/template-settings';
 import { useTranslations } from '@/lib/i18n';
+import { useContentLanguage } from '@/lib/context/workspace-context';
+import { directionFor } from '@/lib/utils/content-direction';
 
 export interface ReadingPreviewProps {
   doc: ResumeDocument;
@@ -24,6 +26,7 @@ export interface ReadingPreviewProps {
  */
 export function ReadingPreview({ doc, settings }: ReadingPreviewProps) {
   const { t } = useTranslations();
+  const dir = directionFor(useContentLanguage());
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#D5D5D0] p-2 sm:p-6">
@@ -34,6 +37,7 @@ export function ReadingPreview({ doc, settings }: ReadingPreviewProps) {
           settings={settings}
           translate={t}
           fallbackName={t('resume.defaults.name')}
+          dir={dir}
         />
       </div>
     </div>

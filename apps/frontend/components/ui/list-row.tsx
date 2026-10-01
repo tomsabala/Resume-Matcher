@@ -50,9 +50,17 @@ export const ListRow: React.FC<ListRowProps> = ({
     <>
       {leading ? <span className="shrink-0">{leading}</span> : null}
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-serif text-base font-bold leading-tight">{title}</span>
+        {/* `dir="auto"` so a Hebrew title reads correctly inside the LTR chrome
+            and `truncate` clips its end rather than its beginning. The row stays
+            start-aligned: the chrome itself is English. */}
+        <span className="block truncate font-serif text-base font-bold leading-tight" dir="auto">
+          {title}
+        </span>
         {subtitle ? (
-          <span className="block truncate font-mono text-xs uppercase tracking-wide text-ink-soft">
+          <span
+            className="block truncate font-mono text-xs uppercase tracking-wide text-ink-soft"
+            dir="auto"
+          >
             {subtitle}
           </span>
         ) : null}

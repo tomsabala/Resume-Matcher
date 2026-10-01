@@ -17,7 +17,7 @@ from app.ai_budget import (
     remaining_timeout,
 )
 from app.database import DatabaseBusyError, db
-from app.deps import WorkspaceId
+from app.deps import OutputLanguage, WorkspaceId
 from app.llm import complete_json
 from app.prompts.enrichment import (
     ANALYZE_RESUME_PROMPT,
@@ -25,7 +25,6 @@ from app.prompts.enrichment import (
     REGENERATE_ITEM_PROMPT,
     REGENERATE_SKILLS_PROMPT,
 )
-from app.prompts.templates import OUTPUT_LANGUAGE
 from app.schemas.document import (
     Bullet,
     Entry,
@@ -186,7 +185,7 @@ def _extract_item_from_resume(processed_data: dict, item_id: str) -> dict:
 
 @router.post("/analyze/{resume_id}", response_model=AnalysisResponse)
 async def analyze_resume(
-    resume_id: str, workspace_id: WorkspaceId
+    resume_id: str, workspace_id: WorkspaceId, output_language: OutputLanguage
 ) -> AnalysisResponse:
     """Analyze a resume to identify items that need enrichment.
 
@@ -211,7 +210,7 @@ async def analyze_resume(
     resume_json = json.dumps(processed_data)
     prompt = ANALYZE_RESUME_PROMPT.format(
         resume_json=resume_json,
-        output_language=OUTPUT_LANGUAGE,
+        output_language=output_language,
     )
 
     try:
@@ -280,7 +279,9 @@ async def analyze_resume(
 
 @router.post("/enhance", response_model=EnhancementPreview)
 async def generate_enhancements(
-    request: EnhanceRequest, workspace_id: WorkspaceId
+    request: EnhanceRequest,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> EnhancementPreview:
     """Generate enhanced descriptions from user answers.
 
@@ -327,7 +328,7 @@ async def generate_enhancements(
         resume_json = json.dumps(processed_data)
         analysis_prompt = ANALYZE_RESUME_PROMPT.format(
             resume_json=resume_json,
-            output_language=OUTPUT_LANGUAGE,
+            output_language=output_language,
         )
 
         try:
@@ -414,7 +415,7 @@ async def generate_enhancements(
             subtitle=item.get("subtitle", ""),
             current_description=current_desc_text,
             answers=answers_text.strip(),
-            output_language=OUTPUT_LANGUAGE,
+            output_language=output_language,
         )
 
         try:
@@ -540,6 +541,7 @@ async def apply_enhancements(
 async def _regenerate_experience_or_project(
     item: RegenerateItemInput,
     instruction: str,
+    output_language: str,
 ) -> RegeneratedItem:
     """Regenerate a single experience or project item."""
     current_desc_text = (
@@ -549,7 +551,7 @@ async def _regenerate_experience_or_project(
     )
 
     prompt = REGENERATE_ITEM_PROMPT.format(
-        output_language=OUTPUT_LANGUAGE,
+        output_language=output_language,
         item_type=item.item_type,
         title=item.title,
         subtitle=item.subtitle or "",
@@ -583,12 +585,13 @@ async def _regenerate_experience_or_project(
 async def _regenerate_skills(
     item: RegenerateItemInput,
     instruction: str,
+    output_language: str,
 ) -> RegeneratedItem:
     """Regenerate the skills section."""
     current_skills_text = ", ".join(item.current_content) if item.current_content else "(No skills)"
 
     prompt = REGENERATE_SKILLS_PROMPT.format(
-        output_language=OUTPUT_LANGUAGE,
+        output_language=output_language,
         current_skills=current_skills_text,
         user_instruction=instruction,
     )
@@ -618,7 +621,9 @@ async def _regenerate_skills(
 
 @router.post("/regenerate", response_model=RegenerateResponse)
 async def regenerate_items(
-    request: RegenerateRequest, workspace_id: WorkspaceId
+    request: RegenerateRequest,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> RegenerateResponse:
     """Regenerate selected resume items based on user feedback.
 
@@ -639,8 +644,12 @@ async def regenerate_items(
     async def regenerate_one(item: RegenerateItemInput) -> RegeneratedItem:
         async with semaphore:
             if item.item_type == "values":
-                return await _regenerate_skills(item, request.instruction)
-            return await _regenerate_experience_or_project(item, request.instruction)
+                return await _regenerate_skills(
+                    item, request.instruction, output_language
+                )
+            return await _regenerate_experience_or_project(
+                item, request.instruction, output_language
+            )
 
     results = await asyncio.gather(
         *(regenerate_one(item) for item in request.items), return_exceptions=True

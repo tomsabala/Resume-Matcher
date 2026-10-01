@@ -205,6 +205,8 @@ const DialogFooter: React.FC<DialogFooterProps> = ({ className, children, ...pro
 interface DialogTitleProps {
   children: React.ReactNode;
   className?: string;
+  /** `auto` lets a Hebrew title resolve its own direction inside the LTR chrome. */
+  dir?: 'auto' | 'ltr' | 'rtl';
 }
 
 const DialogTitle: React.FC<DialogTitleProps> = ({ className, children, ...props }) => {

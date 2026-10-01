@@ -7,6 +7,7 @@
 
 import { API_BASE } from '@/lib/api/client';
 import { translate } from '@/lib/i18n/server';
+import { directionFor } from '@/lib/utils/content-direction';
 import { emptyHeader, type Header, type ResumeDocument } from '@/lib/types/document';
 import { headers } from 'next/headers';
 
@@ -87,6 +88,9 @@ export default async function PrintCoverLetterPage({ params, searchParams }: Pag
 
   const pageSize = parsePageSize(resolvedSearchParams?.pageSize);
   const pageDims = PAGE_DIMENSIONS[pageSize];
+  // Workspace content language, resolved server-side by the PDF route.
+  const contentLang = resolvedSearchParams?.lang === 'he' ? 'he' : 'en';
+  const dir = directionFor(contentLang);
 
   // Fetch cover letter data from API (same pattern as resume)
   const { coverLetter, header } = await fetchCoverLetterData(resolvedParams.id);
@@ -112,12 +116,14 @@ export default async function PrintCoverLetterPage({ params, searchParams }: Pag
   return (
     <div
       className="cover-letter-print bg-white"
+      lang={contentLang}
+      dir={dir}
       style={{
         width: `${pageDims.width}mm`,
         minHeight: `${pageDims.height}mm`,
         padding: `${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm`,
         boxSizing: 'border-box',
-        fontFamily: 'Georgia, serif',
+        fontFamily: 'Georgia, var(--font-noto-sans-hebrew), serif',
         color: '#000000',
       }}
     >

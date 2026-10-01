@@ -181,3 +181,45 @@ async def test_promoting_a_default_demotes_the_previous_one(isolated_db: Any) ->
     assert promoted.json()["is_default"] is True
     assert (await isolated_db.get_workspace(default_id))["is_default"] is False
     assert await isolated_db.default_workspace_id() == lior
+
+
+async def test_a_workspace_starts_english_and_can_be_switched_to_hebrew(
+    isolated_db: Any,
+) -> None:
+    """The content language is what every generator and the PDF route read."""
+    async with await _client() as client:
+        created = await client.post("/api/v1/workspaces", json={"name": "Lior"})
+        workspace_id = created.json()["workspace_id"]
+        assert created.json()["content_language"] == "en"
+
+        updated = await client.patch(
+            f"/api/v1/workspaces/{workspace_id}", json={"content_language": "he"}
+        )
+
+    assert updated.json()["content_language"] == "he"
+    assert (await isolated_db.get_workspace(workspace_id))["content_language"] == "he"
+
+
+async def test_an_unsupported_content_language_is_refused(isolated_db: Any) -> None:
+    default_id = await isolated_db.default_workspace_id()
+    async with await _client() as client:
+        response = await client.patch(
+            f"/api/v1/workspaces/{default_id}", json={"content_language": "klingon"}
+        )
+
+    assert response.status_code == 422
+    assert (await isolated_db.get_workspace(default_id))["content_language"] == "en"
+
+
+async def test_a_hebrew_named_workspace_does_not_contend_for_one_slug(
+    isolated_db: Any,
+) -> None:
+    """An ASCII-only slug would collapse every Hebrew name onto ``workspace``,
+    which is unique per tenant."""
+    async with await _client() as client:
+        first = (await client.post("/api/v1/workspaces", json={"name": "ליאור"})).json()
+        second = (await client.post("/api/v1/workspaces", json={"name": "תומר"})).json()
+
+    assert first["slug"] != second["slug"]
+    assert first["slug"].startswith("workspace-")
+    assert second["slug"].startswith("workspace-")

@@ -86,6 +86,35 @@ class DocumentResourceLimitError(ValueError):
     """Raised when a valid document exceeds a bounded processing budget."""
 
 
+class ReversedTextError(DocumentValidationError):
+    """Raised when extracted Hebrew text came out in visual (reversed) order."""
+
+
+#: Hebrew's five final forms. In logical order they can only end a word, so
+#: finding them at the *start* of words is the signal that a PDF's text layer
+#: was extracted visually — character-reversed — by a backend with no bidi
+#: layer (pdfminer, which markitdown uses).
+_HEBREW_FINALS = frozenset("ךםןףץ")
+_HEBREW_LETTERS = frozenset(chr(code) for code in range(0x05D0, 0x05EB))
+#: Below this many sampled words the start/end comparison is noise — a Latin
+#: resume with two Hebrew words must not trip it.
+_REVERSAL_MIN_SAMPLE = 5
+
+
+def _looks_reversed(text: str) -> bool:
+    """Whether Hebrew words in ``text`` carry their final letters at the front."""
+    leading = trailing = 0
+    for token in text.split():
+        word = "".join(char for char in token if char in _HEBREW_LETTERS)
+        if len(word) < 2 or len(word) != len(token):
+            continue
+        if word[0] in _HEBREW_FINALS:
+            leading += 1
+        if word[-1] in _HEBREW_FINALS:
+            trailing += 1
+    return leading >= _REVERSAL_MIN_SAMPLE and leading > trailing
+
+
 _COMPOUND_FILE_SIGNATURE = bytes.fromhex("D0CF11E0A1B11AE1")
 
 
@@ -1065,6 +1094,11 @@ def _parse_document_sync(content: bytes, filename: str) -> str:
             )
         _validate_extracted_text(text)
         if suffix == ".pdf":
+            if _looks_reversed(text):
+                raise ReversedTextError(
+                    "This PDF's Hebrew text extracts in visual order, which would "
+                    "be parsed backwards. Upload a DOCX, or paste the text instead."
+                )
             # The upload route stores this string as the resume's content and
             # re-parse re-runs the LLM on it, so recovered links have to live
             # in the text itself or a re-parse loses them again.

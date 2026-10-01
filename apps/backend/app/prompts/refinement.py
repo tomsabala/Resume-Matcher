@@ -148,6 +148,9 @@ CRITICAL RULES:
 6. Make keyword incorporation the DEFAULT across every section of the document, not an optional enhancement
 7. Keep every bullet's "style" value ("bullet" or "plain") unchanged, and leave each entry's "title", "subtitle", "meta", "period" and "links" exactly as they are
 
+IMPORTANT: Write in {output_language}.
+Do NOT translate JSON property names. Keep every JSON key exactly as shown in the schema; translate only string values.
+
 Keywords to inject (only if supported by master resume):
 {keywords_to_inject}
 
@@ -162,25 +165,3 @@ Job description context:
 
 Output the complete resume JSON with keywords naturally integrated. Return ONLY valid JSON."""
 
-
-# Prompt for validation and polish pass
-VALIDATION_POLISH_PROMPT = """Review and polish this resume content. Remove any AI-sounding language and ensure all content is truthful.
-
-REMOVE or REPLACE:
-- Buzzwords: "spearheaded", "synergy", "leverage", "orchestrated", etc.
-- Em-dashes (use commas or semicolons instead)
-- Overly formal language: "utilized" -> "used", "endeavored" -> "worked"
-- Generic filler: "in order to" -> "to"
-
-VERIFY:
-- All skills exist in the master resume
-- All certifications exist in the master resume
-- No fabricated metrics or achievements
-
-Resume to polish:
-{resume}
-
-Master resume (verify all claims against this):
-{master_resume}
-
-Output the polished resume JSON. Return ONLY valid JSON."""

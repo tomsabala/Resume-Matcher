@@ -16,7 +16,6 @@ from app.llm import (
     get_safe_max_tokens,
 )
 from app.prompts import (
-    OUTPUT_LANGUAGE,
     PREP_CARD_ANSWER_PROMPT,
     PREP_CARD_CRITIQUE_PROMPT,
     PREP_CARD_GENERATE_PROMPT,
@@ -30,14 +29,11 @@ from app.schemas import (
 )
 from app.services.prompt_bounds import (
     JOB_DESCRIPTION_PROMPT_CHAR_LIMIT,
+    interview_coach_system_prompt,
     serialize_resume_data_for_prompt,
     truncate_text_for_prompt,
 )
 
-_SYSTEM_PROMPT = (
-    "You are a career interview coach. Output truthful, resume-grounded "
-    "interview preparation as JSON only."
-)
 
 # What each category means, injected into the generate and answer prompts.
 _CATEGORY_INSTRUCTIONS: dict[str, str] = {
@@ -78,10 +74,11 @@ async def generate_prep_cards(
     resume_data: dict[str, Any],
     job_description: str | None,
     count: int,
+    output_language: str,
 ) -> list[PrepCardProposal]:
     """Propose ``count`` questions for one category. Persists nothing."""
     prompt = PREP_CARD_GENERATE_PROMPT.format(
-        output_language=OUTPUT_LANGUAGE,
+        output_language=output_language,
         category_instruction=_category_instruction(category),
         count=count,
         resume_data=serialize_resume_data_for_prompt(resume_data),
@@ -96,7 +93,7 @@ async def generate_prep_cards(
 
     result = await complete_json(
         prompt=prompt,
-        system_prompt=_SYSTEM_PROMPT,
+        system_prompt=interview_coach_system_prompt(output_language),
         max_tokens=max_tokens,
         schema_type="prep_card_generate",
     )
@@ -117,10 +114,11 @@ async def answer_prep_card(
     question: str,
     resume_data: dict[str, Any],
     job_description: str | None,
+    output_language: str,
 ) -> PrepCardAnswer:
     """Author the back of one card: answer, explanation and examples."""
     prompt = PREP_CARD_ANSWER_PROMPT.format(
-        output_language=OUTPUT_LANGUAGE,
+        output_language=output_language,
         category_instruction=_category_instruction(category),
         question=question,
         resume_data=serialize_resume_data_for_prompt(resume_data),
@@ -135,7 +133,7 @@ async def answer_prep_card(
 
     result = await complete_json(
         prompt=prompt,
-        system_prompt=_SYSTEM_PROMPT,
+        system_prompt=interview_coach_system_prompt(output_language),
         max_tokens=max_tokens,
         schema_type="prep_card_answer",
     )
@@ -149,10 +147,11 @@ async def critique_prep_answer(
     my_answer: str,
     model_answer: str | None,
     resume_data: dict[str, Any],
+    output_language: str,
 ) -> PrepCardCritique:
     """Score and improve the answer the owner wrote themselves."""
     prompt = PREP_CARD_CRITIQUE_PROMPT.format(
-        output_language=OUTPUT_LANGUAGE,
+        output_language=output_language,
         question=question,
         my_answer=truncate_text_for_prompt(
             my_answer, JOB_DESCRIPTION_PROMPT_CHAR_LIMIT
@@ -169,7 +168,7 @@ async def critique_prep_answer(
 
     result = await complete_json(
         prompt=prompt,
-        system_prompt=_SYSTEM_PROMPT,
+        system_prompt=interview_coach_system_prompt(output_language),
         max_tokens=max_tokens,
         schema_type="prep_card_critique",
     )

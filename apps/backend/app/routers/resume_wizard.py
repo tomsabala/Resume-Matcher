@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from app.ai_budget import AIOperationDeadlineExceeded, AIOperationRoute
 from app.ai_limits import PromptSizeError
 from app.database import db
-from app.deps import WorkspaceId
+from app.deps import OutputLanguage, WorkspaceId
 from app.schemas.document import ResumeDocument
 from app.schemas.resume_wizard import (
     ResumeWizardFinalizeRequest,
@@ -65,6 +65,7 @@ def _finalize_response(resume: dict[str, Any]) -> ResumeWizardFinalizeResponse:
 @router.post("/turn", response_model=ResumeWizardTurnResponse)
 async def resume_wizard_turn(
     request: ResumeWizardTurnRequest,
+    output_language: OutputLanguage,
 ) -> ResumeWizardTurnResponse:
     """Advance the resume wizard by one structured turn."""
     try:
@@ -82,11 +83,15 @@ async def resume_wizard_turn(
             return ResumeWizardTurnResponse(state=apply_review(request.state))
 
         if action == "skip":
-            state = await run_ai_turn(request.state, "", skip=True)
+            state = await run_ai_turn(
+                request.state, "", skip=True, output_language=output_language
+            )
             return ResumeWizardTurnResponse(state=state)
 
         answer_text = request.answer.text if request.answer else ""
-        state = await run_ai_turn(request.state, answer_text, skip=False)
+        state = await run_ai_turn(
+            request.state, answer_text, skip=False, output_language=output_language
+        )
         return ResumeWizardTurnResponse(state=state)
     except (HTTPException, AIOperationDeadlineExceeded, PromptSizeError):
         raise

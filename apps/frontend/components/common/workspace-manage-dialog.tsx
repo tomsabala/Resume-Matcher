@@ -17,6 +17,17 @@ import { useTranslations } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/context/workspace-context';
 import type { Workspace } from '@/lib/api/workspaces';
 
+/**
+ * Languages a workspace's *content* may be written in.
+ *
+ * Deliberately not `i18n/config`'s `locales`: the app chrome stays
+ * English-only, so that list stays `['en']` while this one grows.
+ */
+const CONTENT_LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'he', label: 'עברית' },
+] as const;
+
 interface WorkspaceManageDialogProps {
   /** The workspace being edited; `null` keeps the dialog closed. */
   workspace: Workspace | null;
@@ -35,6 +46,7 @@ export function WorkspaceManageDialog({ workspace, onClose }: WorkspaceManageDia
   const { t } = useTranslations();
   const { updateWorkspace, deleteWorkspace } = useWorkspace();
   const [name, setName] = useState('');
+  const [language, setLanguage] = useState('en');
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -45,6 +57,7 @@ export function WorkspaceManageDialog({ workspace, onClose }: WorkspaceManageDia
   useEffect(() => {
     if (!workspace) return;
     setName(workspace.name);
+    setLanguage(workspace.content_language);
     setError(null);
   }, [workspace]);
 
@@ -60,6 +73,7 @@ export function WorkspaceManageDialog({ workspace, onClose }: WorkspaceManageDia
     try {
       await updateWorkspace(workspace.workspace_id, {
         name: trimmed,
+        content_language: language,
         ...extra,
       });
       onClose();
@@ -110,6 +124,27 @@ export function WorkspaceManageDialog({ workspace, onClose }: WorkspaceManageDia
                   if (event.key === 'Enter') void save();
                 }}
               />
+            </div>
+
+            <div className="space-y-1">
+              <label
+                htmlFor="workspace-content-language"
+                className="font-mono text-xs font-bold uppercase tracking-wider"
+              >
+                {t('workspaces.contentLanguageLabel')}
+              </label>
+              <select
+                id="workspace-content-language"
+                value={language}
+                onChange={(event) => setLanguage(event.target.value)}
+                className="w-full border border-black bg-white px-3 py-2 font-mono text-sm rounded-none focus:outline-none focus:ring-0"
+              >
+                {CONTENT_LANGUAGES.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {workspace.is_default ? (

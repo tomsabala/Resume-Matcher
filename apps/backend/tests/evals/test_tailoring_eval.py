@@ -52,6 +52,7 @@ async def generate_tailoring(case: dict[str, Any]) -> dict[str, Any]:
     response = await improve_resume_preview_endpoint(
         ImproveResumeRequest(resume_id=resume["resume_id"], job_id=job["job_id"]),
         workspace_id,
+        "English",
     )
     return response.data.resume_preview.model_dump()
 

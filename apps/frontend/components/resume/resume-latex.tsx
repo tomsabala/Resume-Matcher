@@ -30,8 +30,16 @@ export const ResumeLatex: React.FC<ResumeTemplateProps> = ({
   return (
     <div className={styles.container}>
       <header className={`text-center ${baseStyles['resume-header']}`}>
-        {name && <h1 className={`${styles.name} mb-1`}>{name}</h1>}
-        {header.headline && <div className={`${styles.tagline} mb-1`}>{header.headline}</div>}
+        {name && (
+          <h1 className={`${styles.name} mb-1`} dir="auto">
+            {name}
+          </h1>
+        )}
+        {header.headline && (
+          <div className={`${styles.tagline} mb-1`} dir="auto">
+            {header.headline}
+          </div>
+        )}
         {locations.map((contact) => (
           <div key={contact.id} className={`${styles.locationLine} mb-1`}>
             <ContactValue contact={contact} showIcon={showContactIcons} />

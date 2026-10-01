@@ -26,9 +26,7 @@ const Bullets: React.FC<{ bullets: Bullet[] }> = ({ bullets }) => {
               &bull;&nbsp;
             </span>
           )}
-          <span>
-            <SafeHtml html={bullet.text} />
-          </span>
+          <SafeHtml html={bullet.text} dir="auto" />
         </li>
       ))}
     </ul>
@@ -43,7 +41,11 @@ const EntryRow: React.FC<{ entry: Entry }> = ({ entry }) => {
     <div className={baseStyles['resume-item']}>
       <div className={`flex justify-between items-baseline ${baseStyles['resume-row-tight']}`}>
         <span className="flex items-baseline gap-2 min-w-0">
-          {entry.title && <h4 className={baseStyles['resume-item-title']}>{entry.title}</h4>}
+          {entry.title && (
+            <h4 className={baseStyles['resume-item-title']} dir="auto">
+              {entry.title}
+            </h4>
+          )}
           {links.length > 0 && (
             <span className={styles.entryLinks}>
               {links.map((link, index) => (
@@ -53,7 +55,9 @@ const EntryRow: React.FC<{ entry: Entry }> = ({ entry }) => {
           )}
         </span>
         {entry.period && (
-          <span className={`${baseStyles['resume-date']} ml-4`}>{entry.period}</span>
+          <span className={`${baseStyles['resume-date']} ms-4`} dir="auto">
+            {entry.period}
+          </span>
         )}
       </div>
 
@@ -61,12 +65,24 @@ const EntryRow: React.FC<{ entry: Entry }> = ({ entry }) => {
         <div
           className={`flex justify-between items-baseline gap-3 ${baseStyles['resume-row-tight']} ${baseStyles['resume-item-subtitle']}`}
         >
-          {entry.subtitle && <span className="min-w-0">{entry.subtitle}</span>}
-          {entry.meta && <span className="shrink-0">{entry.meta}</span>}
+          {entry.subtitle && (
+            <span className="min-w-0" dir="auto">
+              {entry.subtitle}
+            </span>
+          )}
+          {entry.meta && (
+            <span className="shrink-0" dir="auto">
+              {entry.meta}
+            </span>
+          )}
         </div>
       )}
 
-      {summary && <p className={styles.entrySummary}>{summary}</p>}
+      {summary && (
+        <p className={styles.entrySummary} dir="auto">
+          {summary}
+        </p>
+      )}
 
       <Bullets bullets={entry.bullets} />
     </div>

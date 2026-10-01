@@ -83,7 +83,7 @@ export function PersonalDialog({ card, open, onOpenChange, onUpdated }: Personal
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="font-serif text-xl font-bold leading-tight">
+          <DialogTitle className="font-serif text-xl font-bold leading-tight" dir="auto">
             {current.question}
           </DialogTitle>
         </DialogHeader>
@@ -94,7 +94,9 @@ export function PersonalDialog({ card, open, onOpenChange, onUpdated }: Personal
               <p className="font-mono text-xs uppercase tracking-wide text-ink-soft">
                 {t('prepDeck.card.explanation')}
               </p>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{current.answer}</p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed" dir="auto">
+                {current.answer}
+              </p>
             </div>
           ) : (
             <Button variant="outline" onClick={handleGenerateAnswer} disabled={busy}>
@@ -116,6 +118,7 @@ export function PersonalDialog({ card, open, onOpenChange, onUpdated }: Personal
                 setSaved(false);
               }}
               onKeyDown={handleKeyDown}
+              dir="auto"
               className="min-h-[8rem]"
             />
           </div>
@@ -152,9 +155,11 @@ export function PersonalDialog({ card, open, onOpenChange, onUpdated }: Personal
                   <p className="font-mono text-xs uppercase tracking-wide text-ink-soft">
                     {t('prepDeck.personal.strengths')}
                   </p>
-                  <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed">
+                  <ul className="list-disc space-y-1 ps-5 text-sm leading-relaxed">
                     {critique.strengths.map((item, i) => (
-                      <li key={i}>{item}</li>
+                      <li key={i} dir="auto">
+                        {item}
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -164,9 +169,11 @@ export function PersonalDialog({ card, open, onOpenChange, onUpdated }: Personal
                   <p className="font-mono text-xs uppercase tracking-wide text-ink-soft">
                     {t('prepDeck.personal.gaps')}
                   </p>
-                  <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed">
+                  <ul className="list-disc space-y-1 ps-5 text-sm leading-relaxed">
                     {critique.gaps.map((item, i) => (
-                      <li key={i}>{item}</li>
+                      <li key={i} dir="auto">
+                        {item}
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -175,7 +182,7 @@ export function PersonalDialog({ card, open, onOpenChange, onUpdated }: Personal
                 <p className="font-mono text-xs uppercase tracking-wide text-ink-soft">
                   {t('prepDeck.personal.suggestedRewrite')}
                 </p>
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                <p className="whitespace-pre-wrap text-sm leading-relaxed" dir="auto">
                   {critique.suggested_rewrite}
                 </p>
               </div>

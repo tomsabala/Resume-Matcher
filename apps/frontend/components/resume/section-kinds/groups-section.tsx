@@ -18,8 +18,24 @@ export const GroupsSection: React.FC<{ section: Section }> = ({ section }) => {
     <div className={styles.groups}>
       {groups.map((group, index) => (
         <div key={`${group.label}-${index}`} className={styles.group}>
-          {group.label && <span className={styles.groupLabel}>{group.label}</span>}
-          <span className={styles.groupValues}>{group.values.join(', ')}</span>
+          {group.label && (
+            <span className={styles.groupLabel} dir="auto">
+              {group.label}
+            </span>
+          )}
+          {/* The comma-separated run reads as one sentence, so the *list* takes
+              its direction from its own first strong character (`dir="auto"` on
+              the container) while each value is isolated with `<bdi>`. Putting
+              `dir="auto"` on the values instead reversed a Latin list inside a
+              Hebrew resume and detached its separators. */}
+          <span className={styles.groupValues} dir="auto">
+            {group.values.map((value, valueIndex) => (
+              <React.Fragment key={`${value}-${valueIndex}`}>
+                {valueIndex > 0 ? ', ' : ''}
+                <bdi>{value}</bdi>
+              </React.Fragment>
+            ))}
+          </span>
         </div>
       ))}
     </div>

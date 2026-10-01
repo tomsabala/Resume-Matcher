@@ -23,7 +23,7 @@ from app.ai_budget import (
 )
 from app.config_cache import load_config as _load_config
 from app.database import DatabaseBusyError, ProcessingFinishOutcome, ResumeNotFoundError, db
-from app.deps import ActiveTenantDep, WorkspaceId
+from app.deps import ActiveTenantDep, ContentLanguage, OutputLanguage, WorkspaceId
 from app.tenancy import ActiveTenant
 from app.pdf import render_resume_pdf, PDFRenderError
 from app.config import settings
@@ -74,6 +74,7 @@ from app.services.parser import (
     DocumentResourceLimitError,
     MAX_EXTRACTED_TEXT_BYTES,
     MAX_UNPACKED_DOCUMENT_BYTES,
+    ReversedTextError,
     has_meaningful_resume_content,
     parse_document,
     parse_resume_to_json,
@@ -607,6 +608,7 @@ async def _generate_auxiliary_messages(
     enable_cover_letter: bool,
     enable_outreach: bool,
     enable_interview_prep: bool,
+    output_language: str,
 ) -> tuple[str | None, str | None, str | None, InterviewPrepData | None, list[str]]:
     """Generate cover letter, outreach, interview prep, and resume title.
 
@@ -625,17 +627,31 @@ async def _generate_auxiliary_messages(
     task_labels: list[str] = []
 
     # Title generation is always on (no feature flag)
-    generation_tasks.append(generate_resume_title(job_content))
+    generation_tasks.append(
+        generate_resume_title(job_content, output_language=output_language)
+    )
     task_labels.append("title")
 
     if enable_cover_letter:
-        generation_tasks.append(generate_cover_letter(improved_data, job_content))
+        generation_tasks.append(
+            generate_cover_letter(
+                improved_data, job_content, output_language=output_language
+            )
+        )
         task_labels.append("cover_letter")
     if enable_outreach:
-        generation_tasks.append(generate_outreach_message(improved_data, job_content))
+        generation_tasks.append(
+            generate_outreach_message(
+                improved_data, job_content, output_language=output_language
+            )
+        )
         task_labels.append("outreach")
     if enable_interview_prep:
-        generation_tasks.append(generate_interview_prep(improved_data, job_content))
+        generation_tasks.append(
+            generate_interview_prep(
+                improved_data, job_content, output_language=output_language
+            )
+        )
         task_labels.append("interview_prep")
 
     async def bounded_generation(
@@ -916,6 +932,9 @@ async def upload_resume(
         ) from e
     except (DatabaseBusyError, PromptSizeError):
         raise
+    except ReversedTextError as e:
+        logger.info("Rejected visually-ordered PDF: %s", file.filename)
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         logger.exception("Document parsing failed")
         raise HTTPException(
@@ -1205,7 +1224,9 @@ async def list_resumes(
 
 @router.post("/improve/preview", response_model=ImproveResumeResponse)
 async def improve_resume_preview_endpoint(
-    request: ImproveResumeRequest, workspace_id: WorkspaceId
+    request: ImproveResumeRequest,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> ImproveResumeResponse:
     """Preview a tailored resume without persisting it.
 
@@ -1233,6 +1254,7 @@ async def improve_resume_preview_endpoint(
                 job=job,
                 prompt_id=prompt_id,
                 progress=progress,
+                output_language=output_language,
             ),
             timeout=remaining_timeout(),
         )
@@ -1272,6 +1294,7 @@ async def _improve_preview_flow(
     job: dict[str, Any],
     prompt_id: str,
     progress: dict[str, str] | None = None,
+    output_language: str,
 ) -> ImproveResumeResponse:
     """Inner flow for improve/preview, extracted so it can be wrapped in wait_for."""
     if progress is None:
@@ -1281,7 +1304,9 @@ async def _improve_preview_flow(
     job_keywords_hash = job.get("job_keywords_hash")
     content_hash = _hash_job_content(job["content"])
     if not job_keywords or job_keywords_hash != content_hash:
-        job_keywords = await extract_job_keywords(job["content"])
+        job_keywords = await extract_job_keywords(
+            job["content"], output_language=output_language
+        )
         # Cache extracted keywords with a content hash for basic invalidation.
         # Also surface company/role to the job's top level so the tracker's
         # auto-create-on-confirm path can read them without an extra LLM call.
@@ -1330,6 +1355,7 @@ async def _improve_preview_flow(
                 original_resume_data=original_resume_data,
                 job_description=job["content"],
                 job_keywords=job_keywords,
+                output_language=output_language,
             )
             verified_skill_plan = verify_skill_target_plan(
                 raw_skill_plan,
@@ -1361,6 +1387,7 @@ async def _improve_preview_flow(
             prompt_id=prompt_id,
             original_resume_data=original_resume_data,
             skill_targets=skill_targets,
+            output_language=output_language,
         )
 
         progress["stage"] = "apply_resume_diffs"
@@ -1402,6 +1429,7 @@ async def _improve_preview_flow(
             job_keywords=job_keywords,
             prompt_id=prompt_id,
             original_resume_data=original_resume_data,
+            output_language=output_language,
         )
 
     progress["stage"] = "preserve_source_fields"
@@ -1442,6 +1470,7 @@ async def _improve_preview_flow(
                 job_description=job["content"],
                 job_keywords=job_keywords,
                 config=RefinementConfig(),
+                output_language=output_language,
             )
             improved_data = refinement_result.refined_data
             refinement_stats = refinement_result.to_stats(initial_match)
@@ -1542,7 +1571,9 @@ async def _improve_preview_flow(
 
 @router.post("/improve/confirm", response_model=ImproveResumeResponse)
 async def improve_resume_confirm_endpoint(
-    request: ImproveResumeConfirmRequest, workspace_id: WorkspaceId
+    request: ImproveResumeConfirmRequest,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> ImproveResumeResponse:
     """Confirm an accepted input snapshot once, with durable replay semantics."""
     resume = await db.get_resume(request.resume_id, workspace_id=workspace_id)
@@ -1637,6 +1668,7 @@ async def improve_resume_confirm_endpoint(
                     feature_config.get("enable_cover_letter", False),
                     feature_config.get("enable_outreach_message", False),
                     feature_config.get("enable_interview_prep", False),
+                    output_language,
                 ),
                 timeout=remaining_timeout(),
             )
@@ -1734,7 +1766,9 @@ async def improve_resume_confirm_endpoint(
 
 @router.post("/improve", response_model=ImproveResumeResponse)
 async def improve_resume_endpoint(
-    request: ImproveResumeRequest, workspace_id: WorkspaceId
+    request: ImproveResumeRequest,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> ImproveResumeResponse:
     """Improve/tailor a resume for a specific job description.
 
@@ -1762,7 +1796,9 @@ async def improve_resume_endpoint(
 
     try:
         # Extract keywords from job description
-        job_keywords = await extract_job_keywords(job["content"])
+        job_keywords = await extract_job_keywords(
+            job["content"], output_language=output_language
+        )
 
         # Generate the improved resume
         prompt_id = request.prompt_id or _get_default_prompt_id()
@@ -1780,6 +1816,7 @@ async def improve_resume_endpoint(
                 job_keywords=job_keywords,
                 prompt_id=prompt_id,
                 original_resume_data=original_resume_data,
+                output_language=output_language,
             )
 
             improved_data, applied_changes, rejected_changes = apply_diffs(
@@ -1818,6 +1855,7 @@ async def improve_resume_endpoint(
                 job_keywords=job_keywords,
                 prompt_id=prompt_id,
                 original_resume_data=original_resume_data,
+                output_language=output_language,
             )
 
         # Safety nets (defense in depth)
@@ -1858,6 +1896,7 @@ async def improve_resume_endpoint(
                     job_description=job["content"],
                     job_keywords=job_keywords,
                     config=RefinementConfig(),
+                    output_language=output_language,
                 )
                 improved_data = refinement_result.refined_data
                 refinement_stats = refinement_result.to_stats(initial_match)
@@ -1919,6 +1958,7 @@ async def improve_resume_endpoint(
             enable_cover_letter,
             enable_outreach,
             enable_interview_prep,
+            output_language,
         )
         response_warnings.extend(aux_warnings)
 
@@ -2162,6 +2202,7 @@ async def download_resume_pdf(
     resume_id: str,
     workspace_id: WorkspaceId,
     tenant: ActiveTenantDep,
+    content_language: ContentLanguage,
     template: str = Query("swiss-single"),
     pageSize: str = Query("A4", pattern="^(A4|LETTER)$"),
     marginTop: int = Query(10, ge=5, le=25),
@@ -2196,6 +2237,9 @@ async def download_resume_pdf(
     - bodyFont: serif, sans-serif, or mono
     - compactMode: enable tighter spacing
     - showContactIcons: show icons in contact info
+
+    The content language is resolved server-side from the workspace rather than
+    accepted as a query parameter: it is workspace state, not a render setting.
     """
     # This endpoint is the Chromium renderer. A Query(pattern=...) would return
     # a 422 with no explanation, and accepting any string silently rendered
@@ -2230,6 +2274,7 @@ async def download_resume_pdf(
         f"&compactMode={str(compactMode).lower()}"
         f"&showContactIcons={str(showContactIcons).lower()}"
         f"&accentColor={accentColor}"
+        f"&lang={content_language}"
     )
     url = f"{settings.frontend_base_url}/print/resumes/{resume_id}?{params}"
 
@@ -2420,7 +2465,9 @@ async def update_title(
     "/{resume_id}/generate-cover-letter", response_model=GenerateContentResponse
 )
 async def generate_cover_letter_endpoint(
-    resume_id: str, workspace_id: WorkspaceId
+    resume_id: str,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> GenerateContentResponse:
     """Generate a cover letter on-demand for an existing tailored resume.
 
@@ -2474,7 +2521,7 @@ async def generate_cover_letter_endpoint(
     # Generate cover letter
     try:
         cover_letter_content = await generate_cover_letter(
-            resume_data, job["content"]
+            resume_data, job["content"], output_language=output_language
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -2498,7 +2545,9 @@ async def generate_cover_letter_endpoint(
 
 @router.post("/{resume_id}/generate-outreach", response_model=GenerateContentResponse)
 async def generate_outreach_endpoint(
-    resume_id: str, workspace_id: WorkspaceId
+    resume_id: str,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> GenerateContentResponse:
     """Generate an outreach message on-demand for an existing tailored resume.
 
@@ -2552,7 +2601,7 @@ async def generate_outreach_endpoint(
     # Generate outreach message
     try:
         outreach_content = await generate_outreach_message(
-            resume_data, job["content"]
+            resume_data, job["content"], output_language=output_language
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -2579,7 +2628,9 @@ async def generate_outreach_endpoint(
     response_model=GenerateInterviewPrepResponse,
 )
 async def generate_interview_prep_endpoint(
-    resume_id: str, workspace_id: WorkspaceId
+    resume_id: str,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> GenerateInterviewPrepResponse:
     """Generate interview preparation on-demand for an existing tailored resume."""
     resume = await db.get_resume(resume_id, workspace_id=workspace_id)
@@ -2623,6 +2674,7 @@ async def generate_interview_prep_endpoint(
         interview_prep = await generate_interview_prep(
             resume_data,
             job["content"],
+            output_language=output_language,
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -2696,6 +2748,7 @@ async def download_cover_letter_pdf(
     resume_id: str,
     workspace_id: WorkspaceId,
     tenant: ActiveTenantDep,
+    content_language: ContentLanguage,
     pageSize: str = Query("A4", pattern="^(A4|LETTER)$"),
 ) -> Response:
     """Generate a PDF for a cover letter using headless Chromium.
@@ -2715,7 +2768,10 @@ async def download_cover_letter_pdf(
         )
 
     # Build print URL (same pattern as resume PDF)
-    url = f"{settings.frontend_base_url}/print/cover-letter/{resume_id}?pageSize={pageSize}"
+    url = (
+        f"{settings.frontend_base_url}/print/cover-letter/{resume_id}"
+        f"?pageSize={pageSize}&lang={content_language}"
+    )
 
     render_headers = _render_identity_headers(tenant, workspace_id)
 

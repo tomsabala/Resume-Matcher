@@ -452,3 +452,24 @@ async def test_the_chromium_route_refuses_a_latex_template(
 
     assert response.status_code == 400
     assert "/tex/pdf" in response.json()["detail"]
+
+
+async def test_a_hebrew_workspace_cannot_compile_a_latex_template(
+    isolated_db: Any, sample_resume: dict[str, Any]
+) -> None:
+    """The preamble is Latin-only. Refusing by name beats an engine error that
+    names a missing font, and it does not depend on an engine being installed."""
+    resume_id = await _seed(isolated_db, sample_resume)
+    workspace_id = await isolated_db.default_workspace_id()
+    await isolated_db.update_workspace(workspace_id, {"content_language": "he"})
+
+    async with _client() as client:
+        response = await client.get(f"/api/v1/resumes/{resume_id}/tex/pdf")
+
+    assert response.status_code == 400
+    assert "Use an HTML template" in response.json()["detail"]
+
+    # The .tex source stays available — it is still useful to download.
+    async with _client() as client:
+        source = await client.get(f"/api/v1/resumes/{resume_id}/tex")
+    assert source.status_code == 200

@@ -225,7 +225,9 @@ class TestGenerateInterviewPrep:
         assert data["interview_prep"]["role_fit_analysis"] == SAMPLE_INTERVIEW_PREP[
             "role_fit_analysis"
         ]
-        mock_generate.assert_awaited_once_with(sample_resume, "Need FastAPI")
+        mock_generate.assert_awaited_once_with(
+            sample_resume, "Need FastAPI", output_language="English"
+        )
         update_payload = mock_db.update_resume.await_args.args[1]
         saved_payload = json.loads(update_payload["interview_prep"])
         assert saved_payload == SAMPLE_INTERVIEW_PREP

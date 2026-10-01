@@ -16,7 +16,10 @@ const setHasMasterResume = vi.fn();
 const translate = (key: string, params?: Record<string, string | number>) =>
   params ? `${key}:${Object.values(params).join(',')}` : key;
 
-vi.mock('@/lib/context/workspace-context', () => ({ useWorkspace: () => ({ revision: 0 }) }));
+vi.mock('@/lib/context/workspace-context', () => ({
+  useWorkspace: () => ({ revision: 0 }),
+  useContentLanguage: () => 'en',
+}));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   useParams: () => ({ id: route.resumeId }),

@@ -114,6 +114,8 @@ async def refine_resume(
     job_description: str,
     job_keywords: dict[str, Any],
     config: RefinementConfig | None = None,
+    *,
+    output_language: str,
 ) -> RefinementResult:
     """Multi-pass refinement of an initially tailored resume.
 
@@ -123,6 +125,7 @@ async def refine_resume(
         job_description: Raw job description text
         job_keywords: Extracted job keywords
         config: Refinement configuration
+        output_language: Language name the refined values are written in
 
     Returns:
         RefinementResult with refined data and analysis
@@ -155,6 +158,7 @@ async def refine_resume(
                     keyword_analysis.injectable_keywords,
                     master_resume,
                     job_description,
+                    output_language=output_language,
                 )
                 current = finalize_ai_resume(initial_tailored, candidate)
                 if current != before:
@@ -174,7 +178,9 @@ async def refine_resume(
     if config.enable_ai_phrase_removal:
         attempts += 1
         before = _deep_copy(current)
-        current, removed = remove_ai_phrases(current, job_description)
+        current, removed = remove_ai_phrases(
+            current, job_description, output_language=output_language
+        )
         ai_phrases_found.extend(removed)
         if current != before:
             logger.info("Removed %d AI phrases: %s", len(removed), removed)
@@ -301,6 +307,8 @@ def analyze_keyword_gaps(
 def remove_ai_phrases(
     data: dict[str, Any],
     job_description: str = "",
+    *,
+    output_language: str,
 ) -> tuple[dict[str, Any], list[str]]:
     """Remove AI-generated phrases from resume content.
 
@@ -311,6 +319,8 @@ def remove_ai_phrases(
     Args:
         data: Resume data dictionary
         job_description: Job description text; phrases found here are skipped
+        output_language: Language name the content is written in; the pass is
+            skipped outright for anything but English
 
     Returns:
         Tuple of (cleaned data, list of removed phrases)
@@ -329,6 +339,12 @@ def remove_ai_phrases(
     removed: set[str] = set()
 
     def clean_text(text: str) -> str:
+        # The blacklist and its punctuation rules are English-resume register.
+        # For any other content language they would mangle text they cannot
+        # judge — and the em-dash rows would disturb bidi run boundaries — so
+        # the pass is skipped outright rather than half-applied.
+        if output_language != "English":
+            return text
         cleaned = text
         for phrase in AI_PHRASE_BLACKLIST:
             # Skip phrases that appear in the job description
@@ -503,6 +519,8 @@ async def inject_keywords(
     keywords_to_inject: list[str],
     master: dict[str, Any],
     job_description: str,
+    *,
+    output_language: str,
 ) -> dict[str, Any]:
     """Use LLM to inject missing keywords into appropriate sections.
 
@@ -511,6 +529,7 @@ async def inject_keywords(
         keywords_to_inject: Keywords that are in master but missing from tailored
         master: Master resume (source of truth)
         job_description: Job description for context
+        output_language: Language name the rewritten values are written in
 
     Returns:
         Updated resume data with keywords injected
@@ -533,6 +552,7 @@ async def inject_keywords(
         master_resume=json.dumps(master),
         job_description=truncated_jd,
         document_schema=describe_document_schema(document),
+        output_language=output_language,
     )
 
     populated = {
@@ -557,6 +577,7 @@ async def inject_keywords(
             system_prompt=(
                 "You are a resume editor. Inject keywords naturally without adding "
                 "fabricated content. Return only valid JSON matching the input schema."
+                f" Write all output in {output_language}."
             ),
             max_tokens=8192,
             response_validator=validate_writer_result,

@@ -21,7 +21,6 @@ from pydantic import (
 from app.llm import _scrub_secrets, complete_json
 from app.prompts.resume_wizard import RESUME_WIZARD_TURN_PROMPT
 from app.prompts.schema import describe_document_schema
-from app.prompts.templates import OUTPUT_LANGUAGE
 from app.schemas.document import (
     Bullet,
     Contact,
@@ -647,6 +646,7 @@ async def run_ai_turn(
     answer_text: str,
     *,
     skip: bool,
+    output_language: str,
 ) -> ResumeWizardState:
     """Run one adaptive AI turn (answer or skip) and validate the result."""
     section = state.current_question.section
@@ -661,7 +661,7 @@ async def run_ai_turn(
         else _scrub_secrets(_sanitize_user_input(answer_text))
     )
     prompt = RESUME_WIZARD_TURN_PROMPT.format(
-        output_language=OUTPUT_LANGUAGE,
+        output_language=output_language,
         current_target=_describe_target(document, section),
         document_schema=describe_document_schema(document),
         section_tokens=_section_tokens(document),

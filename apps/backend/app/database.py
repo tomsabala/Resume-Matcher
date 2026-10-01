@@ -71,9 +71,14 @@ ProcessingFinishOutcome = Literal["committed", "stale", "missing"]
 
 
 def slugify_workspace_name(name: str) -> str:
-    """Lowercase ASCII slug for a workspace name; empty input yields ``workspace``."""
+    """Lowercase ASCII slug for a workspace name.
+
+    A name with no ASCII alphanumerics — any Hebrew one — would collapse to the
+    shared literal ``workspace`` and contend for the same per-tenant unique
+    slot, so it gets an opaque one instead.
+    """
     slug = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
-    return slug or "workspace"
+    return slug or f"workspace-{uuid4().hex[:6]}"
 
 
 def _unique_slug(base: str, taken: set[str]) -> str:
@@ -344,6 +349,7 @@ class Database:
             "workspace_id": row.workspace_id,
             "name": row.name,
             "slug": row.slug,
+            "content_language": row.content_language,
             "is_default": row.is_default,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
@@ -523,6 +529,8 @@ class Database:
                 row.is_default = True
             if "name" in updates and updates["name"]:
                 row.name = updates["name"]
+            if "content_language" in updates and updates["content_language"]:
+                row.content_language = updates["content_language"]
             row.updated_at = _now()
             await session.commit()
             self._default_workspace_cache = None

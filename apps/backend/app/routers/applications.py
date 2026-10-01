@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from app.database import DatabaseBusyError, ResumeNotFoundError, db
-from app.deps import WorkspaceId
+from app.deps import OutputLanguage, WorkspaceId
 from app.services.improver import extract_job_keywords
 from app.schemas import (
     APPLICATION_STATUS_ORDER,
@@ -57,7 +57,9 @@ async def list_applications(workspace_id: WorkspaceId) -> ApplicationListRespons
 
 @router.post("", response_model=ApplicationResponse)
 async def create_application(
-    request: ManualApplicationCreate, workspace_id: WorkspaceId
+    request: ManualApplicationCreate,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> ApplicationResponse:
     """Manually add a card from a pasted job description.
 
@@ -67,7 +69,9 @@ async def create_application(
     company = request.company
     role = request.role
     if not company or not role:
-        extracted = await _extract_company_role(request.job_description)
+        extracted = await _extract_company_role(
+            request.job_description, output_language=output_language
+        )
         company = company or extracted.get("company")
         role = role or extracted.get("role")
 
@@ -195,7 +199,9 @@ async def bulk_delete_applications(
     return ApplicationActionResponse(message=f"Deleted {deleted} application(s)", affected=deleted)
 
 
-async def _extract_company_role(job_description: str) -> dict[str, str | None]:
+async def _extract_company_role(
+    job_description: str, *, output_language: str
+) -> dict[str, str | None]:
     """Best-effort company/role extraction for the manual-add path.
 
     Reuses the cached keyword-extraction pass; falls back to blank (editable)
@@ -203,7 +209,9 @@ async def _extract_company_role(job_description: str) -> dict[str, str | None]:
     guaranteed to be a string, so values are type-guarded before ``.strip()``.
     """
     try:
-        keywords = await extract_job_keywords(job_description)
+        keywords = await extract_job_keywords(
+            job_description, output_language=output_language
+        )
         raw_company = keywords.get("company")
         raw_role = keywords.get("role")
         return {

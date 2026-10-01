@@ -22,7 +22,11 @@ export const SectionBlock: React.FC<SectionBlockProps> = ({ section, headingClas
 
   return (
     <div className={baseStyles['resume-section']}>
-      {heading && <h3 className={headingClassName}>{heading}</h3>}
+      {heading && (
+        <h3 className={headingClassName} dir="auto">
+          {heading}
+        </h3>
+      )}
       <Renderer section={section} />
     </div>
   );

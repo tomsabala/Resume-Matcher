@@ -29,7 +29,11 @@ function uniqueKey(doc: ResumeDocument, heading: string): string {
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '') || 'section';
+      .replace(/^_+|_+$/g, '') ||
+    // A heading with no ASCII alphanumerics (any Hebrew one) would collapse to
+    // the shared literal 'section'; keys address AI change paths, so give it an
+    // opaque identity instead.
+    `section_${crypto.randomUUID().replace(/-/g, '').slice(0, 6)}`;
   const taken = new Set(doc.sections.map((section) => section.key));
   if (!taken.has(base)) return base;
 

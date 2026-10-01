@@ -59,6 +59,7 @@ async def test_generate_uses_its_own_schema_type_and_token_budget():
             resume_data=SAMPLE_RESUME,
             job_description=None,
             count=8,
+            output_language="English",
         )
 
     assert [p.question for p in result] == ["What is WAL?"]
@@ -85,6 +86,7 @@ async def test_generate_forces_the_requested_category_over_the_models_echo():
             resume_data=SAMPLE_RESUME,
             job_description=None,
             count=8,
+            output_language="English",
         )
 
     assert [p.category.value for p in result] == ["personal", "personal"]
@@ -99,6 +101,7 @@ async def test_generate_truncates_to_the_requested_count():
             resume_data=SAMPLE_RESUME,
             job_description=None,
             count=3,
+            output_language="English",
         )
 
     assert len(result) == 3
@@ -113,6 +116,7 @@ async def test_generate_says_so_when_there_is_no_job_description():
             resume_data=SAMPLE_RESUME,
             job_description=None,
             count=4,
+            output_language="English",
         )
 
     prompt = mock_complete.await_args.kwargs["prompt"]
@@ -132,11 +136,12 @@ async def test_generate_bounds_oversized_prompt_inputs():
             resume_data=large_resume,
             job_description="Need FastAPI. " + ("Detailed requirement. " * 1500),
             count=4,
+            output_language="English",
         )
 
     prompt = mock_complete.await_args.kwargs["prompt"]
     assert len(prompt) < 50_000
-    assert "Content truncated for prompt length" in prompt
+    assert "content truncated for prompt length" in prompt
     assert "do not infer or invent omitted details" in prompt
 
 
@@ -149,6 +154,7 @@ async def test_generate_rejects_malformed_llm_json():
                 resume_data=SAMPLE_RESUME,
                 job_description=None,
                 count=4,
+                output_language="English",
             )
 
 
@@ -163,6 +169,7 @@ async def test_answer_uses_its_own_schema_type_and_token_budget():
             question="What is WAL?",
             resume_data=SAMPLE_RESUME,
             job_description="Need SQLite",
+            output_language="English",
         )
 
     assert result.answer == "A log."
@@ -184,6 +191,7 @@ async def test_answer_rejects_malformed_llm_json():
                 question="What is WAL?",
                 resume_data=SAMPLE_RESUME,
                 job_description=None,
+                output_language="English",
             )
 
 
@@ -203,6 +211,7 @@ async def test_critique_uses_its_own_schema_type_and_token_budget():
             my_answer="Because I like the product.",
             model_answer=None,
             resume_data=SAMPLE_RESUME,
+            output_language="English",
         )
 
     assert result.score == 4
@@ -225,6 +234,7 @@ async def test_critique_rejects_an_out_of_range_score():
                 my_answer="Because.",
                 model_answer=None,
                 resume_data=SAMPLE_RESUME,
+                output_language="English",
             )
 
 
@@ -237,5 +247,31 @@ async def test_oversized_job_description_is_refused_before_the_provider_call():
                 resume_data=SAMPLE_RESUME,
                 job_description="x" * 100_001,
                 count=4,
+                output_language="English",
             )
     mock_complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["Hebrew", "English"])
+async def test_generation_language_reaches_both_the_prompt_and_the_system_prompt(
+    language: str,
+) -> None:
+    """The workspace's content language must reach the model, not just the API."""
+    with _patched_complete_json({"proposals": []}) as mock_complete, (
+        _patched_llm_token_helpers()
+    ):
+        await generate_prep_cards(
+            category="technical",
+            resume_data=SAMPLE_RESUME,
+            job_description=None,
+            count=3,
+            output_language=language,
+        )
+
+    kwargs = mock_complete.await_args.kwargs
+    assert f"Write in {language}." in kwargs["prompt"]
+    assert f"Write all output in {language}." in kwargs["system_prompt"]
+    if language != "Hebrew":
+        assert "Hebrew" not in kwargs["prompt"]
+        assert "Hebrew" not in kwargs["system_prompt"]

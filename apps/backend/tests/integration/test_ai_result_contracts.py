@@ -394,7 +394,9 @@ async def test_keyword_service_rejects_wrong_task_schema(
     )
 
     with pytest.raises(ValueError, match="keyword|requires"):
-        await improver.extract_job_keywords("Python engineer")
+        await improver.extract_job_keywords(
+            "Python engineer", output_language="English"
+        )
 
 
 async def test_keyword_service_accepts_explicit_empty_lists(
@@ -403,7 +405,10 @@ async def test_keyword_service_accepts_explicit_empty_lists(
     empty = {"required_skills": [], "preferred_skills": [], "keywords": []}
     monkeypatch.setattr(improver, "complete_json", AsyncMock(return_value=empty))
 
-    assert await improver.extract_job_keywords("General role") == empty
+    assert (
+        await improver.extract_job_keywords("General role", output_language="English")
+        == empty
+    )
 
 
 @pytest.mark.parametrize(
@@ -428,7 +433,7 @@ async def test_keyword_service_rejects_malformed_optional_list_fields(
     monkeypatch.setattr(improver, "complete_json", AsyncMock(return_value=result))
 
     with pytest.raises(ValueError, match=field):
-        await improver.extract_job_keywords("General role")
+        await improver.extract_job_keywords("General role", output_language="English")
 
 
 _SKILLESS_RESUME: dict[str, Any] = {
@@ -464,6 +469,7 @@ async def test_skill_plan_service_rejects_wrong_task_schema(
             _SKILLESS_RESUME,
             "Python engineer",
             {"required_skills": [], "preferred_skills": [], "keywords": []},
+            output_language="English",
         )
 
 
@@ -473,11 +479,15 @@ async def test_skill_plan_service_accepts_explicit_empty_plan(
     empty = {"target_skills": [], "strategy_notes": "No grounded additions"}
     monkeypatch.setattr(improver, "complete_json", AsyncMock(return_value=empty))
 
-    assert await improver.generate_skill_target_plan(
-        _SKILLESS_RESUME,
-        "General role",
-        {"required_skills": [], "preferred_skills": [], "keywords": []},
-    ) == empty
+    assert (
+        await improver.generate_skill_target_plan(
+            _SKILLESS_RESUME,
+            "General role",
+            {"required_skills": [], "preferred_skills": [], "keywords": []},
+            output_language="English",
+        )
+        == empty
+    )
 
 
 @pytest.mark.parametrize("provider_result", [{}, {"changes": "none"}])
@@ -496,6 +506,7 @@ async def test_diff_service_rejects_wrong_task_schema(
             "# Resume",
             "General role",
             {"required_skills": [], "preferred_skills": [], "keywords": []},
+            output_language="English",
         )
 
 
@@ -512,6 +523,7 @@ async def test_diff_service_accepts_explicit_zero_diff_result(
         "# Resume",
         "General role",
         {"required_skills": [], "preferred_skills": [], "keywords": []},
+        output_language="English",
     )
     assert result.changes == []
     assert result.strategy_notes == "No changes"
@@ -551,7 +563,7 @@ async def test_optional_generators_bound_job_description_before_provider(
     monkeypatch.setattr(cover_letter, "complete", completion)
 
     with pytest.raises(ValueError, match="100000"):
-        await service(*args, "J" * 100_001)
+        await service(*args, "J" * 100_001, output_language="English")
 
     completion.assert_not_awaited()
 
@@ -565,12 +577,20 @@ async def test_optional_generators_accept_valid_text_within_limit(
     monkeypatch.setattr(cover_letter, "complete", completion)
     monkeypatch.setattr(cover_letter, "load_config_file", lambda: {})
 
-    assert await cover_letter.generate_cover_letter({}, "Short JD") == "Cover letter"
     assert (
-        await cover_letter.generate_outreach_message({}, "Short JD")
+        await cover_letter.generate_cover_letter({}, "Short JD", output_language="English")
+        == "Cover letter"
+    )
+    assert (
+        await cover_letter.generate_outreach_message(
+            {}, "Short JD", output_language="English"
+        )
         == "Outreach note"
     )
-    assert await cover_letter.generate_resume_title("J" * 100_000) == "Engineer @ Acme"
+    assert (
+        await cover_letter.generate_resume_title("J" * 100_000, output_language="English")
+        == "Engineer @ Acme"
+    )
     assert completion.await_count == 3
 
 

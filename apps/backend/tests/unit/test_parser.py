@@ -19,6 +19,7 @@ import pytest
 from app.services.parser import (
     DocumentValidationError,
     _extract_markdown_dates,
+    _looks_reversed,
     _extract_tex_source,
     has_meaningful_resume_content,
     parse_resume_to_json,
@@ -331,3 +332,19 @@ class TestExtractTexSource:
     def test_binary_bytes_renamed_tex_are_rejected(self):
         with pytest.raises(DocumentValidationError, match="PDF, DOC, DOCX, or TEX"):
             _extract_tex_source(b"%PDF-1.4\n\x80\xff binary")
+
+
+class TestVisualOrderDetection:
+    """pdfminer has no bidi layer, so Hebrew PDFs usually extract reversed."""
+
+    def test_reversed_hebrew_is_detected(self):
+        # Each word carries its final-form letter at the front — impossible in
+        # logical order.
+        assert _looks_reversed("םולש םלועה םיכרד תוברה םיאשונ ךרעמ ןוגרא")
+
+    def test_correctly_ordered_hebrew_is_not_flagged(self):
+        assert not _looks_reversed("שלום העולם דרכים הרבות נושאים מערך ארגון")
+
+    def test_a_latin_resume_with_a_couple_of_hebrew_words_is_not_flagged(self):
+        """Below the sample floor the start/end comparison is noise."""
+        assert not _looks_reversed("Senior Engineer at Acme. םולש ךרעמ")

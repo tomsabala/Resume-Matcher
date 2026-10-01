@@ -18,8 +18,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
-  padding-right: 0.875rem;
-  border-right: 1px solid var(--resume-border-tertiary);
+  padding-inline-end: 0.875rem;
+  border-inline-end: 1px solid var(--resume-border-tertiary);
   min-width: 0;
   /* Prevent content overflow into sidebar */
   overflow: hidden;
@@ -31,7 +31,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
-  padding-left: 0.75rem;
+  padding-inline-start: 0.75rem;
   /* Prevent sidebar content from overflowing */
   overflow: hidden;
   /* Ensure minimum width for dates */
@@ -59,12 +59,12 @@
   }
 
   :global(.resume-print) .mainColumn {
-    padding-right: 0;
-    border-right: none;
+    padding-inline-end: 0;
+    border-inline-end: none;
   }
 
   :global(.resume-print) .sidebarColumn {
-    padding-left: 0;
+    padding-inline-start: 0;
     border-top: 1px solid var(--resume-border-tertiary);
     padding-top: var(--section-gap);
   }

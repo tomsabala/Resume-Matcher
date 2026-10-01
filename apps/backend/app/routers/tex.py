@@ -14,7 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.database import DatabaseBusyError, db
-from app.deps import WorkspaceId
+from app.deps import ContentLanguage, WorkspaceId
 from app.latex.compile import (
     LatexCompileError,
     LatexUnavailableError,
@@ -250,10 +250,26 @@ async def download_resume_tex(
 async def download_resume_tex_pdf(
     resume_id: str,
     workspace_id: WorkspaceId,
+    content_language: ContentLanguage,
     template: str = Query("tex-classic"),
     tex_settings: dict[str, object] = Depends(tex_format_settings),
 ) -> Response:
-    """Compile the resume's LaTeX and return the PDF."""
+    """Compile the resume's LaTeX and return the PDF.
+
+    Refused outright for a non-English workspace: ``latex/escape.py`` passes
+    non-Latin text through verbatim and the engine then rejects it with a
+    preamble error that names nothing useful. The ``.tex`` *source* endpoints
+    stay open — downloading source this deployment cannot compile is still
+    useful.
+    """
+    if content_language != "en":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "LaTeX templates compile under a Latin-only preamble and cannot "
+                "render this workspace's content language. Use an HTML template."
+            ),
+        )
     resume = await _load(resume_id, workspace_id)
     source, _ = _source_for(resume, template, tex_settings)
     try:

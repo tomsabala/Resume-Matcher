@@ -45,6 +45,12 @@ interface ResumeProps {
   translate?: (key: string) => string;
   /** Placeholder for an empty `header.name`, already localized by the caller. */
   fallbackName?: string;
+  /**
+   * Direction of the document's own content. The app chrome stays LTR; this
+   * flips only the resume surface, and cascades to every template's output
+   * including inside `@media print`.
+   */
+  dir?: 'ltr' | 'rtl';
 }
 
 /**
@@ -60,6 +66,7 @@ const Resume: React.FC<ResumeProps> = ({
   settings,
   translate,
   fallbackName,
+  dir = 'ltr',
 }) => {
   const mergedSettings: TemplateSettings = {
     ...DEFAULT_TEMPLATE_SETTINGS,
@@ -81,6 +88,7 @@ const Resume: React.FC<ResumeProps> = ({
     <div
       className={`${baseStyles['resume-body']} bg-white text-black w-full mx-auto resume-template-${mergedSettings.template}`}
       style={cssVars}
+      dir={dir}
     >
       <Template
         doc={translate ? localizeHeadings(doc, translate) : doc}

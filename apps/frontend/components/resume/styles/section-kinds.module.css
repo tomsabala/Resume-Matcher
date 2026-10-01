@@ -43,7 +43,7 @@
 
 .bulletRow {
   display: flex;
-  margin-left: 1rem;
+  margin-inline-start: 1rem;
 }
 
 .plainRow {
@@ -51,7 +51,7 @@
 }
 
 .marker {
-  margin-right: 0.375rem;
+  margin-inline-end: 0.375rem;
   flex-shrink: 0;
   color: var(--resume-bullet-color, inherit);
   font-weight: var(--resume-bullet-weight, inherit);

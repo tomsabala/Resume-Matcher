@@ -149,6 +149,7 @@ class TestPromptsNameTheRealTargets:
             current_resume="{}",
             master_resume="{}",
             job_description="A job",
+            output_language="English",
         )
         assert 'key "military_service"' in prompt
         assert "EVERY section" in prompt

@@ -21,8 +21,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
-  padding-right: 0.875rem;
-  border-right: 2px solid var(--resume-accent-primary);
+  padding-inline-end: 0.875rem;
+  border-inline-end: 2px solid var(--resume-accent-primary);
   min-width: 0;
   /* Prevent content overflow into sidebar */
   overflow: hidden;
@@ -34,7 +34,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
-  padding-left: 0.75rem;
+  padding-inline-start: 0.75rem;
   /* Prevent sidebar content from overflowing */
   overflow: hidden;
   /* Ensure minimum width for dates */
@@ -74,7 +74,7 @@
   content: '';
   position: absolute;
   bottom: 0;
-  left: 0;
+  inset-inline-start: 0;
   width: 100%;
   height: 3px;
   background: linear-gradient(
@@ -95,7 +95,7 @@
   }
 
   .mainColumn {
-    border-right-color: var(--resume-accent-primary);
+    border-inline-end-color: var(--resume-accent-primary);
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -112,6 +112,18 @@
   }
 }
 
+/* Gradients take no logical direction keyword, so the RTL run is spelled out.
+   `dir` lives on `.resume-body` (components/dashboard/resume-component.tsx),
+   and the print block above inherits this one's direction too. */
+:global([dir='rtl']) .nameAccent::after {
+  background: linear-gradient(
+    to left,
+    var(--resume-accent-primary) 0%,
+    var(--resume-accent-primary) 60%,
+    transparent 100%
+  );
+}
+
 /* Screen-only: below 640px the 65:35 split leaves ~22 characters per line, so the
    sidebar drops under the main column and the accent rule rotates with it.
    Print and PDF render at page width, where this block never applies.
@@ -124,12 +136,12 @@
   }
 
   :global(.resume-print) .mainColumn {
-    padding-right: 0;
-    border-right: none;
+    padding-inline-end: 0;
+    border-inline-end: none;
   }
 
   :global(.resume-print) .sidebarColumn {
-    padding-left: 0;
+    padding-inline-start: 0;
     border-top: 2px solid var(--resume-accent-primary);
     padding-top: var(--section-gap);
   }

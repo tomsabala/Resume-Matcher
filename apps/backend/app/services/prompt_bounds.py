@@ -11,10 +11,22 @@ from typing import Any
 
 JOB_DESCRIPTION_PROMPT_CHAR_LIMIT = 12_000
 RESUME_DATA_PROMPT_CHAR_LIMIT = 30_000
+# Both notices are injected *inside* the serialized resume the model is told to
+# ground on, so a generated card can echo them verbatim. They stay English —
+# they are machine metadata, not content — and the ``[system`` prefix is what
+# says so, in whatever language the output is written in.
 TRUNCATION_NOTICE = (
-    "[Content truncated for prompt length. Use only the visible evidence; "
-    "do not infer or invent omitted details.]"
+    "[system: content truncated for prompt length. Use only the visible "
+    "evidence; do not infer or invent omitted details.]"
 )
+
+
+def interview_coach_system_prompt(output_language: str) -> str:
+    """System prompt shared by the interview-prep and prep-card services."""
+    return (
+        "You are a career interview coach. Output truthful, resume-grounded "
+        f"interview preparation as JSON only. Write all output in {output_language}."
+    )
 
 
 def truncate_text_for_prompt(value: str, max_chars: int) -> str:
@@ -45,8 +57,8 @@ def truncate_json_value(
             truncated.append(
                 {
                     "_prompt_truncation_notice": (
-                        f"{len(value) - max_list_items} additional items omitted. "
-                        "Do not infer omitted details."
+                        f"[system: {len(value) - max_list_items} additional items "
+                        "omitted. Do not infer omitted details.]"
                     )
                 }
             )

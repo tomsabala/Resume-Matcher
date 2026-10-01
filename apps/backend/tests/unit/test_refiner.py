@@ -125,6 +125,7 @@ async def test_refinement_stats_count_retained_cjk_keyword(
             enable_ai_phrase_removal=False,
             enable_master_alignment_check=False,
         ),
+        output_language="English",
     )
 
     assert result.keywords_applied == ["数据"]
@@ -156,6 +157,7 @@ async def test_refinement_stats_count_latin_keyword_adjacent_to_cjk(
             enable_ai_phrase_removal=False,
             enable_master_alignment_check=False,
         ),
+        output_language="English",
     )
 
     assert result.keywords_applied == ["Java"]
@@ -177,14 +179,14 @@ class TestRemoveAiPhrases:
     def test_removes_blacklisted_verbs(self, sample_resume):
         data = copy.deepcopy(sample_resume)
         _bullets(data)[0]["text"] = "Spearheaded REST API development"
-        cleaned, removed = remove_ai_phrases(data)
+        cleaned, removed = remove_ai_phrases(data, output_language="English")
         assert "spearheaded" in [r.lower() for r in removed]
         assert "spearheaded" not in _bullets(cleaned)[0]["text"].lower()
 
     def test_removes_buzzwords(self, sample_resume):
         data = copy.deepcopy(sample_resume)
         _set_text(data, "Leveraged cutting-edge technologies to build robust solutions")
-        cleaned, removed = remove_ai_phrases(data)
+        cleaned, removed = remove_ai_phrases(data, output_language="English")
         removed_lower = [r.lower() for r in removed]
         assert "leveraged" in removed_lower
         assert "cutting-edge" in removed_lower
@@ -193,21 +195,23 @@ class TestRemoveAiPhrases:
         data = copy.deepcopy(sample_resume)
         _set_text(data, "Built robust microservices")
         # "robust" is in the blacklist, but if it's in JD, it should be protected
-        cleaned, removed = remove_ai_phrases(data, job_description="We need robust solutions")
+        cleaned, removed = remove_ai_phrases(
+            data, job_description="We need robust solutions", output_language="English"
+        )
         assert "robust" not in [r.lower() for r in removed]
         assert "robust" in _text(cleaned).lower()
 
     def test_replaces_with_alternatives(self, sample_resume):
         data = copy.deepcopy(sample_resume)
         _bullets(data)[0]["text"] = "Utilized Python for API development"
-        cleaned, removed = remove_ai_phrases(data)
+        cleaned, removed = remove_ai_phrases(data, output_language="English")
         # "utilized" → "used"
         assert "used" in _bullets(cleaned)[0]["text"].lower()
 
     def test_removes_em_dashes(self, sample_resume):
         data = copy.deepcopy(sample_resume)
         _set_text(data, "Built APIs \u2014 serving thousands of users")
-        cleaned, removed = remove_ai_phrases(data)
+        cleaned, removed = remove_ai_phrases(data, output_language="English")
         assert "\u2014" not in _text(cleaned)
 
     def test_no_removal_when_already_clean(self):
@@ -215,21 +219,21 @@ class TestRemoveAiPhrases:
         clean_data = _document(
             "Built APIs with Python.", [("Wrote code and shipped features", "bullet")]
         )
-        cleaned, removed = remove_ai_phrases(clean_data)
+        cleaned, removed = remove_ai_phrases(clean_data, output_language="English")
         assert removed == []
         assert cleaned == clean_data
 
     def test_preserves_bullet_styles(self):
         """Cleaning text must not disturb the per-bullet style flags."""
         data = _document("", [("Spearheaded the rollout", "plain"), ("Shipped it", "bullet")])
-        cleaned, _removed = remove_ai_phrases(data)
+        cleaned, _removed = remove_ai_phrases(data, output_language="English")
         assert _styles(cleaned) == ["plain", "bullet"]
 
     def test_does_not_mutate_input(self, sample_resume):
         data = copy.deepcopy(sample_resume)
         _set_text(data, "Spearheaded development")
         data_before = copy.deepcopy(data)
-        remove_ai_phrases(data)
+        remove_ai_phrases(data, output_language="English")
         # The input dict should not be mutated by remove_ai_phrases
         assert data == data_before
 
@@ -287,6 +291,7 @@ class TestValidateMasterAlignment:
                 enable_ai_phrase_removal=False,
                 enable_master_alignment_check=True,
             ),
+            output_language="English",
         )
         assert "CI/CD" not in _values(result.refined_data)
 
@@ -311,6 +316,7 @@ class TestValidateMasterAlignment:
                 enable_ai_phrase_removal=False,
                 enable_master_alignment_check=True,
             ),
+            output_language="English",
         )
         assert "Kubernetes" in _values(result.refined_data)
 
@@ -344,6 +350,7 @@ class TestValidateMasterAlignment:
                 enable_ai_phrase_removal=False,
                 enable_master_alignment_check=True,
             ),
+            output_language="English",
         )
         assert skill in _values(result.refined_data)
 

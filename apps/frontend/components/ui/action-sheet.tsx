@@ -36,7 +36,11 @@ export const ActionSheet: React.FC<ActionSheetProps> = ({
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="p-0 gap-0 sm:max-w-sm">
       <DialogHeader className="border-b border-black px-4 py-3 pr-14">
-        <DialogTitle className="truncate font-serif text-base font-bold">{title}</DialogTitle>
+        {/* `dir="auto"` so a Hebrew card question reads correctly inside the
+            LTR chrome and `truncate` clips its end. */}
+        <DialogTitle className="truncate font-serif text-base font-bold" dir="auto">
+          {title}
+        </DialogTitle>
         {description ? (
           <DialogDescription className="truncate font-mono text-xs uppercase tracking-wide">
             {description}

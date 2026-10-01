@@ -1,5 +1,12 @@
 import type { Metadata, Viewport } from 'next';
-import { Geist, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Space_Grotesk } from 'next/font/google';
+import {
+  Geist,
+  Noto_Sans_Hebrew,
+  Noto_Sans_JP,
+  Noto_Sans_KR,
+  Noto_Sans_SC,
+  Space_Grotesk,
+} from 'next/font/google';
 import './(default)/css/globals.css';
 
 const spaceGrotesk = Space_Grotesk({
@@ -50,6 +57,14 @@ const notoSansJP = Noto_Sans_JP({
   preload: false,
 });
 
+// Hebrew content face. Unlike the CJK faces above, Google exposes a `hebrew`
+// subset to next/font, so this one can preload normally.
+const notoSansHebrew = Noto_Sans_Hebrew({
+  variable: '--font-noto-sans-hebrew',
+  subsets: ['hebrew'],
+  display: 'swap',
+});
+
 export const metadata: Metadata = {
   title: 'Resume Matcher',
   description: 'Build your resume with Resume Matcher',
@@ -70,7 +85,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en-US" className="h-full" suppressHydrationWarning>
       <body
-        className={`${geist.variable} ${spaceGrotesk.variable} ${notoSansSC.variable} ${notoSansKR.variable} ${notoSansJP.variable} antialiased bg-background text-ink-soft min-h-full`}
+        className={`${geist.variable} ${spaceGrotesk.variable} ${notoSansHebrew.variable} ${notoSansSC.variable} ${notoSansKR.variable} ${notoSansJP.variable} antialiased bg-background text-ink-soft min-h-full`}
       >
         {children}
       </body>

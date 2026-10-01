@@ -68,6 +68,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 \
     # CJK fonts for Chinese/Japanese/Korean PDF rendering via Playwright
     fonts-noto-cjk \
+    # Hebrew fonts for Hebrew PDF rendering via Playwright. `fonts-noto-hebrew`
+    # is not a package on bookworm; `fonts-noto-core` is the one that ships
+    # NotoSansHebrew / NotoSerifHebrew.
+    fonts-noto-core \
     && rm -rf /var/lib/apt/lists/*
 
 # ============================================

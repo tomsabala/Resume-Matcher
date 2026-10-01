@@ -161,7 +161,7 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(return_value=values_item),
             ) as mock_regenerate_skills,
         ):
-            response = await enrichment_router.regenerate_items(request, WORKSPACE_ID)
+            response = await enrichment_router.regenerate_items(request, WORKSPACE_ID, "English")
 
         self.assertEqual(
             [item.item_id for item in response.regenerated_items],
@@ -216,7 +216,7 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(return_value=values_item),
             ),
         ):
-            response = await enrichment_router.regenerate_items(request, WORKSPACE_ID)
+            response = await enrichment_router.regenerate_items(request, WORKSPACE_ID, "English")
 
         self.assertEqual(
             [item.item_id for item in response.regenerated_items], ["skills:#group:0"]
@@ -261,7 +261,7 @@ class TestRegenerateEndpoints(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(return_value={"new_bullets": ["Rewritten bullet"]}),
             ),
         ):
-            regenerated = await enrichment_router.regenerate_items(request, WORKSPACE_ID)
+            regenerated = await enrichment_router.regenerate_items(request, WORKSPACE_ID, "English")
 
             # The user reorders the resume before accepting the proposal.
             reordered = copy.deepcopy(stored)

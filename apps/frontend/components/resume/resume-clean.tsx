@@ -28,8 +28,16 @@ export const ResumeClean: React.FC<ResumeTemplateProps> = ({
   return (
     <div className={styles.container}>
       <header className={`text-center ${baseStyles['resume-header']}`}>
-        {name && <h1 className={`${styles.name} mb-1`}>{name}</h1>}
-        {header.headline && <div className={`${styles.tagline} mb-1`}>{header.headline}</div>}
+        {name && (
+          <h1 className={`${styles.name} mb-1`} dir="auto">
+            {name}
+          </h1>
+        )}
+        {header.headline && (
+          <div className={`${styles.tagline} mb-1`} dir="auto">
+            {header.headline}
+          </div>
+        )}
         {header.contacts.length > 0 && (
           <div
             className={`flex flex-wrap justify-center items-center gap-x-2 gap-y-1 ${styles.contactRow}`}

@@ -31,6 +31,8 @@ import {
 import { TemplateThumbnail } from './template-selector';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { useTranslations } from '@/lib/i18n';
+import { useContentLanguage } from '@/lib/context/workspace-context';
+import { directionFor } from '@/lib/utils/content-direction';
 
 interface FormattingControlsProps {
   settings: TemplateSettings;
@@ -65,6 +67,10 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
   variant = 'card',
 }) => {
   const { t } = useTranslations();
+  // The LaTeX preamble is Latin-only, so a Hebrew workspace cannot compile one.
+  // The server refuses it too (routers/tex.py); this only stops the user
+  // picking a template that would 400.
+  const contentIsRtl = directionFor(useContentLanguage()) === 'rtl';
   // A LaTeX template is compiled by the engine, which reads page size,
   // margins, spacing, base font size, header scale and compact mode. Font
   // family, accent colour and contact icons are HTML-only, so those stay
@@ -201,7 +207,7 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
         </h4>
         <div className="flex flex-wrap gap-3">
           {TEMPLATE_OPTIONS.map((template) => {
-            const disabled = template.target === 'tex' && !texAvailable;
+            const disabled = template.target === 'tex' && (!texAvailable || contentIsRtl);
             return (
               <button
                 key={template.id}
@@ -212,7 +218,13 @@ export const FormattingControls: React.FC<FormattingControlsProps> = ({
                     ? 'border-blue-700 bg-white shadow-[2px_2px_0px_0px_#1D4ED8]'
                     : 'border-black bg-white hover:bg-paper-tint hover:shadow-sw-xs'
                 } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:shadow-none`}
-                title={disabled ? t('latex.noEngine') : templateLabels[template.id].description}
+                title={
+                  disabled
+                    ? !texAvailable
+                      ? t('latex.noEngine')
+                      : t('latex.rtlUnsupported')
+                    : templateLabels[template.id].description
+                }
               >
                 <div className="w-12 h-16 mb-1.5 flex items-center justify-center">
                   <TemplateThumbnail

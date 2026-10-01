@@ -12,6 +12,7 @@ export interface Workspace {
   workspace_id: string;
   name: string;
   slug: string;
+  content_language: string;
   is_default: boolean;
   created_at: string;
   updated_at: string;
@@ -23,6 +24,7 @@ export interface WorkspaceCreate {
 
 export interface WorkspaceUpdate {
   name?: string;
+  content_language?: string;
   is_default?: boolean;
 }
 

@@ -130,9 +130,9 @@ def _create_at_head(conn: Connection) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.exec_driver_sql(
         "INSERT INTO workspaces"
-        " (workspace_id, name, slug, is_default,"
+        " (workspace_id, name, slug, content_language, is_default,"
         "  tenant_ref, is_anonymous, last_seen_at, created_at, updated_at)"
-        " VALUES (?, 'Default', 'default', 1, '', 0, ?, ?, ?)",
+        " VALUES (?, 'Default', 'default', 'en', 1, '', 0, ?, ?, ?)",
         (uuid4().hex, now, now, now),
     )
 

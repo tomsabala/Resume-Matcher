@@ -186,10 +186,14 @@ const CJK_VARS = ['--font-noto-sans-sc', '--font-noto-sans-jp', '--font-noto-san
   .map((v) => `var(${v})`)
   .join(', ');
 
+// Hebrew sits ahead of the CJK faces: the scripts do not overlap, and a Hebrew
+// resume is a first-class content language rather than a stray non-Latin name.
+const HEBREW_VAR = 'var(--font-noto-sans-hebrew)';
+
 export const HEADER_FONT_MAP: Record<HeaderFontFamily, string> = {
-  serif: `ui-serif, Georgia, Cambria, "Times New Roman", ${CJK_VARS}, Times, serif`,
-  'sans-serif': `ui-sans-serif, system-ui, ${CJK_VARS}, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"`,
-  mono: `ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, ${CJK_VARS}, monospace`,
+  serif: `ui-serif, Georgia, Cambria, "Times New Roman", ${HEBREW_VAR}, ${CJK_VARS}, Times, serif`,
+  'sans-serif': `ui-sans-serif, system-ui, ${HEBREW_VAR}, ${CJK_VARS}, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"`,
+  mono: `ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, ${HEBREW_VAR}, ${CJK_VARS}, monospace`,
 };
 
 export const BODY_FONT_MAP: Record<BodyFontFamily, string> = HEADER_FONT_MAP;

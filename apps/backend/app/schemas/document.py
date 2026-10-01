@@ -48,8 +48,16 @@ def new_id() -> str:
 
 
 def slugify_key(value: str, *, taken: set[str] | None = None) -> str:
-    """Slug for a section key, unique within ``taken`` when supplied."""
-    base = _SLUG_RE.sub("_", value.strip().lower()).strip("_") or "section"
+    """Slug for a section key, unique within ``taken`` when supplied.
+
+    A heading with no ASCII alphanumerics — any Hebrew one — would collapse to
+    the shared literal ``section``, so it gets an opaque suffix instead. Keys
+    are machine identifiers: the model only ever sees the allowlist that
+    ``build_allowed_paths`` derives from them.
+    """
+    base = _SLUG_RE.sub("_", value.strip().lower()).strip("_")
+    if not base:
+        base = f"section_{uuid4().hex[:6]}"
     if taken is None or base not in taken:
         return base
     suffix = 2

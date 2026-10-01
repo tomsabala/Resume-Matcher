@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.ai_budget import AIOperationDeadlineExceeded, AIOperationRoute
 from app.ai_limits import MAX_JOB_CHARACTERS, PromptSizeError, require_source_size
 from app.database import DatabaseBusyError, db
-from app.deps import WorkspaceId
+from app.deps import OutputLanguage, WorkspaceId
 from app.schemas import (
     PrepCardActionResponse,
     PrepCardBulkCreate,
@@ -179,7 +179,9 @@ async def bulk_delete_prep_cards(
 
 @router.post("/generate", response_model=PrepCardGenerateResponse)
 async def generate_prep_card_proposals(
-    request: PrepCardGenerateRequest, workspace_id: WorkspaceId
+    request: PrepCardGenerateRequest,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> PrepCardGenerateResponse:
     """Propose questions from the master resume. Persists nothing."""
     resume_data = await _require_resume_data(workspace_id)
@@ -191,6 +193,7 @@ async def generate_prep_card_proposals(
             resume_data=resume_data,
             job_description=job_description,
             count=request.count,
+            output_language=output_language,
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -221,7 +224,9 @@ async def get_prep_card(card_id: str, workspace_id: WorkspaceId) -> PrepCardResp
 
 @router.post("/{card_id}/answer", response_model=PrepCardResponse)
 async def answer_prep_card_endpoint(
-    card_id: str, workspace_id: WorkspaceId
+    card_id: str,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> PrepCardResponse:
     """Author the back of one card and store it."""
     card = await db.get_prep_card(card_id, workspace_id=workspace_id)
@@ -237,6 +242,7 @@ async def answer_prep_card_endpoint(
             question=card["question"],
             resume_data=resume_data,
             job_description=job_description,
+            output_language=output_language,
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise
@@ -262,7 +268,10 @@ async def answer_prep_card_endpoint(
 
 @router.post("/{card_id}/critique", response_model=PrepCardResponse)
 async def critique_prep_card_endpoint(
-    card_id: str, request: PrepCardCritiqueRequest, workspace_id: WorkspaceId
+    card_id: str,
+    request: PrepCardCritiqueRequest,
+    workspace_id: WorkspaceId,
+    output_language: OutputLanguage,
 ) -> PrepCardResponse:
     """Store the owner's own answer and the LLM's critique of it."""
     card = await db.get_prep_card(card_id, workspace_id=workspace_id)
@@ -277,6 +286,7 @@ async def critique_prep_card_endpoint(
             my_answer=request.my_answer,
             model_answer=card["answer"],
             resume_data=resume_data,
+            output_language=output_language,
         )
     except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
         raise

@@ -373,6 +373,7 @@ async def test_real_refiner_final_writer_restores_partial_sections() -> None:
                 enable_ai_phrase_removal=False,
                 enable_master_alignment_check=True,
             ),
+            output_language="English",
         )
 
     assert _section(result.refined_data, "summary")["text"] == (
@@ -416,6 +417,7 @@ async def test_real_refiner_binds_styles_to_reordered_entry_identity() -> None:
                 enable_ai_phrase_removal=False,
                 enable_master_alignment_check=True,
             ),
+            output_language="English",
         )
 
     assert [entry["id"] for entry in _entries(result.refined_data)] == [
@@ -447,6 +449,7 @@ async def test_restored_unsafe_writer_attempt_is_not_counted_as_applied() -> Non
                 enable_ai_phrase_removal=False,
                 enable_master_alignment_check=False,
             ),
+            output_language="English",
         )
 
     assert writer.await_count == 1
@@ -843,6 +846,7 @@ async def test_refiner_rolls_back_malformed_writer_output() -> None:
                 enable_ai_phrase_removal=False,
                 enable_master_alignment_check=False,
             ),
+            output_language="English",
         )
 
     assert result.refined_data == source

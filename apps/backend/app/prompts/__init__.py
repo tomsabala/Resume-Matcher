@@ -1,7 +1,6 @@
 """LLM prompt templates."""
 
 from app.prompts.templates import (
-    CRITICAL_TRUTHFULNESS_RULES,
     DEFAULT_IMPROVE_PROMPT_ID,
     DIFF_IMPROVE_PROMPT,
     DIFF_STRATEGY_INSTRUCTIONS,
@@ -10,12 +9,14 @@ from app.prompts.templates import (
     IMPROVE_PROMPT_OPTIONS,
     IMPROVE_RESUME_PROMPTS,
     INTERVIEW_PREP_PROMPT,
-    OUTPUT_LANGUAGE,
+    LANGUAGE_NAMES,
     PARSE_RESUME_PROMPT,
     PREP_CARD_ANSWER_PROMPT,
     PREP_CARD_CRITIQUE_PROMPT,
     PREP_CARD_GENERATE_PROMPT,
     SKILL_TARGET_PLAN_PROMPT,
+    critical_truthfulness_rules,
+    get_language_name,
 )
 
 # Placeholders every user-supplied cover-letter / outreach prompt must contain.
@@ -48,7 +49,9 @@ __all__ = [
     "IMPROVE_RESUME_PROMPTS",
     "IMPROVE_PROMPT_OPTIONS",
     "DEFAULT_IMPROVE_PROMPT_ID",
-    "CRITICAL_TRUTHFULNESS_RULES",
+    "LANGUAGE_NAMES",
+    "critical_truthfulness_rules",
+    "get_language_name",
     "DIFF_IMPROVE_PROMPT",
     "DIFF_STRATEGY_INSTRUCTIONS",
     "SKILL_TARGET_PLAN_PROMPT",
@@ -59,5 +62,4 @@ __all__ = [
     "PREP_CARD_CRITIQUE_PROMPT",
     "REQUIRED_FEATURE_PROMPT_PLACEHOLDERS",
     "validate_prompt_placeholders",
-    "OUTPUT_LANGUAGE",
 ]

@@ -53,6 +53,9 @@ class Workspace(Base):
     workspace_id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String)
     slug: Mapped[str] = mapped_column(String)
+    content_language: Mapped[str] = mapped_column(
+        String, default="en", server_default="en"
+    )
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     tenant_ref: Mapped[str] = mapped_column(String, default="", server_default="")
     is_anonymous: Mapped[bool] = mapped_column(

@@ -36,7 +36,9 @@ const PREP: InterviewPrepData = {
 
 describe('proposalsFromInterviewPrep', () => {
   it('maps resume questions and project follow-ups to personal cards', () => {
-    const personal = proposalsFromInterviewPrep(PREP).filter((p) => p.category === 'personal');
+    const personal = proposalsFromInterviewPrep(PREP, 'en').filter(
+      (p) => p.category === 'personal'
+    );
     expect(personal.map((p) => p.question)).toEqual([
       'Tell me about the Acme migration.',
       'How did you test the parser?',
@@ -44,7 +46,9 @@ describe('proposalsFromInterviewPrep', () => {
   });
 
   it('builds a technical question from each skill gap', () => {
-    const technical = proposalsFromInterviewPrep(PREP).filter((p) => p.category === 'technical');
+    const technical = proposalsFromInterviewPrep(PREP, 'en').filter(
+      (p) => p.category === 'technical'
+    );
     expect(technical).toEqual([
       {
         category: 'technical',
@@ -54,18 +58,39 @@ describe('proposalsFromInterviewPrep', () => {
     ]);
   });
 
+  it('writes the skill-gap question in the workspace content language', () => {
+    // The question is persisted card data, not UI copy, so it follows the
+    // content language rather than the English-only message bundle.
+    const [technical] = proposalsFromInterviewPrep(PREP, 'he').filter(
+      (p) => p.category === 'technical'
+    );
+    expect(technical.question).toBe('Kubernetes: למה זה חשוב לתפקיד הזה, ואיך הייתם ניגשים לזה?');
+  });
+
+  it('falls back to English for an unknown content language', () => {
+    const [technical] = proposalsFromInterviewPrep(PREP, 'klingon').filter(
+      (p) => p.category === 'technical'
+    );
+    expect(technical.question).toBe(
+      'Kubernetes: why does it matter for this role, and how would you approach it?'
+    );
+  });
+
   it('carries the focus area and answer points into the explanation', () => {
-    const [first] = proposalsFromInterviewPrep(PREP);
+    const [first] = proposalsFromInterviewPrep(PREP, 'en');
     expect(first.explanation).toBe('Migration experience\n- Led the cutover\n- Zero downtime');
   });
 
   it('imports nothing from role fit analysis or talking points', () => {
-    const proposals = proposalsFromInterviewPrep({
-      ...PREP,
-      resume_questions: [],
-      project_follow_ups: [],
-      skill_gaps: [],
-    });
+    const proposals = proposalsFromInterviewPrep(
+      {
+        ...PREP,
+        resume_questions: [],
+        project_follow_ups: [],
+        skill_gaps: [],
+      },
+      'en'
+    );
     expect(proposals).toEqual([]);
   });
 });

@@ -64,6 +64,7 @@ import { getTexCapabilities, type TexTemplateId } from '@/lib/api/tex';
 import { RegenerateWizard } from './regenerate-wizard';
 import { useRegenerateWizard } from '@/hooks/use-regenerate-wizard';
 import { useTranslations } from '@/lib/i18n';
+import { useContentLanguage } from '@/lib/context/workspace-context';
 import {
   type TemplateSettings,
   type TemplateType,
@@ -202,6 +203,7 @@ const clearResumeDraftStorageKey = (storageKey: string): void => {
 
 const ResumeBuilderContent = () => {
   const { t } = useTranslations();
+  const contentLanguage = useContentLanguage();
   const [notificationDialog, setNotificationDialog] = useState<{
     title: string;
     description: string;
@@ -2202,7 +2204,7 @@ const ResumeBuilderContent = () => {
       <ProposalReviewDialog
         open={sendToDeckOpen}
         onOpenChange={setSendToDeckOpen}
-        proposals={interviewPrep ? proposalsFromInterviewPrep(interviewPrep) : []}
+        proposals={interviewPrep ? proposalsFromInterviewPrep(interviewPrep, contentLanguage) : []}
         loading={false}
         title={t('prepDeck.sendToDeck.title')}
         description={t('prepDeck.sendToDeck.description')}

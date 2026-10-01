@@ -15,7 +15,7 @@ export const TagsSection: React.FC<{ section: Section }> = ({ section }) => {
   return (
     <div className={styles.tags}>
       {tags.map((tag, index) => (
-        <span key={`${tag}-${index}`} className={styles.tag}>
+        <span key={`${tag}-${index}`} className={styles.tag} dir="auto">
           {tag}
         </span>
       ))}

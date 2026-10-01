@@ -7,5 +7,9 @@ export const TextSection: React.FC<{ section: Section }> = ({ section }) => {
   const text = section.text.trim();
   if (!text) return null;
 
-  return <p className={`text-justify ${baseStyles['resume-text']}`}>{text}</p>;
+  return (
+    <p className={`text-justify ${baseStyles['resume-text']}`} dir="auto">
+      {text}
+    </p>
+  );
 };

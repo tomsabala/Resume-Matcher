@@ -123,9 +123,14 @@ export function ProposalReviewDialog({
                     className="mt-1 h-4 w-4 shrink-0 accent-black"
                   />
                   <div className="min-w-0 flex-1 space-y-2">
-                    <p className="text-sm font-bold leading-snug">{proposal.question}</p>
+                    <p className="text-sm font-bold leading-snug" dir="auto">
+                      {proposal.question}
+                    </p>
                     {proposal.explanation && (
-                      <p className="whitespace-pre-wrap text-xs leading-relaxed text-ink-soft">
+                      <p
+                        className="whitespace-pre-wrap text-xs leading-relaxed text-ink-soft"
+                        dir="auto"
+                      >
                         {proposal.explanation}
                       </p>
                     )}

@@ -115,6 +115,7 @@ export function CardFormDialog({
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={handleKeyDown}
+              dir="auto"
               className="min-h-[5rem]"
             />
           </div>
@@ -126,6 +127,7 @@ export function CardFormDialog({
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
               onKeyDown={handleKeyDown}
+              dir="auto"
               className="min-h-[7rem]"
             />
           </div>

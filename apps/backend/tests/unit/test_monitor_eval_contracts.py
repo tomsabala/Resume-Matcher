@@ -133,6 +133,7 @@ async def test_refinement_counts_attempts_separately_from_applied_changes(
         config=RefinementConfig(
             enable_ai_phrase_removal=False, enable_master_alignment_check=False
         ),
+        output_language="English",
     )
     stats = result.to_stats()
     assert stats.passes_completed == int(applied)

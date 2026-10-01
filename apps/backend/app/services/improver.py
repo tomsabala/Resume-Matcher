@@ -8,14 +8,13 @@ from typing import Any
 
 from app.llm import complete_json
 from app.prompts import (
-    CRITICAL_TRUTHFULNESS_RULES,
     DEFAULT_IMPROVE_PROMPT_ID,
     DIFF_IMPROVE_PROMPT,
     DIFF_STRATEGY_INSTRUCTIONS,
     EXTRACT_KEYWORDS_PROMPT,
     IMPROVE_RESUME_PROMPTS,
-    OUTPUT_LANGUAGE,
     SKILL_TARGET_PLAN_PROMPT,
+    critical_truthfulness_rules,
 )
 from app.prompts.schema import describe_editable_paths
 from app.prompts.templates import IMPROVE_SCHEMA_EXAMPLE
@@ -611,6 +610,8 @@ async def generate_resume_diffs(
     prompt_id: str | None = None,
     original_resume_data: dict[str, Any] | None = None,
     skill_targets: list[dict[str, Any]] | None = None,
+    *,
+    output_language: str,
 ) -> ImproveDiffResult:
     """Generate targeted resume diffs via LLM.
 
@@ -624,6 +625,7 @@ async def generate_resume_diffs(
         prompt_id: Strategy id (nudge/keywords/full)
         original_resume_data: Structured resume JSON
         skill_targets: Verified skill targets from the planning pass
+        output_language: Language name the rewritten values are written in
 
     Returns:
         ImproveDiffResult with list of changes and strategy notes
@@ -654,7 +656,7 @@ async def generate_resume_diffs(
 
     prompt = DIFF_IMPROVE_PROMPT.format(
         strategy_instruction=strategy_instruction,
-        output_language=OUTPUT_LANGUAGE,
+        output_language=output_language,
         job_keywords=keywords_str,
         skill_targets=_prepare_skill_targets_for_prompt(skill_targets),
         job_description=sanitized_jd,
@@ -666,7 +668,11 @@ async def generate_resume_diffs(
 
     result = await complete_json(
         prompt=prompt,
-        system_prompt="You are an expert resume editor. Output only valid JSON with targeted changes.",
+        system_prompt=(
+            "You are an expert resume editor. Output only valid JSON with"
+            " targeted changes."
+            f" Write all output in {output_language}."
+        ),
         max_tokens=4096,
         schema_type="diff",
         response_validator=_validate_diff_result,
@@ -675,22 +681,30 @@ async def generate_resume_diffs(
     return ImproveDiffResult.model_validate(_validate_diff_result(result))
 
 
-async def extract_job_keywords(job_description: str) -> dict[str, Any]:
+async def extract_job_keywords(
+    job_description: str, *, output_language: str
+) -> dict[str, Any]:
     """Extract keywords and requirements from job description.
 
     Args:
         job_description: Raw job description text
+        output_language: Language name the extracted strings are written in
 
     Returns:
         Structured keywords and requirements
     """
     # LLM-011: Sanitize job description before using in prompt
     sanitized_jd = _sanitize_user_input(job_description)
-    prompt = EXTRACT_KEYWORDS_PROMPT.format(job_description=sanitized_jd)
+    prompt = EXTRACT_KEYWORDS_PROMPT.format(
+        job_description=sanitized_jd, output_language=output_language
+    )
 
     result = await complete_json(
         prompt=prompt,
-        system_prompt="You are an expert job description analyzer.",
+        system_prompt=(
+            "You are an expert job description analyzer."
+            f" Write all output in {output_language}."
+        ),
         schema_type="keywords",
         response_validator=_validate_keyword_result,
     )
@@ -903,12 +917,14 @@ async def generate_skill_target_plan(
     original_resume_data: dict[str, Any],
     job_description: str,
     job_keywords: dict[str, Any],
+    *,
+    output_language: str,
 ) -> dict[str, Any]:
     """Ask the LLM for a compact skill target plan before editing diffs."""
     existing_skills = skill_values(migrate_document(original_resume_data))
     sanitized_jd = _sanitize_user_input(job_description)
     prompt = SKILL_TARGET_PLAN_PROMPT.format(
-        output_language=OUTPUT_LANGUAGE,
+        output_language=output_language,
         existing_skills=json.dumps(existing_skills, ensure_ascii=False),
         job_keywords=_prepare_keywords_for_prompt(job_keywords),
         job_description=sanitized_jd,
@@ -920,6 +936,7 @@ async def generate_skill_target_plan(
         system_prompt=(
             "You are a resume skill planning agent. Output only valid JSON with "
             "target_skills and strategy_notes."
+            f" Write all output in {output_language}."
         ),
         max_tokens=2048,
         schema_type="diff",
@@ -952,6 +969,8 @@ async def improve_resume(
     job_keywords: dict[str, Any],
     prompt_id: str | None = None,
     original_resume_data: dict[str, Any] | None = None,
+    *,
+    output_language: str,
 ) -> dict[str, Any]:
     """Improve resume to better match job description.
 
@@ -962,6 +981,7 @@ async def improve_resume(
         prompt_id: Which tailor prompt to use
         original_resume_data: Structured resume JSON; used instead of
             markdown when available for higher-fidelity LLM input
+        output_language: Language name the improved values are written in
 
     Returns:
         Improved resume data matching ResumeData schema
@@ -975,14 +995,18 @@ async def improve_resume(
     prompt_template = IMPROVE_RESUME_PROMPTS.get(
         selected_prompt_id, IMPROVE_RESUME_PROMPTS[DEFAULT_IMPROVE_PROMPT_ID]
     )
-    if selected_prompt_id not in CRITICAL_TRUTHFULNESS_RULES:
+    try:
+        truthfulness_rules = critical_truthfulness_rules(
+            selected_prompt_id, output_language
+        )
+    except KeyError:
         logger.warning(
             "Missing truthfulness rules for prompt '%s'; using default rules.",
             selected_prompt_id,
         )
-    truthfulness_rules = CRITICAL_TRUTHFULNESS_RULES.get(
-        selected_prompt_id, CRITICAL_TRUTHFULNESS_RULES[DEFAULT_IMPROVE_PROMPT_ID]
-    )
+        truthfulness_rules = critical_truthfulness_rules(
+            DEFAULT_IMPROVE_PROMPT_ID, output_language
+        )
 
     # LLM-011: Sanitize job description to prevent prompt injection
     sanitized_jd = _sanitize_user_input(job_description)
@@ -1007,13 +1031,16 @@ async def improve_resume(
         job_keywords=keywords_str,
         original_resume=resume_input,
         schema=IMPROVE_SCHEMA_EXAMPLE,
-        output_language=OUTPUT_LANGUAGE,
+        output_language=output_language,
         critical_truthfulness_rules=truthfulness_rules,
     )
 
     result = await complete_json(
         prompt=prompt,
-        system_prompt="You are an expert resume editor. Output only valid JSON.",
+        system_prompt=(
+            "You are an expert resume editor. Output only valid JSON."
+            f" Write all output in {output_language}."
+        ),
         max_tokens=8192,
         response_validator=_validate_resume_result,
     )

@@ -4,11 +4,12 @@ The projection is the only place the old six-section schema still exists. Every
 case here is a shape the v1 model either mangled or could not represent at all.
 """
 
+import re
 from typing import Any
 
 import pytest
 
-from app.schemas.document import SectionKind, migrate_document
+from app.schemas.document import SectionKind, migrate_document, slugify_key
 
 pytestmark = pytest.mark.unit
 
@@ -206,3 +207,22 @@ def test_garbage_input_yields_an_empty_document_rather_than_raising() -> None:
     assert migrate_document(None).sections == []
     assert migrate_document("not a resume").sections == []
     assert migrate_document({"schemaVersion": 1, "nonsense": True}).sections == []
+
+
+def test_a_non_ascii_heading_gets_an_opaque_key_rather_than_the_shared_literal() -> None:
+    """Keys address AI change paths; every Hebrew section collapsing to
+    ``section`` would make targeting meaningless."""
+    first = slugify_key("ניסיון מקצועי")
+    second = slugify_key("השכלה")
+
+    assert first != "section" and second != "section"
+    assert first != second
+    # Both downstream patterns accept only this character class
+    # (SECTION_TOKEN_PATTERN, _PATH_SEGMENT_RE).
+    assert re.fullmatch(r"section_[0-9a-f]{6}", first)
+    assert re.fullmatch(r"section_[0-9a-f]{6}", second)
+
+
+def test_an_ascii_heading_still_gets_its_readable_slug() -> None:
+    assert slugify_key("Military Service") == "military_service"
+    assert slugify_key("Military Service", taken={"military_service"}) == "military_service_2"

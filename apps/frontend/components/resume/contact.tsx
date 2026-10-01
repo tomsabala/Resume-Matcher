@@ -102,11 +102,12 @@ export const ContactValue: React.FC<ContactValueProps> = ({
             target="_blank"
             rel="noopener noreferrer"
             className={cn(baseStyles['resume-link'], 'hover:underline')}
+            dir="auto"
           >
             {text}
           </a>
         ) : (
-          <span>{text}</span>
+          <span dir="auto">{text}</span>
         ))}
     </span>
   );
@@ -130,7 +131,8 @@ export const EntryLinkPill: React.FC<{ link: EntryLink; iconSize?: number }> = (
       className={baseStyles['resume-link-pill']}
     >
       <Icon size={iconSize} />
-      {displayUrl(url)}
+      {/* A URL is always Latin and must not flip inside an RTL run. */}
+      <span dir="ltr">{displayUrl(url)}</span>
     </a>
   );
 };

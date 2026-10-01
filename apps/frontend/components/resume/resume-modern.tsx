@@ -25,7 +25,9 @@ export const ResumeModern: React.FC<ResumeTemplateProps> = ({
     <div className={styles.container}>
       <header className={`text-center ${baseStyles['resume-header']}`}>
         {name && (
-          <h1 className={`${baseStyles['resume-name']} tracking-tight uppercase mb-1`}>{name}</h1>
+          <h1 className={`${baseStyles['resume-name']} tracking-tight uppercase mb-1`} dir="auto">
+            {name}
+          </h1>
         )}
 
         <div className={styles['name-underline']} aria-hidden="true" />
@@ -33,6 +35,7 @@ export const ResumeModern: React.FC<ResumeTemplateProps> = ({
         {header.headline && (
           <h2
             className={`${baseStyles['resume-title']} ${baseStyles['resume-meta']} tracking-wide uppercase mt-3 mb-3`}
+            dir="auto"
           >
             {header.headline}
           </h2>

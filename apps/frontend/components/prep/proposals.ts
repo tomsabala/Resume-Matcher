@@ -17,6 +17,17 @@ function explanationFor(question: InterviewPrepQuestion): string | null {
 }
 
 /**
+ * The one piece of card *data* this module authors itself.
+ *
+ * It is persisted as a card question, not displayed chrome, so it follows the
+ * workspace's content language rather than the (English-only) UI bundle.
+ */
+const SKILL_GAP_QUESTION: Record<string, (skill: string) => string> = {
+  en: (skill) => `${skill}: why does it matter for this role, and how would you approach it?`,
+  he: (skill) => `${skill}: למה זה חשוב לתפקיד הזה, ואיך הייתם ניגשים לזה?`,
+};
+
+/**
  * Map the builder tab's generated prep into deck proposals.
  *
  * `resume_questions` and `project_follow_ups` are questions about the owner's
@@ -27,7 +38,11 @@ function explanationFor(question: InterviewPrepQuestion): string | null {
  * Imported proposals carry no answer: `suggested_answer_points` are preparation
  * hints, not a model answer, so the card back still offers "Generate answer".
  */
-export function proposalsFromInterviewPrep(prep: InterviewPrepData): PrepCardProposal[] {
+export function proposalsFromInterviewPrep(
+  prep: InterviewPrepData,
+  contentLanguage: string
+): PrepCardProposal[] {
+  const skillGapQuestion = SKILL_GAP_QUESTION[contentLanguage] ?? SKILL_GAP_QUESTION.en;
   const proposals: PrepCardProposal[] = [];
 
   for (const question of [...(prep.resume_questions ?? []), ...(prep.project_follow_ups ?? [])]) {
@@ -43,7 +58,7 @@ export function proposalsFromInterviewPrep(prep: InterviewPrepData): PrepCardPro
     if (!gap?.skill) continue;
     proposals.push({
       category: 'technical',
-      question: `${gap.skill}: why does it matter for this role, and how would you approach it?`,
+      question: skillGapQuestion(gap.skill),
       explanation: gap.why_it_matters || null,
     });
   }

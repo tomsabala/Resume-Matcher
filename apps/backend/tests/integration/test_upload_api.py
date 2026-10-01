@@ -13,6 +13,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.routers.resumes import MAX_FILE_SIZE
+from app.services.parser import ReversedTextError
 
 
 @pytest.fixture
@@ -86,3 +87,23 @@ class TestUploadGuards:
             )
         assert resp.status_code == 422
         assert "Failed to parse" in resp.json()["detail"]
+
+    @patch("app.routers.resumes.parse_document", new_callable=AsyncMock)
+    async def test_visually_ordered_hebrew_pdf_is_refused_with_guidance(
+        self, mock_parse, client
+    ):
+        """The dedicated clause must run before the generic ``except Exception``,
+        which would otherwise flatten this into "Failed to parse document"."""
+        mock_parse.side_effect = ReversedTextError(
+            "This PDF's Hebrew text extracts in visual order, which would be "
+            "parsed backwards. Upload a DOCX, or paste the text instead."
+        )
+        with patch("app.routers.resumes.db") as mock_db:
+            async with client:
+                resp = await client.post(
+                    "/api/v1/resumes/upload",
+                    files={"file": ("hebrew.pdf", b"%PDF-1.4 visual", "application/pdf")},
+                )
+        assert resp.status_code == 422
+        assert "DOCX" in resp.json()["detail"]
+        mock_db.create_resume_atomic_master.assert_not_called()
